@@ -1,12 +1,12 @@
-name: Run Tests with Poetry and Pytest
+name: Run Tests with uv + Poetry
 
 on:
   push:
     branches:
-      - "**" # Ejecutar en todas las ramas
+      - "**"
   pull_request:
     branches:
-      - "**" # Ejecutar en todos los PRs, independientemente de la rama
+      - "**"
 
 jobs:
   pytest:
@@ -14,21 +14,29 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-
-      - name: Install Poetry
+      - name: Install uv
         run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-          echo "export PATH=$HOME/.local/bin:$PATH" >> $GITHUB_ENV
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Set up Python 3.11
+        run: |
+          uv python install 3.11
+          uv venv --python 3.11 .venv
+
+      - name: Install Poetry (inside venv)
+        run: |
+          source .venv/bin/activate
+          uv pip install poetry
 
       - name: Install dependencies
         run: |
-          poetry install
+          source .venv/bin/activate
+          poetry install --no-interaction --no-root
 
       - name: Run tests
-        run: poetry run pytest
+        run: |
+          source .venv/bin/activate
+          poetry run pytest

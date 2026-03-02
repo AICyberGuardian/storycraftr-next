@@ -295,6 +295,7 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
+test_book/
 
 Deep Learning in Medical Imaging
 *._checkpoint

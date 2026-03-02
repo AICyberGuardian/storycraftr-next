@@ -3,14 +3,20 @@ name: Run Tests with uv + Poetry
 on:
   push:
     branches:
-      - "**"
+      - "main"
+      - "master"
   pull_request:
     branches:
       - "**"
 
+concurrency:
+  group: pytest-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout code
@@ -37,6 +43,8 @@ jobs:
           poetry install --no-interaction --no-root
 
       - name: Run tests
+        env:
+          PYTEST_ADDOPTS: -p no:langsmith
         run: |
           source .venv/bin/activate
           poetry run pytest

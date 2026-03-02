@@ -42,9 +42,10 @@ def test_save_to_markdown_backup(mock_open, mock_exists, mock_copy, mock_console
     mock_open().write.assert_called_with(f"# {header}\n\n{content}")
 
 
-@mock.patch("os.path.exists", return_value=False)
-@mock.patch("builtins.open", new_callable=mock.mock_open)
+@mock.patch("pathlib.Path.exists", return_value=False)
+@mock.patch("pathlib.Path.open")
 def test_save_to_markdown_no_backup(mock_open, mock_exists, mock_console):
+    mock_open.return_value.__enter__.return_value = mock.mock_open()()
     book_path = "test_book"
     file_name = "test.md"
     header = "Test Header"
@@ -53,16 +54,17 @@ def test_save_to_markdown_no_backup(mock_open, mock_exists, mock_console):
     save_to_markdown(book_path, file_name, header, content)
 
     # Verificar que no se hizo copia de seguridad
-    mock_open.assert_called_with(
-        os.path.join(book_path, file_name), "w", encoding="utf-8"
+    mock_open.assert_called_with("w", encoding="utf-8")
+    mock_open.return_value.__enter__.return_value.write.assert_called_with(
+        f"# {header}\n\n{content}"
     )
-    mock_open().write.assert_called_with(f"# {header}\n\n{content}")
 
 
 # Test para append_to_markdown
-@mock.patch("os.path.exists", return_value=True)
-@mock.patch("builtins.open", new_callable=mock.mock_open)
+@mock.patch("pathlib.Path.exists", return_value=True)
+@mock.patch("pathlib.Path.open")
 def test_append_to_markdown_success(mock_open, mock_exists, mock_console):
+    mock_open.return_value.__enter__.return_value = mock.mock_open()()
     book_path = "test_book"
     folder_name = "test_folder"
     file_name = "test.md"
@@ -70,13 +72,13 @@ def test_append_to_markdown_success(mock_open, mock_exists, mock_console):
 
     append_to_markdown(book_path, folder_name, file_name, content)
 
-    mock_open.assert_called_with(
-        os.path.join(book_path, folder_name, file_name), "a", encoding="utf-8"
+    mock_open.assert_called_with("a", encoding="utf-8")
+    mock_open.return_value.__enter__.return_value.write.assert_called_with(
+        f"\n\n{content}"
     )
-    mock_open().write.assert_called_with(f"\n\n{content}")
 
 
-@mock.patch("os.path.exists", return_value=False)
+@mock.patch("pathlib.Path.exists", return_value=False)
 def test_append_to_markdown_file_not_found(mock_console):
     book_path = "test_book"
     folder_name = "test_folder"
@@ -88,22 +90,21 @@ def test_append_to_markdown_file_not_found(mock_console):
 
 
 # Test para read_from_markdown
-@mock.patch("os.path.exists", return_value=True)
-@mock.patch("builtins.open", new_callable=mock.mock_open, read_data="File content")
+@mock.patch("pathlib.Path.exists", return_value=True)
+@mock.patch("pathlib.Path.open")
 def test_read_from_markdown_success(mock_open, mock_exists, mock_console):
+    mock_open.return_value.__enter__.return_value.read.return_value = "File content"
     book_path = "test_book"
     folder_name = "test_folder"
     file_name = "test.md"
 
     content = read_from_markdown(book_path, folder_name, file_name)
 
-    mock_open.assert_called_with(
-        os.path.join(book_path, folder_name, file_name), "r", encoding="utf-8"
-    )
+    mock_open.assert_called_with("r", encoding="utf-8")
     assert content == "File content"
 
 
-@mock.patch("os.path.exists", return_value=False)
+@mock.patch("pathlib.Path.exists", return_value=False)
 def test_read_from_markdown_file_not_found(mock_console):
     book_path = "test_book"
     folder_name = "test_folder"

@@ -28,7 +28,7 @@ jobs:
             --json number \
             --jq '.[0].number')
 
-          if [ -z "$PR_NUMBER" ]; then
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
             echo "No open PR found for commit ${{ github.event.workflow_run.head_sha }}"
             exit 0
           fi

@@ -29,8 +29,9 @@ def test_generate_pdf_security_separator(tmp_path):
     pandoc_path = "/usr/bin/pandoc"
     xelatex_path = "/usr/bin/xelatex"
 
-    with patch("storycraftr.cmd.paper.publish.subprocess.run") as mock_run, \
-         patch("storycraftr.cmd.paper.publish.load_book_config") as mock_load_config:
+    with patch("storycraftr.cmd.paper.publish.subprocess.run") as mock_run, patch(
+        "storycraftr.cmd.paper.publish.load_book_config"
+    ) as mock_load_config:
 
         mock_load_config.return_value = {"title": "Test Book"}
 

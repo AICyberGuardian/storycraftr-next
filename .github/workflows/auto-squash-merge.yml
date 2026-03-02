@@ -1,0 +1,54 @@
+name: Auto-squash Merge
+
+on:
+  workflow_run:
+    workflows: ["Run Tests with uv + Poetry"]
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Find PR and merge if labeled
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find PR associated with this exact commit SHA
+          PR_NUMBER=$(gh pr list \
+            --repo ${{ github.repository }} \
+            --search "${{ github.event.workflow_run.head_sha }}" \
+            --state open \
+            --json number \
+            --jq '.[0].number')
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No open PR found for commit ${{ github.event.workflow_run.head_sha }}"
+            exit 0
+          fi
+
+          # Check for automerge label
+          LABELS=$(gh pr view $PR_NUMBER \
+            --repo ${{ github.repository }} \
+            --json labels \
+            --jq '.labels[].name')
+
+          if echo "$LABELS" | grep -q "^automerge$"; then
+            echo "Label found. Enabling auto-squash for PR #$PR_NUMBER"
+            # --auto queues the merge natively until branch protection checks pass
+            # --match-head-commit ensures we don't merge if new code was pushed
+            gh pr merge $PR_NUMBER \
+              --repo ${{ github.repository }} \
+              --auto \
+              --squash \
+              --delete-branch \
+              --match-head-commit "${{ github.event.workflow_run.head_sha }}"
+          else
+            echo "PR #$PR_NUMBER lacks 'automerge' label, skipping"
+          fi

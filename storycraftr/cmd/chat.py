@@ -86,12 +86,16 @@ def _execute_module_command(raw: str, *, book_path: str) -> None:
 
 
 def _print_inline_help() -> None:
-    console.print(Markdown("""
+    console.print(
+        Markdown(
+            """
 ### Chat Shortcuts
 - Type `:help` for chat commands (sessions, status, etc.).
 - Use `!module command` to call StoryCraftr utilities (e.g., `!outline general-outline …`).
 - `exit()` closes the session.
-            """))
+            """
+        )
+    )
 
 
 def _render_session_footer(job_manager: SubAgentJobManager, footer_meta: dict) -> None:

@@ -149,21 +149,28 @@ def load_markdown_documents(book_path: str) -> List[Document]:
     patterns = [
         os.path.join(book_path, "**", "*.md"),
     ]
+    book_path_obj = Path(book_path)
     documents: List[Document] = []
 
     for pattern in patterns:
-        for file_path in glob.glob(pattern, recursive=True):
-            if "/vector_store/" in file_path.replace("\\", "/"):
+        # Use iglob for an iterator-based approach to avoid loading all paths into memory at once.
+        for file_path_str in glob.iglob(pattern, recursive=True):
+            file_path = Path(file_path_str)
+            if "/vector_store/" in file_path.as_posix():
+                continue
+            if not file_path.is_file():
                 continue
             try:
-                with open(file_path, "r", encoding="utf-8") as handle:
-                    lines = handle.readlines()
-                if len(lines) <= 3:
+                content = file_path.read_text(encoding="utf-8")
+                # Files with 3 or fewer lines are skipped.
+                # count('\n') is more efficient than len(content.splitlines()) or readlines().
+                if content.count("\n") < 3:
                     continue
-                relative = str(Path(file_path).relative_to(book_path))
+
+                relative = str(file_path.relative_to(book_path_obj))
                 documents.append(
                     Document(
-                        page_content="".join(lines),
+                        page_content=content,
                         metadata={"source": relative},
                     )
                 )

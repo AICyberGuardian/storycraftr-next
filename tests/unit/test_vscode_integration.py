@@ -102,6 +102,7 @@ def test_install_vscode_extension_failure(monkeypatch):
     console = Console(file=io.StringIO(), force_terminal=False)
     assert install_vscode_extension(console) is False
 
+
 def test_install_vscode_extension_invalid_binary(monkeypatch):
     from rich.console import Console
 

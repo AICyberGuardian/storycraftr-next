@@ -1,12 +1,10 @@
-import sys
 import json
 from rich.console import Console
 from pathlib import Path
-import storycraftr.templates.folder_story
+from storycraftr.templates import folder_story, folder_paper
 from storycraftr.agent.agents import create_or_get_assistant
 from storycraftr.subagents import seed_default_roles
 from storycraftr.templates.tex import TEMPLATE_TEX
-from storycraftr.templates.paper_tex import TEMPLATE_PAPER_TEX
 from storycraftr.templates.ieee_tex import TEMPLATE_IEEE_TEX
 
 console = Console()
@@ -77,7 +75,7 @@ def init_structure_story(
     )
 
     # Create project structure based on StoryCraftr templates
-    for file in storycraftr.templates.folder_story.files_to_create:
+    for file in folder_story.files_to_create:
         file_path = Path(book_path) / file["folder"] / file["filename"]
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(file["content"], encoding="utf-8")
@@ -158,7 +156,7 @@ def init_structure_paper(
     )
 
     # Create project structure based on PaperCraftr templates
-    for file in storycraftr.templates.folder_paper.files_to_create:
+    for file in folder_paper.files_to_create:
         file_path = Path(paper_path) / file["folder"] / file["filename"]
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(file["content"], encoding="utf-8")

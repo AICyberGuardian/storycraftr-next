@@ -10,7 +10,6 @@ from typing import Optional
 
 from rich.console import Console
 
-
 _VS_CODE_SENTINELS = {
     "TERM_PROGRAM": "vscode",
     "VSCODE_PID": None,

@@ -23,7 +23,6 @@ from storycraftr.utils.core import load_book_config
 from .models import SubAgentRole
 from .storage import LOGS_DIRNAME, ensure_storage_dirs, load_roles, seed_default_roles
 
-
 logger = logging.getLogger(__name__)
 
 

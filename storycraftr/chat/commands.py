@@ -104,8 +104,7 @@ def _handle_session(args: List[str], context: CommandContext) -> Optional[List[d
 
 
 def _print_help(console: Console) -> None:
-    console.print(
-        """
+    console.print("""
 [bold]:help[/bold]                Show this message
 [bold]:status[/bold]              Display the latest retrieval context
 [bold]:session list[/bold]        List saved sessions
@@ -114,8 +113,7 @@ def _print_help(console: Console) -> None:
 [bold]:sub-agent !list[/bold]     List available sub-agent roles
 [bold]:sub-agent !status[/bold]   Show queued/background jobs
 [bold]:sub-agent !command[/bold]  Launch `!outline`, `!chapters`, etc. in background
-        """
-    )
+        """)
 
 
 def _handle_sub_agent(args: List[str], context: CommandContext) -> None:

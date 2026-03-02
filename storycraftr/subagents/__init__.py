@@ -1,4 +1,4 @@
-from .jobs import SubAgentJob, SubAgentJobManager
+from .jobs import SubAgentJobManager
 from .models import SubAgentRole
 from .storage import (
     LOGS_DIRNAME,
@@ -10,7 +10,6 @@ from .storage import (
 
 __all__ = [
     "LOGS_DIRNAME",
-    "SubAgentJob",
     "SubAgentJobManager",
     "SubAgentRole",
     "ensure_storage_dirs",

@@ -84,3 +84,20 @@ def test_sub_agent_role_from_dict_defaults():
     assert role.language == "en"
     assert role.persona == ""
     assert role.temperature == 0.2
+
+
+def test_sub_agent_role_from_dict_missing_fields():
+    """Test that missing fields in the dictionary use appropriate defaults."""
+    slug = "test-slug"
+    data = {}
+
+    role = SubAgentRole.from_dict(slug, data)
+
+    assert role.slug == "test-slug"
+    assert role.name == "Test-Slug"
+    assert role.description == ""
+    assert role.command_whitelist == []
+    assert role.system_prompt == ""
+    assert role.language == "en"
+    assert role.persona == ""
+    assert role.temperature == 0.2

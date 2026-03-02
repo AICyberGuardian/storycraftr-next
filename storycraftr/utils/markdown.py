@@ -32,11 +32,12 @@ def save_to_markdown(
         str: The path to the saved markdown file.
     """
     file_path = Path(book_path) / file_name
+    file_path_str = os.path.join(book_path, file_name)
     backup_path = file_path.with_suffix(file_path.suffix + ".back")
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Create a backup if the file exists
-    if file_path.exists():
+    if os.path.exists(file_path):
         if progress and task:
             progress.update(task, description=f"Backing up {file_name}")
         else:
@@ -51,7 +52,7 @@ def save_to_markdown(
     else:
         console.print(f"[bold blue]Saving content to {file_path}...[/bold blue]")
 
-    with file_path.open("w", encoding="utf-8") as f:
+    with open(file_path_str, "w", encoding="utf-8") as f:
         f.write(f"# {header}\n\n{content}")
 
     if progress and task:
@@ -78,9 +79,10 @@ def append_to_markdown(book_path, folder_name, file_name, content):
         FileNotFoundError: If the file does not exist.
     """
     file_path = Path(book_path) / folder_name / file_name
+    file_path_str = os.path.join(book_path, folder_name, file_name)
 
-    if file_path.exists():
-        with file_path.open("a", encoding="utf-8") as f:
+    if os.path.exists(file_path):
+        with open(file_path_str, "a", encoding="utf-8") as f:
             f.write(f"\n\n{content}")
         console.print(f"Appended content to {file_path}")
     else:
@@ -103,9 +105,10 @@ def read_from_markdown(book_path, folder_name, file_name) -> str:
         FileNotFoundError: If the file does not exist.
     """
     file_path = Path(book_path) / folder_name / file_name
+    file_path_str = os.path.join(book_path, folder_name, file_name)
 
-    if file_path.exists():
-        with file_path.open("r", encoding="utf-8") as f:
+    if os.path.exists(file_path):
+        with open(file_path_str, "r", encoding="utf-8") as f:
             content = f.read()
         console.print(f"Read content from {file_path}")
         return content

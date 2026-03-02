@@ -2,6 +2,7 @@ import os
 import pytest
 import shutil
 from unittest import mock
+from pathlib import Path
 from storycraftr.utils.markdown import (
     save_to_markdown,
     append_to_markdown,
@@ -31,8 +32,9 @@ def test_save_to_markdown_backup(mock_open, mock_exists, mock_copy, mock_console
 
     # Verificar que se realizó una copia de seguridad
     mock_copy.assert_called_with(
-        os.path.join(book_path, file_name), os.path.join(book_path, file_name) + ".back"
-    )
+    Path(book_path) / file_name,
+    Path(book_path) / f"{file_name}.back"
+)
     mock_open.assert_called_with(
         os.path.join(book_path, file_name), "w", encoding="utf-8"
     )

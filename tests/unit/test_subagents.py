@@ -1,3 +1,4 @@
+import pytest
 import json
 import time
 from io import StringIO
@@ -75,3 +76,18 @@ def test_job_manager_runs_background_job(monkeypatch, tmp_path):
     assert captured["book_path"] == str(tmp_path)
     assert captured["command"].startswith("outline general-outline")
     assert manager.list_jobs()[0].status == "succeeded"
+
+
+def test_job_manager_submit_missing_token_prefix(tmp_path):
+    _minimal_config(tmp_path)
+
+    manager = SubAgentJobManager(
+        str(tmp_path), Console(file=StringIO(), force_terminal=False)
+    )
+
+    with pytest.raises(ValueError, match="Command token must start with '!'"):
+        manager.submit(
+            command_token="outline",
+            args=["general-outline", "Refine the prologue"],
+            role_slug="editor",
+        )

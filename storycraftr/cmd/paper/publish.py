@@ -108,12 +108,13 @@ def generate_pdf(book_path, pandoc_path, xelatex_path):
     ]
 
     # Add input files
+    cmd.append("--")
     cmd.extend(str(f) for f in Path(book_path).glob("**/*.md"))
 
     try:
         result = subprocess.run(
             cmd, check=True, capture_output=True, text=True
-        )  # nosec
+        )  # nosec B603
         console.print("[bold green]PDF generated successfully![/bold green]")
     except subprocess.CalledProcessError as e:
         console.print(f"[bold red]Error generating PDF: {e.stderr}[/bold red]")

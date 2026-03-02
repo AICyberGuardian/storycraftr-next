@@ -10,9 +10,9 @@ Welcome to [**StoryCraftr**](https://storycraftr.app), the open-source project d
 
 ---
 
-## Release Notes v0.12.0-beta10
+## Release Notes v0.12.0-beta11
 
-You can find the release notes for version `v0.12.0-beta10` [here](https://github.com/raestrada/storycraftr/releases/tag/v0.12.0-beta10).
+You can find the release notes for version `v0.12.0-beta11'
 
 ## Step 1: Install StoryCraftr
 
@@ -196,27 +196,3 @@ Once installed, the extension will:
 Explore more about the [StoryCraftr CLI](https://github.com/raestrada/storycraftr) and see how it can boost your storytelling workflow.
 
 Let your creativity flow with the power of AI! ✨
-
-## Contributing
-
-We welcome contributions of all kinds! Whether you’re a developer, writer, or simply interested in improving the tool, you can help. Here’s how you can contribute:
-
-1. **Fork the repository** and create your branch:
-
-```bash
-git checkout -b feature/YourFeature
-```
-
-2. **Make your changes**, ensuring all tests pass.
-
-3. **Submit a pull request** detailing your changes.
-
-Join us on this journey to create an amazing open-source tool for writers everywhere. Together, we can make StoryCraftr the go-to AI writing assistant! 💡
-
-## Powered by AI Craftr
-
-**StoryCraftr** is part of the **AI Craftr** suite, an open-source set of tools designed to assist with creative and academic writing. AI Craftr enhances the productivity of writers, researchers, and educators, providing advanced tools for content creation.
-
-![AI Craftr Logo](https://res.cloudinary.com/dyknhuvxt/image/upload/v1730059761/aicraftr_qzknf4.png)
-
-You can learn more about **AI Craftr** and discover other tools like **PaperCraftr** for academic writing at [https://aicraftr.app](https://aicraftr.app).

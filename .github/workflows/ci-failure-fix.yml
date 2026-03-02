@@ -2,7 +2,7 @@ name: Auto-Fix CI Failures
 
 on:
   workflow_run:
-    workflows: ["pytest"] # MUST MATCH EXACTLY the 'name:' field in your pytest.yml
+    workflows: ["Run Tests with uv + Poetry"] # MUST MATCH EXACTLY the 'name:' field in your pytest.yml
     types: [completed]
 
 jobs:

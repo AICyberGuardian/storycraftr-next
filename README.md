@@ -196,3 +196,4 @@ Once installed, the extension will:
 Explore more about the [StoryCraftr CLI](https://github.com/raestrada/storycraftr) and see how it can boost your storytelling workflow.
 
 Let your creativity flow with the power of AI! ✨
+

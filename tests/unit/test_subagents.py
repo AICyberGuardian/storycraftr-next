@@ -1,3 +1,4 @@
+import pytest
 import json
 import time
 from io import StringIO
@@ -76,7 +77,6 @@ def test_job_manager_runs_background_job(monkeypatch, tmp_path):
     assert captured["command"].startswith("outline general-outline")
     assert manager.list_jobs()[0].status == "succeeded"
 
-import pytest
 
 def test_job_manager_submit_no_role(monkeypatch, tmp_path):
     _minimal_config(tmp_path)

@@ -17,6 +17,7 @@ from pathlib import Path
 # Now import the function to test
 from storycraftr.cmd.paper.publish import generate_pdf
 
+
 def test_generate_pdf_security_separator(tmp_path):
     # Create a dummy book path and some markdown files, including one with a leading hyphen
     book_path = tmp_path / "my_book"

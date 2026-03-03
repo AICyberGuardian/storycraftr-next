@@ -190,3 +190,4 @@ Once installed, the extension will:
 3. If not installed, it will guide you through installing Python, pipx, and StoryCraftr to get started.
 
 Let your creativity flow with the power of AI! ✨
+

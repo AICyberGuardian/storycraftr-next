@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Free disk space
+      - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: false
@@ -23,6 +23,7 @@ jobs:
           large-packages: true
           docker-images: true
           swap-storage: true
+
       - name: Checkout code
         uses: actions/checkout@v4
 

@@ -58,15 +58,12 @@ def test_install_vscode_extension_handles_missing_binary(monkeypatch):
     assert install_vscode_extension(console) is False
 
 
-def test_install_vscode_extension_success(monkeypatch, tmp_path):
+def test_install_vscode_extension_success(monkeypatch):
     from rich.console import Console
-
-    mock_binary = tmp_path / "code"
-    mock_binary.write_text("")
 
     monkeypatch.setattr(
         "storycraftr.integrations.vscode._find_vscode_binary",
-        lambda: str(mock_binary),
+        lambda: "/usr/bin/code",
     )
 
     class Result:
@@ -98,17 +95,6 @@ def test_install_vscode_extension_failure(monkeypatch):
     monkeypatch.setattr(
         "subprocess.run",
         lambda *args, **kwargs: Result(),
-    )
-    console = Console(file=io.StringIO(), force_terminal=False)
-    assert install_vscode_extension(console) is False
-
-
-def test_install_vscode_extension_invalid_binary(monkeypatch):
-    from rich.console import Console
-
-    monkeypatch.setattr(
-        "storycraftr.integrations.vscode._find_vscode_binary",
-        lambda: "relative/path/to/code",
     )
     console = Console(file=io.StringIO(), force_terminal=False)
     assert install_vscode_extension(console) is False

@@ -58,7 +58,5 @@ build-backend = "poetry.core.masonry.api"
 testpaths = [
     "tests"
 ]
-
-[tool.black]
 line-length = 88
-target-version = ["py39"]
+target-version = ['py39']

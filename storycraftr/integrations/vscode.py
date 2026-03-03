@@ -107,10 +107,6 @@ def install_vscode_extension(console: Console, *, force: bool = False) -> bool:
         )
         return False
 
-    if not Path(binary).is_absolute() or not Path(binary).is_file():
-        console.print(f"[red]Invalid VS Code binary path resolved: {binary}[/red]")
-        return False
-
     args = [binary, "--install-extension", VS_CODE_EXTENSION_ID]
     if force:
         args.append("--force")

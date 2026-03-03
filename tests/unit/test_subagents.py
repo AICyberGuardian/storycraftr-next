@@ -78,16 +78,22 @@ def test_job_manager_runs_background_job(monkeypatch, tmp_path):
     assert manager.list_jobs()[0].status == "succeeded"
 
 
-def test_job_manager_submit_missing_token_prefix(tmp_path):
+def test_job_manager_submit_no_role(monkeypatch, tmp_path):
     _minimal_config(tmp_path)
+    seed_default_roles(tmp_path, language="en", force=True)
 
     manager = SubAgentJobManager(
         str(tmp_path), Console(file=StringIO(), force_terminal=False)
     )
 
-    with pytest.raises(ValueError, match="Command token must start with '!'"):
+    # Mock _select_role to return None
+    monkeypatch.setattr(manager, "_select_role", lambda *args, **kwargs: None)
+
+    # Assert that ValueError is raised
+    with pytest.raises(ValueError) as excinfo:
         manager.submit(
-            command_token="outline",
-            args=["general-outline", "Refine the prologue"],
-            role_slug="editor",
+            command_token="!nonexistent",
+            args=[],
         )
+
+    assert "No role found for the requested command" in str(excinfo.value)

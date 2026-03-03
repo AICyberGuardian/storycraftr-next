@@ -4,11 +4,7 @@ import subprocess  # nosec
 from pathlib import Path
 from rich.console import Console
 from storycraftr.utils.core import load_book_config
-from storycraftr.utils.markdown import consolidate_paper_md
-from storycraftr.agent.agents import create_or_get_assistant, get_thread, create_message
-from storycraftr.agent.paper.references import generate_bibtex
 import shutil
-from rich.progress import Progress
 
 console = Console()
 
@@ -82,7 +78,7 @@ def check_latex_packages():
 
 def generate_pdf(book_path, pandoc_path, xelatex_path):
     """Generate PDF from markdown files."""
-    config = load_book_config(book_path)
+    load_book_config(book_path)
     output_dir = Path(book_path) / "output"
     output_dir.mkdir(exist_ok=True)
 
@@ -108,13 +104,25 @@ def generate_pdf(book_path, pandoc_path, xelatex_path):
     ]
 
     # Add input files
+    resolved_book_path = Path(book_path).resolve()
+    valid_files = []
+    for f in Path(book_path).glob("**/*.md"):
+        try:
+            resolved_f = f.resolve()
+            # Ensure the file is an actual file and resolves inside the book directory
+            if resolved_f.is_file() and str(resolved_book_path) in str(resolved_f):
+                valid_files.append(str(resolved_f))
+        except Exception:
+            pass  # nosec B110
+
+    if not valid_files:
+        raise click.ClickException("No markdown files found to generate PDF.")
+
     cmd.append("--")
-    cmd.extend(str(f) for f in Path(book_path).glob("**/*.md"))
+    cmd.extend(valid_files)
 
     try:
-        result = subprocess.run(
-            cmd, check=True, capture_output=True, text=True
-        )  # nosec B603
+        subprocess.run(cmd, check=True, capture_output=True, text=True)  # nosec B603
         console.print("[bold green]PDF generated successfully![/bold green]")
     except subprocess.CalledProcessError as e:
         console.print(f"[bold red]Error generating PDF: {e.stderr}[/bold red]")

@@ -297,4 +297,6 @@ dist
 
 
 Deep Learning in Medical Imaging
-*._checkpoint
+*._checkpointtest_book/
+
+*.orig

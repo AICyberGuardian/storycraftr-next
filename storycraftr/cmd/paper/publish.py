@@ -66,7 +66,10 @@ def check_latex_packages():
     for latex_file, package in latex_packages.items():
         try:
             result = subprocess.run(  # nosec
-                [kpsewhich_path, latex_file], capture_output=True, text=True, check=True
+                [kpsewhich_path, "--", latex_file],
+                capture_output=True,
+                text=True,
+                check=True,
             )
             if not result.stdout.strip():
                 missing_packages.append(package)

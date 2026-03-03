@@ -180,10 +180,6 @@ We are excited to introduce the **StoryCraftr** VSCode extension, designed to se
 - **Integrated Chat**: Start interactive AI-powered chat sessions for brainstorming and refining your novel without leaving VSCode.
 - **Simplified Setup**: If StoryCraftr or its dependencies (Python, pipx) are not installed, the extension assists you in setting them up.
 
-### Installation:
-
-You can install the StoryCraftr VSCode extension directly from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=StoryCraftr.storycraftr).
-
 ### Usage:
 
 Once installed, the extension will:
@@ -192,8 +188,6 @@ Once installed, the extension will:
 2. If it exists, you can start interacting with StoryCraftr by launching a terminal with the `chat` command using:
    - **Command Palette**: Run `Start StoryCraftr Chat`.
 3. If not installed, it will guide you through installing Python, pipx, and StoryCraftr to get started.
-
-Explore more about the [StoryCraftr CLI](https://github.com/raestrada/storycraftr) and see how it can boost your storytelling workflow.
 
 Let your creativity flow with the power of AI! ✨
 

@@ -12,11 +12,10 @@ from rich.console import Console
 
 
 _VS_CODE_SENTINELS = {
-    "TERM_PROGRAM": "vscode",
-    "VSCODE_PID": None,
-    "VSCODE_IPC_HOOK": None,
-    "CODE_PORTABLE_EXECUTABLE": None,
-    "VSCODE_CWD": None,
+    "VSCODE_PID",
+    "VSCODE_IPC_HOOK",
+    "CODE_PORTABLE_EXECUTABLE",
+    "VSCODE_CWD",
 }
 
 
@@ -26,14 +25,7 @@ def is_running_in_vscode(env: Optional[dict] = None) -> bool:
     term_program = env.get("TERM_PROGRAM", "").lower()
     if term_program == "vscode":
         return True
-    for key, expected in _VS_CODE_SENTINELS.items():
-        if key not in env:
-            continue
-        if expected is None:
-            return True
-        if str(env.get(key, "")).lower() == expected:
-            return True
-    return False
+    return any(k in env for k in _VS_CODE_SENTINELS)
 
 
 class VSCodeEventEmitter:
@@ -105,10 +97,6 @@ def install_vscode_extension(console: Console, *, force: bool = False) -> bool:
             "[yellow]VS Code CLI ('code' or 'code-insiders') not found. "
             "Install VS Code or add the CLI to PATH to enable automatic setup.[/yellow]"
         )
-        return False
-
-    if not Path(binary).is_absolute() or not Path(binary).is_file():
-        console.print(f"[red]Invalid VS Code binary path resolved: {binary}[/red]")
         return False
 
     args = [binary, "--install-extension", VS_CODE_EXTENSION_ID]

@@ -127,9 +127,7 @@ def render_subagent_event(console: Console, event: Mapping) -> None:
             border_style=(
                 "magenta"
                 if job.get("status") == "succeeded"
-                else "red"
-                if job.get("status") == "failed"
-                else "cyan"
+                else "red" if job.get("status") == "failed" else "cyan"
             ),
             title=title,
         )

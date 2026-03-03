@@ -1,4 +1,4 @@
-from .jobs import SubAgentJob, SubAgentJobManager
+from .jobs import SubAgentJobManager
 from .models import SubAgentRole
 from .storage import (
     ensure_storage_dirs,

@@ -9,7 +9,6 @@ from .storage import (
 __all__ = [
     "SubAgentJob",
     "SubAgentJobManager",
-    "SubAgentRole",
     "ensure_storage_dirs",
     "load_roles",
     "seed_default_roles",

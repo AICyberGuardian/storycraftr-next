@@ -359,9 +359,10 @@ def process_chapters(
     excluded_files = {"cover.md", "back-cover.md"}
     files_to_process: List[str] = []
     for dir_path in [chapters_dir, outline_dir, worldbuilding_dir]:
-        for filename in os.listdir(dir_path):
-            if filename.endswith(".md") and filename not in excluded_files:
-                files_to_process.append(os.path.join(dir_path, filename))
+        with os.scandir(dir_path) as it:
+            for entry in it:
+                if entry.name.endswith(".md") and entry.name not in excluded_files:
+                    files_to_process.append(entry.path)
 
     if not files_to_process:
         raise FileNotFoundError(

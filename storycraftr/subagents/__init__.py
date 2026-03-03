@@ -4,7 +4,6 @@ from .storage import (
     ensure_storage_dirs,
     load_roles,
     seed_default_roles,
-    subagent_root,
 )
 
 __all__ = [
@@ -13,5 +12,4 @@ __all__ = [
     "ensure_storage_dirs",
     "load_roles",
     "seed_default_roles",
-    "subagent_root",
 ]

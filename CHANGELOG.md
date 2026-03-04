@@ -1,6 +1,13 @@
 # Changelog
 
-## [Unreleased] - 2026-03-03
+## [Unreleased]
+
+### Changed
+
+- Current development target set to `v0.15.x` (`0.15.0-dev`).
+- This section is reserved for new PR entries generated during the active cycle.
+
+## [0.14.0] - 2026-03-03
 
 ### Added
 

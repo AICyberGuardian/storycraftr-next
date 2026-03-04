@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "storycraftr"
-version = "0.10.1-beta4"
+version = "0.15.0-dev"
 description = "A CLI tool for writing books and research papers using LangChain-compatible LLM providers."
 authors = ["Rodrigo Estrada <rodrigo.estrada@gmail.com>"]
 license = "MIT"

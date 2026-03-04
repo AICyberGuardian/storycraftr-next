@@ -1,5 +1,7 @@
 # Copilot Coding Agent Instructions
 
+Current development target: v0.15.x.
+
 ## Project Overview
 
 StoryCraftr is a dual-mode Python CLI plus a lightweight VS Code companion extension that uses LangChain-backed LLM providers to assist with writing books (**StoryCraftr**) and research papers (**PaperCraftr**). The two modes share the same codebase and are distinguished only by the entrypoint name (`storycraftr` vs `papercraftr`). Both CLIs are registered as Poetry scripts in `pyproject.toml`.

@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+Current development target: v0.15.x.
+
 ## Project Structure & Module Organization
 StoryCraftr ships a Python CLI plus a lightweight VS Code companion extension. Python sources live in `storycraftr/` (agents, CLI entrypoints, prompts, templates) with tests under `tests/` partitioned into `unit/` and `integration/`. The extension code sits in `src/` (TypeScript) and compiles to `out/` during builds. Shared documentation belongs in `docs/`, while runnable samples and starter outlines live in `examples/`. Treat `behavior.txt` as the canonical agent contract when adjusting automated behaviors.
 

@@ -5,7 +5,8 @@ import logging
 import shlex
 import threading
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import CancelledError as FutureCancelledError
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -19,9 +20,10 @@ from rich.console import Console
 
 from storycraftr.chat.module_runner import ModuleCommandError, run_module_command
 from storycraftr.utils.core import load_book_config
+from storycraftr.utils.paths import resolve_project_paths
 
 from .models import SubAgentRole
-from .storage import LOGS_DIRNAME, ensure_storage_dirs, load_roles, seed_default_roles
+from .storage import ensure_storage_dirs, load_roles, seed_default_roles
 
 
 logger = logging.getLogger(__name__)
@@ -76,33 +78,46 @@ class SubAgentJobManager:
         self.book_path = Path(book_path)
         self.console = console
         self.event_queue = event_queue
-        self.root = ensure_storage_dirs(book_path)
-        self.logs_root = self.root / LOGS_DIRNAME
-        self.lock = threading.Lock()
+        self.config = load_book_config(str(self.book_path))
+        self.root = ensure_storage_dirs(book_path, config=self.config)
+        self.logs_root = resolve_project_paths(
+            book_path, config=self.config
+        ).subagents_logs_root
+        self.lock = threading.RLock()
         self.executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="subagent")
         self.roles = self._ensure_roles()
         self.jobs: Dict[str, SubAgentJob] = {}
+        self.futures: Dict[str, Future] = {}
         self.event_callback = event_callback
 
-    def shutdown(self) -> None:
-        self.executor.shutdown(wait=False, cancel_futures=True)
+    def shutdown(self, wait: bool = False) -> None:
+        with self.lock:
+            futures = list(self.futures.values())
+            for future in futures:
+                future.cancel()
+            self.futures.clear()
+        self.executor.shutdown(wait=wait, cancel_futures=True)
 
     # Role management -----------------------------------------------------------------
 
     def _ensure_roles(self) -> Dict[str, SubAgentRole]:
-        roles = load_roles(str(self.book_path))
+        roles = load_roles(str(self.book_path), config=self.config)
         if roles:
             return roles
         language = "en"
-        config = load_book_config(str(self.book_path))
-        if config and getattr(config, "primary_language", None):
-            language = config.primary_language
-        seed_default_roles(str(self.book_path), language=language, force=False)
-        return load_roles(str(self.book_path))
+        if self.config and getattr(self.config, "primary_language", None):
+            language = self.config.primary_language
+        seed_default_roles(
+            str(self.book_path),
+            language=language,
+            force=False,
+            config=self.config,
+        )
+        return load_roles(str(self.book_path), config=self.config)
 
     def reload_roles(self) -> None:
         with self.lock:
-            self.roles = load_roles(str(self.book_path))
+            self.roles = load_roles(str(self.book_path), config=self.config)
 
     def list_roles(self) -> List[SubAgentRole]:
         with self.lock:
@@ -140,7 +155,14 @@ class SubAgentJobManager:
             self.jobs[job.job_id] = job
 
         self._emit_event("queued", job)
-        self.executor.submit(self._run_job, job)
+        future = self.executor.submit(self._run_job, job)
+        with self.lock:
+            self.futures[job.job_id] = future
+        future.add_done_callback(
+            lambda completed, job_id=job.job_id: self._handle_future_completion(
+                job_id, completed
+            )
+        )
         return job
 
     def list_jobs(self) -> List[SubAgentJob]:
@@ -171,40 +193,130 @@ class SubAgentJobManager:
         return None
 
     def _run_job(self, job: SubAgentJob) -> None:
-        job.started_at = _utcnow()
-        job.status = "running"
+        with self.lock:
+            job.started_at = _utcnow()
+            job.status = "running"
         self._emit_event("running", job)
         buffer_out = StringIO()
         buffer_err = StringIO()
         job_console = Console(file=buffer_out, force_terminal=False, color_system=None)
+        status = "succeeded"
+        error_text: Optional[str] = None
 
         swaps = _swap_storycraftr_consoles(job_console)
         try:
-            try:
-                with redirect_stdout(buffer_out), redirect_stderr(buffer_err):
-                    run_module_command(
-                        job.command_text,
-                        console=job_console,
-                        book_path=str(self.book_path),
-                    )
-                job.status = "succeeded"
-            except ModuleCommandError as exc:
-                job.status = "failed"
-                job.error = str(exc)
-            except Exception as exc:  # pragma: no cover - safety net
-                job.status = "failed"
-                job.error = repr(exc)
-            finally:
-                job.finished_at = _utcnow()
-                stdout_text = buffer_out.getvalue()
-                stderr_text = buffer_err.getvalue()
-                if stderr_text:
-                    stdout_text = f"{stdout_text}\n\n[stderr]\n{stderr_text}".strip()
-                job.output = stdout_text.strip()
-                self._persist_job(job)
-                self._emit_event(job.status, job)
+            with redirect_stdout(buffer_out), redirect_stderr(buffer_err):
+                run_module_command(
+                    job.command_text,
+                    console=job_console,
+                    book_path=str(self.book_path),
+                )
+        except ModuleCommandError as exc:
+            status = "failed"
+            error_text = str(exc)
+            logger.warning("Sub-agent job %s failed: %s", job.job_id, exc)
+        except Exception as exc:  # pragma: no cover - safety net
+            status = "failed"
+            error_text = f"{type(exc).__name__}: {exc}"
+            logger.exception("Unhandled exception in sub-agent job %s", job.job_id)
         finally:
             _restore_storycraftr_consoles(swaps)
+
+        stdout_text = buffer_out.getvalue()
+        stderr_text = buffer_err.getvalue()
+        if stderr_text:
+            stdout_text = f"{stdout_text}\n\n[stderr]\n{stderr_text}".strip()
+        output_text = stdout_text.strip()
+
+        with self.lock:
+            job.finished_at = _utcnow()
+            job.status = status
+            job.output = output_text
+            if error_text:
+                job.error = self._merge_errors(job.error, error_text)
+
+        try:
+            self._persist_job(job)
+        except Exception as exc:  # pragma: no cover - filesystem safety net
+            logger.exception("Failed to persist sub-agent job %s", job.job_id)
+            with self.lock:
+                job.status = "failed"
+                persist_error = (
+                    "Failed to persist sub-agent job logs: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                job.error = self._merge_errors(job.error, persist_error)
+            try:
+                self._persist_job(job)
+            except Exception:  # pragma: no cover - terminal fallback
+                logger.exception(
+                    "Second persistence attempt failed for sub-agent job %s",
+                    job.job_id,
+                )
+
+        self._emit_event(job.status, job)
+
+    def _handle_future_completion(self, job_id: str, future: Future) -> None:
+        with self.lock:
+            self.futures.pop(job_id, None)
+
+        if future.cancelled():
+            logger.info("Sub-agent job %s was cancelled.", job_id)
+            with self.lock:
+                job = self.jobs.get(job_id)
+                if not job:
+                    return
+                job.status = "failed"
+                job.finished_at = job.finished_at or _utcnow()
+                job.error = self._merge_errors(
+                    job.error, "Job was cancelled before execution completed."
+                )
+            try:
+                self._persist_job(job)
+            except Exception:  # pragma: no cover - defensive
+                logger.exception(
+                    "Failed to persist cancellation diagnostics for sub-agent job %s",
+                    job_id,
+                )
+            self._emit_event("failed", job)
+            return
+
+        try:
+            exc = future.exception()
+        except FutureCancelledError:
+            return
+        except Exception:  # pragma: no cover - defensive
+            logger.exception(
+                "Unable to inspect completion state for sub-agent job %s", job_id
+            )
+            return
+
+        if exc is None:
+            return
+
+        logger.error(
+            "Sub-agent job %s crashed outside normal error handling.",
+            job_id,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+
+        with self.lock:
+            job = self.jobs.get(job_id)
+            if not job:
+                return
+            job.status = "failed"
+            job.finished_at = job.finished_at or _utcnow()
+            job.error = self._merge_errors(
+                job.error, f"Unhandled worker exception: {type(exc).__name__}: {exc}"
+            )
+
+        try:
+            self._persist_job(job)
+        except Exception:  # pragma: no cover - defensive
+            logger.exception(
+                "Failed to persist crash diagnostics for sub-agent job %s", job_id
+            )
+        self._emit_event("failed", job)
 
     def _persist_job(self, job: SubAgentJob) -> None:
         log_dir = self.logs_root / job.role.slug
@@ -245,9 +357,11 @@ class SubAgentJobManager:
     # Internal helpers -------------------------------------------------------
 
     def _emit_event(self, event_type: str, job: SubAgentJob) -> None:
+        with self.lock:
+            job_payload = job.to_dict()
         payload = {
             "type": event_type,
-            "job": job.to_dict(),
+            "job": job_payload,
         }
         if self.event_queue:
             self.event_queue.put(payload)
@@ -256,6 +370,15 @@ class SubAgentJobManager:
                 self.event_callback(event_type, payload["job"])
             except Exception as exc:  # pragma: no cover - defensive
                 logger.debug("Sub-agent event callback failed: %s", exc)
+
+    @staticmethod
+    def _merge_errors(existing: Optional[str], new: str) -> str:
+        clean_new = (new or "").strip()
+        if not clean_new:
+            return existing or ""
+        if existing:
+            return f"{existing}\n{clean_new}"
+        return clean_new
 
 
 _CONSOLE_MODULES = [

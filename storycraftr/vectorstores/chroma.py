@@ -8,19 +8,30 @@ from langchain_chroma import Chroma
 from chromadb import PersistentClient
 from chromadb.config import Settings
 
+from storycraftr.utils.paths import resolve_project_paths
+
 
 def build_chroma_store(
     project_path: str,
     embedding_function,
     collection_name: str = "storycraftr",
-    persist_subdir: str = "vector_store",
+    persist_subdir: Optional[str] = None,
+    config: object | None = None,
     metadata: Optional[dict] = None,
 ) -> Chroma:
     """
     Create (or load) a persistent Chroma collection rooted inside the project directory.
     """
 
-    store_path = Path(project_path) / persist_subdir
+    project_paths = resolve_project_paths(project_path, config=config)
+    if persist_subdir:
+        candidate = Path(persist_subdir)
+        store_path = (
+            candidate if candidate.is_absolute() else project_paths.root / candidate
+        )
+    else:
+        store_path = project_paths.vector_store_root
+
     store_path.mkdir(parents=True, exist_ok=True)
 
     settings = Settings(anonymized_telemetry=False, allow_reset=True)

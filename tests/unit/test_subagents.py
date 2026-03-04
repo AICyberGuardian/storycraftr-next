@@ -8,6 +8,17 @@ from rich.console import Console
 from storycraftr.subagents import SubAgentJobManager, seed_default_roles
 
 
+def _wait_for_job_completion(
+    manager: SubAgentJobManager, max_attempts: int = 50
+) -> str:
+    for _ in range(max_attempts):
+        status = manager.list_jobs()[0].status
+        if status in {"succeeded", "failed"}:
+            return status
+        time.sleep(0.1)
+    return manager.list_jobs()[0].status
+
+
 def _minimal_config(tmp_path: Path) -> None:
     config = {
         "book_name": "Test",
@@ -64,14 +75,77 @@ def test_job_manager_runs_background_job(monkeypatch, tmp_path):
         role_slug="editor",
     )
 
-    for _ in range(50):
-        status = manager.list_jobs()[0].status
-        if status in {"succeeded", "failed"}:
-            break
-        time.sleep(0.1)
+    status = _wait_for_job_completion(manager)
 
     manager.shutdown()
 
+    assert job.job_id
     assert captured["book_path"] == str(tmp_path)
     assert captured["command"].startswith("outline general-outline")
-    assert manager.list_jobs()[0].status == "succeeded"
+    assert status == "succeeded"
+
+
+def test_job_manager_records_unexpected_worker_exceptions(monkeypatch, tmp_path):
+    _minimal_config(tmp_path)
+    seed_default_roles(tmp_path, language="en", force=True)
+
+    def fake_run_module_command(command_text, console, book_path):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        "storycraftr.subagents.jobs.run_module_command", fake_run_module_command
+    )
+
+    manager = SubAgentJobManager(
+        str(tmp_path), Console(file=StringIO(), force_terminal=False)
+    )
+    manager.submit(
+        command_token="!outline",  # nosec B106
+        args=["general-outline", "Refine the prologue"],
+        role_slug="editor",
+    )
+
+    status = _wait_for_job_completion(manager)
+    manager.shutdown()
+
+    job = manager.list_jobs()[0]
+    assert status == "failed"
+    assert job.error is not None
+    assert "RuntimeError: boom" in job.error
+    assert job.log_path is not None
+    assert job.log_path.exists()
+
+
+def test_job_manager_marks_job_failed_if_log_persistence_fails(monkeypatch, tmp_path):
+    _minimal_config(tmp_path)
+    seed_default_roles(tmp_path, language="en", force=True)
+
+    def fake_run_module_command(command_text, console, book_path):
+        console.print("ok")
+
+    monkeypatch.setattr(
+        "storycraftr.subagents.jobs.run_module_command", fake_run_module_command
+    )
+
+    manager = SubAgentJobManager(
+        str(tmp_path), Console(file=StringIO(), force_terminal=False)
+    )
+
+    def always_fail_persist(job):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(manager, "_persist_job", always_fail_persist)
+
+    manager.submit(
+        command_token="!outline",  # nosec B106
+        args=["general-outline", "Refine the prologue"],
+        role_slug="editor",
+    )
+
+    status = _wait_for_job_completion(manager)
+    manager.shutdown()
+
+    job = manager.list_jobs()[0]
+    assert status == "failed"
+    assert job.error is not None
+    assert "Failed to persist sub-agent job logs" in job.error

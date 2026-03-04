@@ -5,6 +5,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Mapping
 
+from storycraftr.utils.core import load_book_config
+from storycraftr.utils.paths import resolve_project_paths
+
+
+def _load_config_if_present(book_path: str):
+    root = Path(book_path)
+    if (root / "storycraftr.json").exists() or (root / "papercraftr.json").exists():
+        return load_book_config(book_path)
+    return None
+
 
 @dataclass
 class SessionManager:
@@ -13,8 +23,8 @@ class SessionManager:
     _directory: Path = field(init=False)
 
     def __post_init__(self) -> None:
-        root = Path(self.book_path)
-        storage_root = root / ".storycraftr" / "sessions"
+        config = _load_config_if_present(self.book_path)
+        storage_root = resolve_project_paths(self.book_path, config=config).sessions_root
         storage_root.mkdir(parents=True, exist_ok=True)
         self._directory = storage_root
 

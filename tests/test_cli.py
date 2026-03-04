@@ -63,7 +63,9 @@ def test_load_local_credentials(tmp_path):
     key_file = config_dir / "openai_api_key.txt"
     key_file.write_text("placeholder-token", encoding="utf-8")
 
-    with mock.patch("pathlib.Path.home", return_value=tmp_path):
+    with mock.patch("storycraftr.llm.credentials.keyring", None), mock.patch(
+        "pathlib.Path.home", return_value=tmp_path
+    ):
         load_local_credentials()
 
     expected = "placeholder-token"  # pragma: allowlist secret

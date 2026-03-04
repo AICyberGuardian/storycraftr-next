@@ -210,7 +210,7 @@ The graph uses a `RunnableParallel` that retrieves documents from Chroma and the
 
 ## Known Pitfalls & Workarounds
 
-1. **`storycraftr/utils/paths.py` does not exist.** An older memory referenced this file, but it was never created; path utilities for the sub-agent system live directly in `storycraftr/subagents/storage.py`.
+1. **`storycraftr/utils/paths.py` exists and is the canonical path resolver.** It exposes `resolve_project_paths(book_path, config)` which returns a `ProjectPaths` dataclass with all normalized internal-state paths (subagents, sessions, vector store, VS Code events). Always use this helper instead of constructing paths manually; never hardcode `.storycraftr/` directory literals.
 2. **`BookConfig` NamedTuple vs `SimpleNamespace`**: `load_book_config()` returns a `SimpleNamespace`, not the `BookConfig` NamedTuple. Always use `getattr(config, "field", default)` when accessing config fields to avoid `AttributeError` on older project files missing newer keys.
 3. **Dual graph field on `LangChainAssistant`**: The dataclass declares `graph` twice (a known duplicate); do not add a third declaration.
 4. **Chroma telemetry**: `anonymized_telemetry=False` must always be passed to `chromadb.config.Settings` to prevent outbound telemetry calls in tests/CI.

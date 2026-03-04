@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 
 const decoder = new TextDecoder();
 const TRANSCRIPT_SCHEME = "storycraftr-transcript";
+const DEFAULT_EVENTS_GLOB = "**/.storycraftr/vscode-events.jsonl";
 
 interface StoryCraftrEvent {
   event: string;
@@ -280,19 +281,98 @@ async function discoverEventStreams(
     raw: string,
   ) => void,
 ) {
-  const uris = await vscode.workspace.findFiles(
-    "**/.storycraftr/vscode-events.jsonl",
-  );
+  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+  if (!workspaceFolders.length) {
+    await registerPatternWatcher(DEFAULT_EVENTS_GLOB, dispatch);
+    return;
+  }
+
+  for (const folder of workspaceFolders) {
+    const configured = await resolveConfiguredEventsFile(folder);
+    if (configured) {
+      registerSpecificFileWatcher(configured, dispatch);
+      continue;
+    }
+    await registerPatternWatcher(
+      new vscode.RelativePattern(folder, DEFAULT_EVENTS_GLOB),
+      dispatch,
+    );
+  }
+}
+
+async function readProjectConfig(
+  folder: vscode.WorkspaceFolder,
+): Promise<Record<string, unknown> | undefined> {
+  const candidates = ["storycraftr.json", "papercraftr.json"];
+  for (const filename of candidates) {
+    const uri = vscode.Uri.joinPath(folder.uri, filename);
+    try {
+      const data = await vscode.workspace.fs.readFile(uri);
+      const parsed = JSON.parse(decoder.decode(data));
+      if (parsed && typeof parsed === "object") {
+        return parsed as Record<string, unknown>;
+      }
+      return undefined;
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === "FileNotFound" || code === "ENOENT") {
+        continue;
+      }
+      console.warn(`Failed to read ${filename} in ${folder.uri.fsPath}:`, err);
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+async function resolveConfiguredEventsFile(
+  folder: vscode.WorkspaceFolder,
+): Promise<vscode.Uri | undefined> {
+  const config = await readProjectConfig(folder);
+  const configuredRaw = config?.vscode_events_file;
+  if (typeof configuredRaw !== "string") {
+    return undefined;
+  }
+  const configured = configuredRaw.trim();
+  if (!configured) {
+    return undefined;
+  }
+  if (path.isAbsolute(configured)) {
+    return vscode.Uri.file(path.normalize(configured));
+  }
+  return vscode.Uri.joinPath(folder.uri, configured);
+}
+
+async function registerPatternWatcher(
+  pattern: vscode.GlobPattern,
+  dispatch: (event: string, payload: Record<string, any>, raw: string) => void,
+) {
+  const uris = await vscode.workspace.findFiles(pattern);
   for (const uri of uris) {
     attachWatcher(uri, dispatch);
   }
 
-  const watcher = vscode.workspace.createFileSystemWatcher(
-    "**/.storycraftr/vscode-events.jsonl",
-  );
+  const watcher = vscode.workspace.createFileSystemWatcher(pattern);
   extensionContext?.subscriptions.push(watcher);
   watcher.onDidCreate((uri) => attachWatcher(uri, dispatch));
   watcher.onDidChange((uri) => watchers.get(uri.fsPath)?.refresh());
+}
+
+function registerSpecificFileWatcher(
+  uri: vscode.Uri,
+  dispatch: (event: string, payload: Record<string, any>, raw: string) => void,
+) {
+  if (fs.existsSync(uri.fsPath)) {
+    attachWatcher(uri, dispatch);
+  }
+
+  const parent = path.dirname(uri.fsPath);
+  const fileName = path.basename(uri.fsPath);
+  const pattern = new vscode.RelativePattern(vscode.Uri.file(parent), fileName);
+  const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+  extensionContext?.subscriptions.push(watcher);
+  watcher.onDidCreate(() => attachWatcher(uri, dispatch));
+  watcher.onDidChange(() => watchers.get(uri.fsPath)?.refresh());
 }
 
 function attachWatcher(

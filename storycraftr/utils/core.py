@@ -115,7 +115,7 @@ class BookConfig(NamedTuple):
     embed_cache_dir: str
 
 
-def load_book_config(book_path: str):
+def load_book_config(book_path: str, model_override: str | None = None):
     """
     Load configuration from the book path.
     """
@@ -181,6 +181,9 @@ def load_book_config(book_path: str):
         if "llm_model" not in config_data:
             default_config["llm_model"] = _default_model_for_provider(provider)
 
+        if model_override is not None:
+            default_config["llm_model"] = str(model_override).strip()
+
         return SimpleNamespace(**default_config)
 
     except Exception as e:
@@ -188,13 +191,19 @@ def load_book_config(book_path: str):
         return None
 
 
-def llm_settings_from_config(config: BookConfig) -> LLMSettings:
+def llm_settings_from_config(
+    config: BookConfig, model_override: str | None = None
+) -> LLMSettings:
     """
     Map the persisted configuration to normalized LLM settings.
     """
 
     provider = getattr(config, "llm_provider", "openai")
-    model = getattr(config, "llm_model", None)
+    model = (
+        model_override
+        if model_override is not None
+        else getattr(config, "llm_model", None)
+    )
     if model is None:
         model = _default_model_for_provider(provider)
 

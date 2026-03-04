@@ -49,10 +49,16 @@ def detect_invocation():
 cli_name = detect_invocation()
 
 
-# Verify if the directory contains storycraftr.json
+def _has_project_config(book_path: str) -> bool:
+    return os.path.exists(
+        os.path.join(book_path, "storycraftr.json")
+    ) or os.path.exists(os.path.join(book_path, "papercraftr.json"))
+
+
+# Verify if the directory contains a project config file
 def verify_book_path(book_path=None):
     """
-    Verifies if the specified directory contains `storycraftr.json`.
+    Verifies if the specified directory contains a StoryCraftr/PaperCraftr config.
 
     Args:
         book_path (str): The path to the book directory.
@@ -61,14 +67,12 @@ def verify_book_path(book_path=None):
         str: The verified book path.
 
     Raises:
-        ClickException: If `storycraftr.json` file is not found.
+        ClickException: If no project config file is found.
     """
     book_path = book_path or os.getcwd()
-    storycraftr_file = os.path.join(book_path, "storycraftr.json")
-
-    if not os.path.exists(storycraftr_file):
+    if not _has_project_config(book_path):
         raise click.ClickException(
-            f"The file storycraftr.json was not found in: {book_path}"
+            f"Neither storycraftr.json nor papercraftr.json found in: {book_path}"
         )
 
     return book_path
@@ -85,7 +89,7 @@ def is_initialized(book_path):
     Returns:
         bool: True if the project is initialized, False if not.
     """
-    return os.path.exists(os.path.join(book_path, "storycraftr.json"))
+    return _has_project_config(book_path)
 
 
 # Show an error if the project is not initialized

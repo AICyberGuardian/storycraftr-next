@@ -144,3 +144,25 @@ def load_local_credentials(extra_dirs: Iterable[Path] | None = None) -> None:
                 "Store it in the OS keyring to avoid local secret exposure."
                 "[/yellow]"
             )
+
+
+def credential_lookup_details(
+    env_var: str, extra_dirs: Iterable[Path] | None = None
+) -> dict:
+    """
+    Describe the local credential lookup chain for one environment variable.
+    """
+
+    service_name = os.getenv("STORYCRAFTR_KEYRING_SERVICE") or _DEFAULT_KEYRING_SERVICE
+    keyring_usernames = list(_KEYRING_USERNAME_MAP.get(env_var, (env_var,)))
+    legacy_files = []
+    for base_dir in _search_dirs(extra_dirs):
+        for filename in _KEY_FILE_MAP.get(env_var, ()):
+            legacy_files.append(str(base_dir / filename))
+
+    return {
+        "env_var": env_var,
+        "keyring_service": service_name,
+        "keyring_usernames": keyring_usernames,
+        "legacy_files": legacy_files,
+    }

@@ -1,4 +1,5 @@
 from unittest import mock
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +10,7 @@ from storycraftr.llm.factory import (
     LLMSettings,
     build_chat_model,
 )
+from storycraftr.utils.core import llm_settings_from_config
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +42,22 @@ def test_openrouter_missing_api_key_raises_provider_auth_error():
         model="meta-llama/llama-3.3-70b-instruct",
     )
 
-    with pytest.raises(LLMAuthenticationError, match="OPENROUTER_API_KEY"):
+    with pytest.raises(
+        LLMAuthenticationError,
+        match=r"provider 'openrouter'.*meta-llama/llama-3.3-70b-instruct.*https://openrouter.ai/api/v1.*OPENROUTER_API_KEY",
+    ) as exc:
+        build_chat_model(settings)
+    assert "Verify your OPENROUTER_API_KEY is set and valid" in str(exc.value)
+
+
+def test_openrouter_missing_model_fails_fast_with_actionable_message(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    settings = LLMSettings(provider="openrouter", model="")
+
+    with pytest.raises(
+        LLMConfigurationError,
+        match=r"storycraftr\.json.*\"llm_model\".*openrouter/free",
+    ):
         build_chat_model(settings)
 
 
@@ -52,7 +69,7 @@ def test_openrouter_builds_chatopenai_with_default_endpoint_and_headers(monkeypa
 
         settings = LLMSettings(
             provider="openrouter",
-            model="meta-llama/llama-3.3-70b-instruct",
+            model="openrouter/free",
             request_timeout=30,
         )
         result = build_chat_model(settings)
@@ -60,11 +77,20 @@ def test_openrouter_builds_chatopenai_with_default_endpoint_and_headers(monkeypa
     assert result is mock_chat_openai.return_value
     kwargs = mock_chat_openai.call_args.kwargs
     assert kwargs["api_key"] == "or-test"  # pragma: allowlist secret
-    assert kwargs["model"] == "meta-llama/llama-3.3-70b-instruct"
+    assert kwargs["model"] == "openrouter/free"
     assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
     assert kwargs["timeout"] == 30
     assert kwargs["default_headers"]["HTTP-Referer"] == "https://storycraftr.app"
     assert kwargs["default_headers"]["X-Title"] == "StoryCraftr CLI"
+
+
+def test_openrouter_does_not_silently_fallback_to_openai_default(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    settings = llm_settings_from_config(SimpleNamespace(llm_provider="openrouter"))
+
+    assert settings.model == ""
+    with pytest.raises(LLMConfigurationError, match="Missing 'llm_model'"):
+        build_chat_model(settings)
 
 
 def test_openrouter_invalid_endpoint_fails_before_client_init(monkeypatch):
@@ -155,3 +181,63 @@ def test_openrouter_wraps_chatopenai_initialization_errors(monkeypatch):
                     model="meta-llama/llama-3.3-70b-instruct",
                 )
             )
+
+
+def test_openrouter_provider_auth_error_is_actionable_and_redacts_key(monkeypatch):
+    secret = "or-super-secret-token"  # nosec B105 pragma: allowlist secret
+    monkeypatch.setenv("OPENROUTER_API_KEY", secret)  # pragma: allowlist secret
+    with mock.patch(
+        "storycraftr.llm.factory.ChatOpenAI",
+        side_effect=RuntimeError(f"401 unauthorized api key {secret}"),
+    ):
+        with pytest.raises(LLMAuthenticationError) as exc:
+            build_chat_model(
+                LLMSettings(provider="openrouter", model="openrouter/free")
+            )
+
+    message = str(exc.value)
+    assert "Provider 'openrouter'" in message
+    assert "model 'openrouter/free'" in message
+    assert "endpoint 'https://openrouter.ai/api/v1'" in message
+    assert "Verify your OPENROUTER_API_KEY is set and valid." in message
+    assert secret not in message
+
+
+def test_openrouter_timeout_error_is_actionable_and_redacts_key(monkeypatch):
+    secret = "or-timeout-secret"  # nosec B105 pragma: allowlist secret
+    monkeypatch.setenv("OPENROUTER_API_KEY", secret)  # pragma: allowlist secret
+    with mock.patch(
+        "storycraftr.llm.factory.ChatOpenAI",
+        side_effect=TimeoutError(f"request timed out using {secret}"),
+    ):
+        with pytest.raises(LLMInitializationError) as exc:
+            build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="openrouter/free",
+                    endpoint="https://router.example/v1",
+                )
+            )
+
+    message = str(exc.value)
+    assert "Provider 'openrouter'" in message
+    assert "model 'openrouter/free'" in message
+    assert "endpoint 'https://router.example/v1'" in message
+    assert "Retry with a higher request_timeout" in message
+    assert secret not in message
+
+
+def test_ollama_connection_error_is_actionable(monkeypatch):
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    with mock.patch(
+        "storycraftr.llm.factory.ChatOllama",
+        side_effect=ConnectionError("connection refused"),
+    ):
+        with pytest.raises(LLMInitializationError) as exc:
+            build_chat_model(LLMSettings(provider="ollama", model="llama3.2"))
+
+    message = str(exc.value)
+    assert "Provider 'ollama'" in message
+    assert "model 'llama3.2'" in message
+    assert "endpoint 'http://localhost:11434'" in message
+    assert "Check if Ollama is running at http://localhost:11434." in message

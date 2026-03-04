@@ -145,6 +145,11 @@ _ASSISTANT_CACHE: Dict[str, LangChainAssistant] = {}
 _THREADS: Dict[str, ConversationThread] = {}
 
 
+def _assistant_cache_key(book_path: str, model_override: str | None = None) -> str:
+    override_key = model_override if model_override is not None else "<default>"
+    return f"{book_path}:{override_key}"
+
+
 def load_markdown_documents(
     book_path: str, config: object | None = None
 ) -> List[Document]:
@@ -195,7 +200,9 @@ def load_markdown_documents(
     return documents
 
 
-def create_or_get_assistant(book_path: str) -> LangChainAssistant:
+def create_or_get_assistant(
+    book_path: str, model_override: str | None = None
+) -> LangChainAssistant:
     """
     Initialize (or fetch) the LangChain-powered assistant for a project.
     """
@@ -204,10 +211,11 @@ def create_or_get_assistant(book_path: str) -> LangChainAssistant:
         raise ValueError("book_path is required to create an assistant.")
 
     book_path = str(Path(book_path).resolve())
-    if book_path in _ASSISTANT_CACHE:
-        return _ASSISTANT_CACHE[book_path]
+    cache_key = _assistant_cache_key(book_path, model_override)
+    if cache_key in _ASSISTANT_CACHE:
+        return _ASSISTANT_CACHE[cache_key]
 
-    config = load_book_config(book_path)
+    config = load_book_config(book_path, model_override=model_override)
     if not config:
         raise RuntimeError("Unable to load project configuration.")
 
@@ -220,7 +228,7 @@ def create_or_get_assistant(book_path: str) -> LangChainAssistant:
             "Respond in markdown, keep outputs structured, and respect the requested tone."
         )
 
-    llm_settings = llm_settings_from_config(config)
+    llm_settings = llm_settings_from_config(config, model_override=model_override)
     embedding_settings = embedding_settings_from_config(config)
 
     llm = build_chat_model(llm_settings)
@@ -238,7 +246,7 @@ def create_or_get_assistant(book_path: str) -> LangChainAssistant:
     )
     assistant.ensure_vector_store()
 
-    _ASSISTANT_CACHE[book_path] = assistant
+    _ASSISTANT_CACHE[cache_key] = assistant
     return assistant
 
 
@@ -383,7 +391,9 @@ def update_agent_files(book_path: str, assistant: Optional[LangChainAssistant] =
     Rebuild the embedded knowledge base for the assistant.
     """
 
-    assistant = assistant or _ASSISTANT_CACHE.get(str(Path(book_path).resolve()))
+    assistant = assistant or _ASSISTANT_CACHE.get(
+        _assistant_cache_key(str(Path(book_path).resolve()), None)
+    )
     if not assistant:
         assistant = create_or_get_assistant(book_path)
     assistant.ensure_vector_store(force=True)

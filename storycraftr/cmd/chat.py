@@ -139,11 +139,17 @@ def _drain_subagent_events(
     default=None,
     help="Load or autosave conversation under this name.",
 )
-def chat(book_path=None, prompt=None, session_name=None):
+@click.option(
+    "--llm-model",
+    type=str,
+    default=None,
+    help="Override the configured LLM model for this session.",
+)
+def chat(book_path=None, prompt=None, session_name=None, llm_model=None):
     if not book_path:
         book_path = os.getcwd()
 
-    config = load_book_config(book_path)
+    config = load_book_config(book_path, model_override=llm_model)
     if not config:
         return None
 
@@ -165,7 +171,7 @@ def chat(book_path=None, prompt=None, session_name=None):
                 f"{VS_CODE_EXTENSION_ID}' later to enable editor integration.[/dim]"
             )
 
-    assistant = create_or_get_assistant(book_path)
+    assistant = create_or_get_assistant(book_path, model_override=llm_model)
     thread = get_thread(book_path)
 
     footer_meta = {

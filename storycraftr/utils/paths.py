@@ -57,8 +57,14 @@ def _resolve_project_root(book_path: str, config: object | None = None) -> Path:
 def _resolve_under_root(root: Path, value: Optional[str], default: str) -> Path:
     candidate = _as_path(value, default)
     if candidate.is_absolute():
-        return candidate
-    return (root / candidate).resolve()
+        try:
+            return candidate.resolve()
+        except OSError:
+            return candidate
+    try:
+        return (root / candidate).resolve()
+    except OSError:
+        return root / candidate
 
 
 def resolve_project_paths(book_path: str, config: object | None = None) -> ProjectPaths:

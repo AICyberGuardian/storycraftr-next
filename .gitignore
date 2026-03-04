@@ -299,3 +299,11 @@ dist
 Deep Learning in Medical Imaging
 *._checkpointtest_book/
 test_book/
+
+# StoryCraftr local projects
+The Sleepers’ Code/
+vector_store/
+behaviors/
+
+# Generated embeddings
+*.sqlite3

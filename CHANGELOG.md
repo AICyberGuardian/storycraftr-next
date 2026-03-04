@@ -4,7 +4,12 @@
 
 ### Changed
 
-- Current development target set to `v0.15.x` (`0.15.0-dev`).
+- Current development target set to `v0.15.x` (`0.15.2-dev`).
+
+## [0.15.1] - 2026-03-04
+
+### Changed
+
 - Added deterministic task-runner workflows via `Makefile`:
   - `make sync-deps` for atomic Python/Node lock refresh.
   - `make check-locks` for local lock-file consistency verification.

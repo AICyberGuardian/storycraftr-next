@@ -3,7 +3,7 @@
   "displayName": "StoryCraftr Companion",
   "description": "Companion extension that mirrors StoryCraftr CLI chats and sub-agent activity inside VS Code.",
   "publisher": "StoryCraftr",
-  "version": "0.15.0-dev",
+  "version": "0.15.1",
   "engines": {
     "vscode": "^1.94.0"
   },

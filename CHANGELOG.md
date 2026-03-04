@@ -1,5 +1,103 @@
 # Changelog
 
+## [v0.14] - 2026-03-03
+
+### Summary of differences between `v0.14` branch and `main` branch
+
+**File-level differences: None.** Both branches share an identical working tree
+(`git tree 4a44def0`). The `main` branch incorporated all `v0.14` changes via the
+squash-merge commit `cb440c2 Consolidate all changes into v0.14 (#43)`.
+
+The three files changed relative to their common ancestor (`037df3a`) in both branches:
+
+1. **`.github/workflows/ci-failure-fix.yml`** *(new file)*: Auto-Fix CI Failures
+   workflow that triggers on test-suite failure and invokes Jules to diagnose and
+   fix the root cause automatically.
+
+2. **`README.md`** *(modified)*: Removed the VS Code extension Marketplace installation
+   section and one outdated external CLI reference link.
+
+3. **`tests/test_markdown.py`** *(modified)*: Aligned test mocks to use `pathlib.Path`
+   methods (`pathlib.Path.exists`, `pathlib.Path.open`) instead of `os.path.exists`
+   and `builtins.open`, matching the pathlib-based implementation in the source.
+
+### Commit history differences
+
+| Branch | Unique commits since common ancestor |
+|--------|--------------------------------------|
+| `main` | 1 squash commit (`cb440c2 Consolidate all changes into v0.14 (#43)`) |
+| `v0.14` | 249+ individual feature/fix/chore commits |
+
+### Added (accumulated across v0.11.4-beta9 → v0.14)
+
+- **Auto-Fix CI Failures workflow**: New `.github/workflows/ci-failure-fix.yml` that
+  automatically detects test failures and submits a fix via Jules.
+- **pathlib-aligned tests**: `tests/test_markdown.py` updated so mock patches target
+  `pathlib.Path` rather than `os.path`/`builtins.open`.
+
+### Changed
+
+- **README.md**: Removed VS Code Marketplace installation instructions and one
+  stale external CLI reference link.
+
+---
+
+## [0.12.0-beta11] - 2026-03-02
+
+### Added
+
+- **CI hardening**: Stabilised GitHub Actions workflows, de-duplicated runs, and
+  hardened pre-commit configuration.
+
+### Changed
+
+- **Version bump**: Package version incremented from `0.12.0-beta10` to
+  `0.12.0-beta11`.
+- **README cleanup**: Removed GitHub Actions status badges and installation
+  instructions for the VS Code extension Marketplace.
+
+---
+
+## [0.12.0-beta10] - 2026-03-02
+
+### Security
+
+- **Subprocess argument injection fix (PDF generation)**: Added strict input
+  validation in `generate_pdf` to prevent shell-injection via crafted file paths
+  passed to the subprocess call.
+- **VS Code extension installer hardening**: Fixed subprocess argument injection
+  risk in the VS Code extension installer.
+
+### Added
+
+- **Improved VS Code companion extension**: Enhanced the event-driven companion
+  extension with better sentinel detection and optimised file-system scanning.
+
+### Fixed
+
+- **Sub-agent stdout bleed**: Suppressed stdout bleed in sub-agent execution and
+  expanded console swap coverage.
+
+---
+
+## [0.11.4-beta9] - 2026-03-01
+
+### Added
+
+- **Native PDF rendering**: `feat(pdf)` – Render Markdown natively with a themed
+  book layout instead of delegating to external pandoc/LaTeX pipelines.
+- **Redesigned CLI chat**: `feat(chat)` – Rebuilt the interactive chat session
+  using a LangChain graph with full session UI.
+- **LangChain runnable graph**: `feat(graph)` – Orchestrate the assistant flow via
+  a LangChain runnable pipeline.
+- **Async sub-agent runners**: `feat(chat)` – Added asynchronous sub-agent runners
+  for parallel task processing inside a chat session.
+- **Event-driven VS Code companion extension**: `feat(vscode)` – Scaffolded a new
+  event-driven companion extension; emits a VS Code event stream and prompts the
+  user to install the extension when detected.
+
+---
+
 ## [0.10.1-beta4] - 2024-11-01
 
 ### Added

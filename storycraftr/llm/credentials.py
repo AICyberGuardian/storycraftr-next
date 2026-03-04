@@ -61,14 +61,13 @@ def _persist_legacy_credential(env_var: str, value: str) -> Path:
     return key_path
 
 
-def _warn_keyring_backend_unavailable(service_name: str, exc: Exception) -> None:
+def _warn_keyring_backend_unavailable(_service_name: str, _exc: Exception) -> None:
     global _KEYRING_BACKEND_WARNING_SHOWN
     if _KEYRING_BACKEND_WARNING_SHOWN:
         return
     console.print(
         "[yellow]"
-        f"OS keyring backend unavailable for service '{service_name}': {exc}. "
-        "Falling back to environment variables and legacy credential files."
+        "OS keyring backend unavailable. Falling back to environment variables and legacy credential files."
         "[/yellow]"
     )
     _KEYRING_BACKEND_WARNING_SHOWN = True

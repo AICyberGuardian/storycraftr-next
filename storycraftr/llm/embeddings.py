@@ -60,6 +60,12 @@ def build_embedding_model(settings: EmbeddingSettings):
         "Run 'poetry install --with embeddings' or "
         "'uv pip install torch sentence-transformers'."
     )
+    import logging
+
+    os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+    logging.getLogger("transformers").setLevel(logging.ERROR)
+    logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+
     try:
         torch = import_module("torch")
     except ImportError as exc:

@@ -145,7 +145,9 @@ _ASSISTANT_CACHE: Dict[str, LangChainAssistant] = {}
 _THREADS: Dict[str, ConversationThread] = {}
 
 
-def load_markdown_documents(book_path: str, config: object | None = None) -> List[Document]:
+def load_markdown_documents(
+    book_path: str, config: object | None = None
+) -> List[Document]:
     """
     Load Markdown files from the project for indexing.
     """

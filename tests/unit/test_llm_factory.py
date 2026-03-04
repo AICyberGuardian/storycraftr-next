@@ -125,7 +125,7 @@ def test_openrouter_honors_custom_api_key_env_override(monkeypatch):
             LLMSettings(
                 provider="openrouter",
                 model="meta-llama/llama-3.3-70b-instruct",
-                api_key_env="CUSTOM_OPENROUTER_KEY",
+                api_key_env="CUSTOM_OPENROUTER_KEY",  # pragma: allowlist secret
             )
         )
 

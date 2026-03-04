@@ -32,6 +32,11 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | bash
@@ -49,12 +54,18 @@ jobs:
       - name: Verify poetry.lock is in sync
         run: |
           source .venv/bin/activate
-          poetry lock --check
+          poetry check --lock
+
+      - name: Verify package-lock.json is in sync
+        run: npm ci --dry-run --ignore-scripts --loglevel=error
 
       - name: Install dependencies
         run: |
           source .venv/bin/activate
           poetry install --no-interaction --no-root
+
+      - name: Ensure lock files are unchanged
+        run: git diff --exit-code poetry.lock package-lock.json
 
       - name: Run tests
         run: |

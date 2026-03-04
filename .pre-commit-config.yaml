@@ -1,4 +1,25 @@
 repos:
+  - repo: local
+    hooks:
+      - id: check-poetry-lock
+        name: Verify Poetry Lock
+        entry: poetry check --lock
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|poetry\.lock)$
+      - id: check-npm-lock
+        name: Verify NPM Lock
+        entry: bash -c 'npm ci --dry-run --ignore-scripts --loglevel=error'
+        language: system
+        pass_filenames: false
+        files: ^(package\.json|package-lock\.json)$
+      - id: check-version-bump-invariant
+        name: Verify Version Bump Invariant
+        entry: scripts/check-version-bump.sh
+        language: script
+        pass_filenames: false
+        files: ^(pyproject\.toml|package\.json|package-lock\.json|CHANGELOG\.md)$
+
   # Black para formateo de código
   - repo: https://github.com/psf/black
     rev: 23.9.1

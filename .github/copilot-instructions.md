@@ -2,6 +2,14 @@
 
 Current development target: v0.15.x.
 
+## Repository Invariants
+
+- `DEP_UPDATE`: If `pyproject.toml` changes, update lock files through `make sync-deps`.
+- `JS_UPDATE`: If `package.json` changes, update lock files through `make sync-deps`.
+- `VER_BUMP`: If version strings change, update `pyproject.toml`, `package.json`, `package-lock.json`, and `CHANGELOG.md` in the same commit.
+- `LOCK_IMMUTABLE_CI`: CI must fail if `poetry.lock` or `package-lock.json` changes during workflow execution.
+- Do not run raw `poetry lock` / `npm install` as standalone AI actions for routine dependency updates; use `make sync-deps`.
+
 ## Project Overview
 
 StoryCraftr is a dual-mode Python CLI plus a lightweight VS Code companion extension that uses LangChain-backed LLM providers to assist with writing books (**StoryCraftr**) and research papers (**PaperCraftr**). The two modes share the same codebase and are distinguished only by the entrypoint name (`storycraftr` vs `papercraftr`). Both CLIs are registered as Poetry scripts in `pyproject.toml`.
@@ -56,6 +64,8 @@ tsconfig.json
 ```bash
 poetry install                          # Install all dependencies
 poetry install --extras embeddings      # Include sentence-transformers + torch
+make sync-deps                          # Rebuild Python/Node lock files together
+make bump-version VERSION=0.15.1-dev    # Bump versions + refresh locks + changelog target line
 poetry run storycraftr --help           # Verify CLI loads
 poetry run pytest                       # Run all tests
 poetry run pre-commit run --all-files   # Lint + security scan (run before every push)

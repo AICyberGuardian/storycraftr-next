@@ -5,7 +5,21 @@
 ### Changed
 
 - Current development target set to `v0.15.x` (`0.15.0-dev`).
-- This section is reserved for new PR entries generated during the active cycle.
+- Added deterministic task-runner workflows via `Makefile`:
+  - `make sync-deps` for atomic Python/Node lock refresh.
+  - `make check-locks` for local lock-file consistency verification.
+  - `make bump-version VERSION=...` for synchronized version updates.
+- Added enforcement scripts:
+  - `scripts/bump-version.sh` to update `pyproject.toml`, `package.json`, `package-lock.json`, and changelog development target line.
+  - `scripts/check-version-bump.sh` to block partial version bump commits.
+- Expanded `.pre-commit-config.yaml` with local invariant hooks:
+  - Poetry lock consistency check.
+  - NPM lock consistency check.
+  - Version-bump staged-file invariant check.
+- Hardened CI enforcement in `.github/workflows/pytest.yml` and `.github/workflows/pre-commit.yml`:
+  - Added Node setup for lock validation.
+  - Added lock-file drift guard (`git diff --exit-code poetry.lock package-lock.json`).
+- Codified repository invariants in `AGENTS.md` and `.github/copilot-instructions.md`, including mandatory `make sync-deps` usage for routine dependency sync operations.
 
 ## [0.14.0] - 2026-03-03
 

@@ -2,10 +2,18 @@
 
 Current development target: v0.15.x.
 
+## Repository Invariants
+- `DEP_UPDATE`: Modifying `pyproject.toml` requires updating `poetry.lock` via `make sync-deps` (do not run `poetry lock` directly in routine workflows).
+- `JS_UPDATE`: Modifying `package.json` requires updating `package-lock.json` via `make sync-deps` (do not run raw `npm install` directly in routine workflows).
+- `VER_BUMP`: Modifying version strings requires synchronized updates to `pyproject.toml`, `package.json`, `package-lock.json`, and `CHANGELOG.md`.
+- `LOCK_IMMUTABLE_CI`: CI must fail if dependency lock files drift (`git diff --exit-code poetry.lock package-lock.json`).
+
 ## Project Structure & Module Organization
 StoryCraftr ships a Python CLI plus a lightweight VS Code companion extension. Python sources live in `storycraftr/` (agents, CLI entrypoints, prompts, templates) with tests under `tests/` partitioned into `unit/` and `integration/`. The extension code sits in `src/` (TypeScript) and compiles to `out/` during builds. Shared documentation belongs in `docs/`, while runnable samples and starter outlines live in `examples/`. Treat `behavior.txt` as the canonical agent contract when adjusting automated behaviors.
 
 ## Build, Test, and Development Commands
+- Unified dependency runner: `make sync-deps` updates Python/Node lock files together and stages them.
+- Version bump runner: `make bump-version VERSION=0.15.1-dev` updates version metadata + lock files atomically.
 - Python: `poetry install` bootstraps dependencies; `poetry run storycraftr --help` validates the CLI loads; `poetry run pytest` runs the full suite. Use `poetry run pre-commit run --all-files` before pushing.
 - Extension: run `npm install` once, then use `npm run compile` to emit `out/extension.js`. `npm run watch` keeps the TypeScript build live during development.
 

@@ -1,3 +1,0 @@
-# Epilogue
-
-Your epilogue here.

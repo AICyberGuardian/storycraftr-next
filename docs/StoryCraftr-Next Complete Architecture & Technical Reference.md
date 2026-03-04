@@ -269,11 +269,12 @@ Primary event names:
 - `sub_agent.logs`, `sub_agent.status`
 
 ### Important Compatibility Note
-Current extension discovery in `src/extension.ts` watches only:
-- `**/.storycraftr/vscode-events.jsonl`
+Current extension discovery in `src/extension.ts` resolves watcher paths dynamically:
+- Reads workspace-root `storycraftr.json` or `papercraftr.json` when present.
+- Uses configured `vscode_events_file` when set, and falls back to `**/.storycraftr/vscode-events.jsonl`.
 
 Implication:
-- If project config overrides `vscode_events_file` to a non-default path, CLI emission still works but the extension may not auto-discover that stream.
+- If project config overrides `vscode_events_file` to a non-default path, the extension now auto-discovers and watches that stream.
 
 ## Testing Status (Current Workspace)
 Latest local run:
@@ -299,10 +300,9 @@ Active suites include:
 ## Known Gaps and Technical Debt
 
 High-impact gaps:
-1. Extension path discovery mismatch with configurable `vscode_events_file`.
-2. No automatic file-watcher driven vector refresh; updates rely on explicit rebuild flows.
-3. Observability remains console/event-file centric; no structured logging backend.
-4. Config schema migrations are implicit; no versioned migrator.
+1. No automatic file-watcher driven vector refresh; updates rely on explicit rebuild flows.
+2. Observability remains console/event-file centric; no structured logging backend.
+3. Config schema migrations are implicit; no versioned migrator.
 
 Moderate gaps:
 1. Some graph and retrieval quality guarantees are test-covered functionally but not benchmarked for large corpora.

@@ -1,6 +1,6 @@
 ### 1. Dependency and Lockfile Integrity
-- [ ] If `pyproject.toml` changes, run `poetry check --lock` and commit the synchronized `poetry.lock`.
-- [ ] If `package.json` changes, run `npm install` and commit the synchronized `package-lock.json`.
+- [ ] For routine dependency regeneration after changing `pyproject.toml` or `package.json`, run `make sync-deps` and commit synchronized `poetry.lock` and `package-lock.json`.
+- [ ] Avoid raw `poetry lock` or `npm install` for routine dependency regeneration; use `make sync-deps`.
 - [ ] Never edit `poetry.lock` or `package-lock.json` manually.
 - [ ] CI must fail if lock files change during build or dependency installation.
 - [ ] CI must assert lockfile cleanliness with `git diff --exit-code poetry.lock package-lock.json` after dependency steps.
@@ -17,6 +17,7 @@
 - [ ] `_ASSISTANT_CACHE` keys must include every parameter that can change LLM behavior, including `book_path` and `model_override`.
 - [ ] Provider failures must raise actionable, provider-specific errors that include provider, model, and endpoint.
 - [ ] Provider error messages must never expose API keys or secret values.
+- [ ] Any credential loading change must preserve strict precedence: `Environment Variable -> OS Keyring -> Legacy Plaintext File`.
 - [ ] Changes to override precedence must preserve `CLI flag > config file > default` unless intentionally redesigned and documented.
 
 ### 4. Sub-Agents & Background Jobs
@@ -30,7 +31,7 @@
 - [ ] Any change to `storycraftr/utils/markdown.py` parsing must trigger a review of chunking and retrieval behavior.
 - [ ] Any chunking or document-loading change must be validated against Chroma vector store ingestion paths.
 - [ ] Embedding-heavy operations must not introduce unexpected blocking in interactive CLI flows.
-- [ ] Vector store paths must remain resolved through the shared path resolver and not new hardcoded literals.
+- [ ] All runtime internal paths (`subagents`, `sessions`, `vector_store`, `vscode_events_file`) must resolve through `resolve_project_paths` and avoid new hardcoded `.storycraftr` literals.
 
 ### 6. VS Code Extension (IPC & UI)
 - [ ] Any backend event stream path or payload change must be reflected in `src/extension.ts`.
@@ -38,6 +39,7 @@
 - [ ] Extension watcher setup must preserve fallback behavior to `**/.storycraftr/vscode-events.jsonl`.
 - [ ] Watchers must attach `onDidCreate` and `onDidChange` handlers for both custom and fallback watcher modes.
 - [ ] `npm run compile` must pass before merge and must not rely on missing or implicit type dependencies.
+- [ ] Any Story/Paper config detection or custom event path behavior change must be synchronized in user-facing docs (at minimum `README.md` and the architecture reference).
 
 ### 7. Security & Tooling
 - [ ] Any fake credential literal in tests must include `# nosec B105` and `pragma: allowlist secret` on the exact literal line.
@@ -46,7 +48,7 @@
 - [ ] Error handling and logs must be reviewed to ensure no secret material is emitted.
 
 ### 8. Documentation & Versioning
-- [ ] Version bumps must be synchronized across Python and Node metadata files, including `pyproject.toml` and `package.json`.
+- [ ] Version bumps must be synchronized across `pyproject.toml`, `package.json`, and `package-lock.json`, with a corresponding `CHANGELOG.md` entry in the same change set.
 - [ ] Core architecture changes touching LLM factory, sub-agents, or IPC must update `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`.
 - [ ] Every feature or fix commit must have a corresponding `CHANGELOG.md` entry.
 - [ ] Any behavior-affecting CLI change must be reflected in user-facing docs where relevant.

@@ -229,3 +229,14 @@ The graph uses a `RunnableParallel` that retrieves documents from Chroma and the
 5. **Embedding model download in CI**: Tests that instantiate a real `HuggingFaceEmbeddings` model will attempt to download multi-GB artifacts. Always mock or use `llm_provider=fake` in unit tests.
 6. **`uv` in CI**: The CI workflow installs Poetry *inside* the uv virtual environment. When running locally, a standard `poetry install` is sufficient.
 7. **Pre-commit large-file limit**: 500 KB. Do not commit model weights, lock file diffs, or large test fixtures directly.
+
+## Repository Change Impact Checklist — Agent Contract
+
+**Rule 0 — Single source of truth:** All change impact tracking lives in `docs/CHANGE_IMPACT_CHECKLIST.md`. No other checklist, memory, or inference is allowed.
+**Rule 1 — Mandatory checklist update:** Any change to the repository MUST be accompanied by a checklist review. If no checklist item applies, you must explicitly mark "No impact" with justification.
+**Rule 2 — Source → derived invariants:** Modifying `pyproject.toml` requires regenerating `poetry.lock`. Modifying `package.json` requires regenerating `package-lock.json`. Lock files must never be edited directly.
+**Rule 3 — Configuration parity:** Any change to runtime configuration (CLI, env vars, providers) must be reflected in CLI code, VS Code extension, and Docs.
+**Rule 4 — Tests and security tooling:** Fake secrets in tests must be isolated to a single assignment line and include `# nosec B105  # pragma: allowlist secret`.
+**Rule 5 — Documentation coupling:** Changes to architecture-critical files require confirmation that docs were reviewed.
+**Rule 6 — Commit readiness:** A change is incomplete if the checklist is not updated, lockfile checks fail, or pre-commit hooks require `--no-verify`.
+**Rule 7 — CI is authoritative:** CI validates invariants only and must never modify repository state.

@@ -210,7 +210,7 @@ We are excited to introduce the **StoryCraftr** VSCode extension, designed to se
 
 ### Key Features:
 
-- **Auto-detection**: Automatically detects if `storycraftr.json` is present in the project root, ensuring the project is ready to use.
+- **Auto-detection**: Automatically detects if `storycraftr.json` or `papercraftr.json` is present in the project root, ensuring the project is ready to use.
 - **Integrated Chat**: Start interactive AI-powered chat sessions for brainstorming and refining your novel without leaving VSCode.
 - **Simplified Setup**: If StoryCraftr or its dependencies (Python, pipx) are not installed, the extension assists you in setting them up.
 - **Event mirroring**: Chat turns and sub-agent status updates are emitted to `vscode-events.jsonl` (path is configurable via `vscode_events_file`).
@@ -219,8 +219,8 @@ We are excited to introduce the **StoryCraftr** VSCode extension, designed to se
 
 Once installed, the extension will:
 
-1. Check if `storycraftr.json` exists in the root of your project.
-2. If it exists, you can start interacting with StoryCraftr by launching a terminal with the `chat` command using:
+1. Check if `storycraftr.json` or `papercraftr.json` exists in the root of your project.
+2. If one exists, you can start interacting with StoryCraftr by launching a terminal with the `chat` command using:
    - **Command Palette**: Run `Start StoryCraftr Chat`.
 3. If not installed, it will guide you through installing Python, pipx, and StoryCraftr to get started.
 

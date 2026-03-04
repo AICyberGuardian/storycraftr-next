@@ -184,7 +184,7 @@ This will end the chat session and return you to the terminal.
 
 ## Sub-Agent Background Jobs
 
-While command shortcuts are great for quick edits, some operations (large outlines, full chapter rewrites, PDF builds) take time. Prefix those with `:sub-agent` to run them in the background via role-specific prompts that live under `.storycraftr/subagents/`.
+While command shortcuts are great for quick edits, some operations (large outlines, full chapter rewrites, PDF builds) take time. Prefix those with `:sub-agent` to run them in the background via role-specific prompts that live under `subagents_dir` (default: `.storycraftr/subagents/`).
 
 - Inspect roles and their whitelisted commands:
 
@@ -218,11 +218,11 @@ While command shortcuts are great for quick edits, some operations (large outlin
   :sub-agent !seed --language es --force
   ```
 
-While a job runs, the chat shows `[Role ⏳ …]` badges and drops a completion panel in-line when the task finishes. Raw logs are stored in `.storycraftr/subagents/logs/<role>/timestamp.md`, so pipx users can still review them outside the chat.
+While a job runs, the chat shows `[Role ⏳ …]` badges and drops a completion panel in-line when the task finishes. Raw logs are stored in `subagent_logs_dir/<role>/timestamp.md` (default: `.storycraftr/subagents/logs/<role>/timestamp.md`), so pipx users can still review them outside the chat.
 
 ## VS Code Event Stream
 
-Launching `storycraftr chat` inside the VS Code terminal enables a JSONL event feed under `.storycraftr/vscode-events.jsonl`. The StoryCraftr companion extension tails this file to mirror chat turns, background jobs, and command output in the editor (Status Bar counts, output channel, and log prompts). Remove the file if you want to reset or disable the stream.
+Launching `storycraftr chat` inside the VS Code terminal enables a JSONL event feed at `vscode_events_file` (default: `.storycraftr/vscode-events.jsonl`). The StoryCraftr companion extension tails this file to mirror chat turns, background jobs, and command output in the editor (Status Bar counts, output channel, and log prompts). Remove the file if you want to reset or disable the stream.
 
 When VS Code is detected, the CLI also offers to install/update the `storycraftr.storycraftr` extension automatically (it shells out to `code --install-extension`). Decline the prompt to skip the installation and run the command manually later.
 

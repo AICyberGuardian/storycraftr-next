@@ -1,3 +1,18 @@
+## Draft Update - 2026-03-03 (Security, Reliability, and Path Hardening)
+
+### Highlights
+
+- Hardened `build_chat_model` with provider-specific validation and explicit failure classes.
+- Enforced explicit OpenRouter model identifiers in `provider/model` format via project config (`llm_model`).
+- Migrated credential loading to secure-first order: environment variables -> OS keyring -> legacy plaintext files.
+- Added `store_local_credential` helper for OS keyring persistence.
+- Hardened sub-agent background job execution with explicit lifecycle locking, crash visibility, and failure persistence.
+- Refactored `create_message` to separate prompt assembly/metadata writing from LangChain graph invocation and thread bookkeeping.
+- Removed hardcoded runtime storage paths by introducing config-rooted path resolution for sub-agent files/logs, sessions, VS Code event stream, and vector store persistence/cleanup.
+- Expanded unit coverage for factory validation and credential loading precedence.
+- Added mock-based graph tests for retrieval + prompt assembly without live API calls.
+- Updated user and contributor docs (`README.md`, `docs/getting_started.md`, `docs/chat.md`, `AGENTS.md`, `SECURITY.md`, `docs/langchain-refactor-plan.md`, `CHANGELOG.md`).
+
 # PaperCraftr 0.10.1-beta4
 
 ## 🎉 Major Release: Complete Command Implementation

@@ -35,21 +35,29 @@ uvx --from git+https://github.com/raestrada/storycraftr.git@v0.12.0-beta10 story
 
 ### Configure Provider Credentials
 
-StoryCraftr now uses LangChain and supports OpenAI, OpenRouter, and Ollama out of the box. Credentials are discovered automatically from environment variables or text files inside `~/.storycraftr/` or `~/.papercraftr/`.
+StoryCraftr now uses LangChain and supports OpenAI, OpenRouter, and Ollama out of the box. Credentials are discovered in this order:
+
+1. Existing environment variables (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `OLLAMA_API_KEY`)
+2. OS keyring entries under the `storycraftr` service (override via `STORYCRAFTR_KEYRING_SERVICE`)
+3. Legacy plaintext files in `~/.storycraftr/` or `~/.papercraftr/` (compatibility fallback)
+
+Use the built-in helper to store keys securely in the OS keyring:
 
 ```bash
-# OpenAI
-mkdir -p ~/.storycraftr
-echo "sk-your-openai-secret" > ~/.storycraftr/openai_api_key.txt
+python -c "from storycraftr.llm.credentials import store_local_credential; store_local_credential('OPENAI_API_KEY', 'sk-your-openai-secret')"
+python -c "from storycraftr.llm.credentials import store_local_credential; store_local_credential('OPENROUTER_API_KEY', 'or-your-openrouter-secret')"
+```
 
-# OpenRouter
+Legacy plaintext files are still read, but they are now treated as a migration fallback:
+
+```bash
+# Optional legacy fallback (less secure)
+mkdir -p ~/.storycraftr
 echo "or-your-openrouter-secret" > ~/.storycraftr/openrouter_api_key.txt
 
 # Ollama usually runs locally and does not require a key.
 export OLLAMA_BASE_URL="http://localhost:11434"
 ```
-
-You can also set the variables directly (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `OLLAMA_API_KEY`) before invoking the CLI.
 
 ### Configure the LLM and Embeddings
 
@@ -70,8 +78,29 @@ Each project stores its configuration in `storycraftr.json` or `papercraftr.json
 ```
 
 - `llm_provider` accepts `openai`, `openrouter`, or `ollama`.
+- For `llm_provider=openrouter`, set `llm_model` explicitly in `provider/model` format (for example `meta-llama/llama-3.3-70b-instruct`).
 - `llm_endpoint` lets you target custom bases (e.g., `https://openrouter.ai/api/v1`).
+- StoryCraftr now validates provider/model/endpoint settings before runtime model calls and raises provider-specific configuration/authentication errors early.
 - `embed_model` defaults to `BAAI/bge-large-en-v1.5` for OpenAI-quality local embeddings. Use a lighter model (e.g., `sentence-transformers/all-MiniLM-L6-v2`) on constrained hardware.
+
+### Runtime Storage Paths (Optional)
+
+StoryCraftr now resolves internal runtime directories from the canonical project root (`book_path`) and supports optional overrides in `storycraftr.json` / `papercraftr.json`:
+
+```json
+{
+  "internal_state_dir": ".storycraftr",
+  "subagents_dir": ".storycraftr/subagents",
+  "subagent_logs_dir": ".storycraftr/subagents/logs",
+  "sessions_dir": ".storycraftr/sessions",
+  "vector_store_dir": "vector_store",
+  "vscode_events_file": ".storycraftr/vscode-events.jsonl"
+}
+```
+
+- Relative values are resolved from the project root.
+- Absolute values are supported for advanced setups.
+- If omitted, defaults match current StoryCraftr layout.
 
 ### Supported Providers
 
@@ -182,6 +211,7 @@ We are excited to introduce the **StoryCraftr** VSCode extension, designed to se
 - **Auto-detection**: Automatically detects if `storycraftr.json` is present in the project root, ensuring the project is ready to use.
 - **Integrated Chat**: Start interactive AI-powered chat sessions for brainstorming and refining your novel without leaving VSCode.
 - **Simplified Setup**: If StoryCraftr or its dependencies (Python, pipx) are not installed, the extension assists you in setting them up.
+- **Event mirroring**: Chat turns and sub-agent status updates are emitted to `vscode-events.jsonl` (path is configurable via `vscode_events_file`).
 
 ### Usage:
 

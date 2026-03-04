@@ -16,14 +16,26 @@ pipx install git+https://github.com/raestrada/storycraftr.git@v0.12.0-beta10
 
 ### Configure credentials
 
-StoryCraftr loads provider secrets automatically. Create text files in `~/.storycraftr/` (or `~/.papercraftr/`) or set environment variables before calling the CLI.
+StoryCraftr loads provider secrets automatically in this order:
+
+1. Existing environment variables.
+2. OS keyring entries under the `storycraftr` service (override with `STORYCRAFTR_KEYRING_SERVICE`).
+3. Legacy plaintext files in `~/.storycraftr/` and `~/.papercraftr/` (fallback only).
+
+Store credentials securely in the OS keyring:
 
 ```bash
-# OpenAI
+python -c "from storycraftr.llm.credentials import store_local_credential; store_local_credential('OPENAI_API_KEY', 'sk-your-openai-secret')"
+python -c "from storycraftr.llm.credentials import store_local_credential; store_local_credential('OPENROUTER_API_KEY', 'or-your-openrouter-secret')"
+```
+
+Legacy plaintext files are still supported for compatibility:
+
+```bash
+# Optional legacy fallback (less secure)
 mkdir -p ~/.storycraftr
 echo "sk-your-openai-secret" > ~/.storycraftr/openai_api_key.txt
 
-# OpenRouter
 echo "or-your-openrouter-secret" > ~/.storycraftr/openrouter_api_key.txt
 
 # Ollama usually runs locally and does not require a key.
@@ -49,12 +61,32 @@ When you run `storycraftr init`, the generated `storycraftr.json` includes the n
 ```
 
 - `llm_provider` can be `openai`, `openrouter`, or `ollama`.
+- `llm_provider=openrouter` requires an explicit `llm_model` in `provider/model` format (for example, `meta-llama/llama-3.3-70b-instruct`).
 - `llm_endpoint` lets you point at custom-compatible bases.
+- Provider/model/endpoint settings are validated before runtime model invocation, with provider-specific error messages for invalid config or missing keys.
 - `embed_model` defaults to `BAAI/bge-large-en-v1.5` for OpenAI-quality local embeddings; switch to a smaller model if resources are limited.
+
+### Runtime path overrides (optional)
+
+StoryCraftr resolves its internal directories from the project root and supports optional overrides:
+
+```json
+{
+  "internal_state_dir": ".storycraftr",
+  "subagents_dir": ".storycraftr/subagents",
+  "subagent_logs_dir": ".storycraftr/subagents/logs",
+  "sessions_dir": ".storycraftr/sessions",
+  "vector_store_dir": "vector_store",
+  "vscode_events_file": ".storycraftr/vscode-events.jsonl"
+}
+```
+
+- Relative paths are resolved from your project root.
+- Absolute paths are accepted if you need external storage locations.
 
 ### Background sub-agents
 
-The init command now scaffolds `.storycraftr/subagents/` with YAML files describing the default roles (editor, continuity, worldbuilding, marketing). Each YAML file declares:
+The init command scaffolds the default sub-agent directory (by default `.storycraftr/subagents/`) with YAML files describing the default roles (editor, continuity, worldbuilding, marketing). Each YAML file declares:
 
 ```yaml
 slug: editor
@@ -67,8 +99,8 @@ system_prompt: >
 ```
 
 - Re-run `storycraftr sub-agents seed --language en --force` at any time to regenerate the defaults (replace `en` with your locale).
-- Logs for each background run are written to `.storycraftr/subagents/logs/<role>/timestamp.md`, making it easy to review results even when the CLI is installed through `pipx`.
-- When the CLI detects a VS Code terminal, it also streams structured chat/job events to `.storycraftr/vscode-events.jsonl` so the editor can mirror them without scraping terminal output.
+- Logs for each background run are written to `<subagent_logs_dir>/<role>/timestamp.md` (default: `.storycraftr/subagents/logs/<role>/timestamp.md`), making it easy to review results even when the CLI is installed through `pipx`.
+- When the CLI detects a VS Code terminal, it streams structured chat/job events to `vscode_events_file` (default: `.storycraftr/vscode-events.jsonl`) so the editor can mirror them without scraping terminal output.
 
 ## Step 2: Create the Behavior File
 

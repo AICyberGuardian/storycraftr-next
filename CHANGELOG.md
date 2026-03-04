@@ -1,5 +1,85 @@
 # Changelog
 
+## [Unreleased] - 2026-03-03
+
+### Added
+
+- **Secure Credential Helper**: Added `store_local_credential` in `storycraftr.llm.credentials` so provider secrets can be stored in the OS keyring instead of plaintext files.
+- **Targeted Regression Tests**: Added unit test modules covering LLM factory validation, credential loading precedence, and provider-aware model defaults:
+  - `tests/unit/test_llm_factory.py`
+  - `tests/unit/test_credentials.py`
+  - `tests/unit/test_llm_config.py`
+
+### Changed
+
+- **LLM Factory Validation Hardening**:
+  - Added explicit preflight checks in `storycraftr.llm.factory.build_chat_model` for provider, model, endpoint URL shape, temperature range, and timeout positivity.
+  - Added provider-specific exception classes (`LLMConfigurationError`, `LLMAuthenticationError`, `LLMInitializationError`) for clearer failure modes.
+  - Wrapped provider client construction errors to prevent ambiguous runtime failures.
+- **OpenRouter Model Selection Enforcement**:
+  - OpenRouter now requires an explicit `llm_model` in `provider/model` format (for example, `meta-llama/llama-3.3-70b-instruct`).
+  - Generic fallbacks for OpenRouter model names are no longer accepted; invalid or missing model identifiers fail fast before generation starts.
+- **Provider Endpoint Resolution**:
+  - OpenRouter endpoint resolution now follows: `llm_endpoint` -> `OPENROUTER_BASE_URL` -> `https://openrouter.ai/api/v1`.
+  - Endpoint values are validated as full `http(s)` URLs before provider initialization.
+- **Configuration Mapping Behavior**:
+  - `storycraftr.utils.core.load_book_config` and `llm_settings_from_config` now apply provider-aware model defaults.
+  - Default model fallback (`gpt-4o`) is only auto-applied for OpenAI when `llm_model` is absent; OpenRouter no longer inherits that fallback.
+- **Sub-Agent Concurrency and Failure Handling**:
+  - `SubAgentJobManager` now uses a re-entrant lock for safer concurrent lifecycle updates.
+  - Job submissions retain `Future` references and inspect completion callbacks to surface executor-level crashes.
+  - `_run_job` now logs unexpected exceptions with stack traces, preserves stderr in output, and marks persistence failures as explicit failed jobs.
+- **Message Orchestration Separation**:
+  - `create_message` was decomposed into focused helpers that separately handle prompt content construction, prompt metadata persistence, LangChain graph invocation, and thread/progress bookkeeping.
+  - This keeps graph execution isolated from metadata-writing concerns and improves testability of each stage.
+- **Path Debt Remediation**:
+  - Added centralized project path resolution in `storycraftr.utils.paths.resolve_project_paths` and migrated hardcoded runtime directories to config-rooted paths (`subagents`, `sessions`, VS Code events, and `vector_store`).
+  - Updated sub-agent storage/job management, session persistence, vector cleanup, Chroma persistence, and assistant document-loading filters to consume dynamic path resolution from project configuration.
+  - Affected runtime modules include:
+    - `storycraftr/subagents/storage.py`
+    - `storycraftr/subagents/jobs.py`
+    - `storycraftr/chat/session.py`
+    - `storycraftr/integrations/vscode.py`
+    - `storycraftr/vectorstores/chroma.py`
+    - `storycraftr/utils/cleanup.py`
+    - `storycraftr/agent/agents.py`
+    - `storycraftr/utils/core.py`
+
+### Security
+
+- **Credential Loading Order Updated**:
+  - `load_local_credentials` now resolves secrets in secure-first order:
+    1. Existing environment variables
+    2. OS keyring (`storycraftr` service by default, overridable via `STORYCRAFTR_KEYRING_SERVICE`)
+    3. Legacy plaintext files in `~/.storycraftr` and `~/.papercraftr` (compatibility fallback)
+- **Legacy Plaintext Fallback Warning**:
+  - When legacy key files are used, CLI output now warns users to migrate credentials into OS keyring storage.
+
+### Dependencies
+
+- Added `keyring >=25.6.0` to `pyproject.toml` for secure local credential management.
+
+### Documentation
+
+- Updated credential and provider docs to reflect the new security and routing contract:
+  - `README.md`
+  - `docs/getting_started.md`
+  - `docs/chat.md`
+  - `AGENTS.md`
+  - `docs/langchain-refactor-plan.md`
+  - `SECURITY.md`
+  - `release_notes.md`
+
+### Test Updates
+
+- Updated `tests/test_cli.py` credential test to mock keyring unavailability and preserve deterministic legacy fallback assertions.
+- Added regression coverage for background job failure paths and orchestration boundaries:
+  - `tests/unit/test_subagents.py`
+  - `tests/unit/test_agents_create_message.py`
+- Added OpenRouter-focused factory tests and graph mock tests:
+  - `tests/unit/test_llm_factory.py`
+  - `tests/unit/test_assistant_graph.py`
+
 ## [0.10.1-beta4] - 2024-11-01
 
 ### Added

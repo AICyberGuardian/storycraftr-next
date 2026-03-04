@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Mapping
 
+from storycraftr.utils.paths import resolve_project_paths
+
 
 @dataclass
 class SessionManager:
@@ -13,8 +15,7 @@ class SessionManager:
     _directory: Path = field(init=False)
 
     def __post_init__(self) -> None:
-        root = Path(self.book_path)
-        storage_root = root / ".storycraftr" / "sessions"
+        storage_root = resolve_project_paths(self.book_path).sessions_root
         storage_root.mkdir(parents=True, exist_ok=True)
         self._directory = storage_root
 

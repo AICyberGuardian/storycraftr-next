@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from typing import Dict, Optional, List
+from urllib.parse import urlparse
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
@@ -23,6 +24,19 @@ _PROVIDER_DEFAULT_ENV = {
 }
 
 _OPENROUTER_DEFAULT_ENDPOINT = "https://openrouter.ai/api/v1"
+_SUPPORTED_PROVIDERS = {"openai", "openrouter", "ollama", "fake"}
+
+
+class LLMConfigurationError(ValueError):
+    """Raised when provider or model settings are invalid before model startup."""
+
+
+class LLMAuthenticationError(RuntimeError):
+    """Raised when provider credentials are missing or unreadable."""
+
+
+class LLMInitializationError(RuntimeError):
+    """Raised when a provider client fails to initialize."""
 
 
 @dataclass
@@ -39,15 +53,79 @@ class LLMSettings:
 
 
 def _resolve_api_key(provider: str, explicit_env: Optional[str]) -> Optional[str]:
-    env_var = explicit_env or _PROVIDER_DEFAULT_ENV.get(provider)
+    env_var = (explicit_env or _PROVIDER_DEFAULT_ENV.get(provider) or "").strip()
     if not env_var:
-        return None
+        raise LLMConfigurationError(
+            f"No API key environment variable configured for provider '{provider}'."
+        )
     api_key = os.getenv(env_var)
     if not api_key:
-        raise RuntimeError(
+        raise LLMAuthenticationError(
             f"Missing environment variable '{env_var}' required for provider '{provider}'."
         )
     return api_key
+
+
+def _normalize_provider(provider: str) -> str:
+    normalized = (provider or "").strip().lower()
+    if not normalized:
+        raise LLMConfigurationError(
+            "Missing LLM provider. Set 'llm_provider' in storycraftr.json."
+        )
+    if normalized not in _SUPPORTED_PROVIDERS:
+        supported = ", ".join(sorted(_SUPPORTED_PROVIDERS))
+        raise LLMConfigurationError(
+            f"Unsupported LLM provider '{provider}'. Supported providers: {supported}."
+        )
+    return normalized
+
+
+def _validate_model(provider: str, model: str) -> str:
+    model_name = (model or "").strip()
+    if not model_name:
+        raise LLMConfigurationError(
+            f"Missing 'llm_model' for provider '{provider}'. "
+            "Set an explicit model in storycraftr.json."
+        )
+
+    if provider == "openrouter":
+        if "/" not in model_name:
+            raise LLMConfigurationError(
+                "OpenRouter requires an explicit provider/model identifier in "
+                "'llm_model' (for example 'meta-llama/llama-3.3-70b-instruct')."
+            )
+        owner, model_slug = model_name.split("/", 1)
+        if not owner.strip() or not model_slug.strip():
+            raise LLMConfigurationError(
+                "Invalid OpenRouter model identifier. Expected 'provider/model'."
+            )
+
+    return model_name
+
+
+def _validate_temperature(temperature: float) -> None:
+    if not isinstance(temperature, (int, float)):
+        raise LLMConfigurationError("Temperature must be a number.")
+    if temperature < 0 or temperature > 2:
+        raise LLMConfigurationError("Temperature must be between 0 and 2.")
+
+
+def _validate_request_timeout(request_timeout: Optional[float]) -> None:
+    if request_timeout is None:
+        return
+    if request_timeout <= 0:
+        raise LLMConfigurationError("Request timeout must be greater than zero.")
+
+
+def _validate_endpoint(provider: str, endpoint: Optional[str]) -> None:
+    if not endpoint:
+        return
+    parsed = urlparse(endpoint)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise LLMConfigurationError(
+            f"Invalid endpoint '{endpoint}' for provider '{provider}'. "
+            "Use a full URL such as 'https://host/api/v1'."
+        )
 
 
 def build_chat_model(settings: LLMSettings) -> BaseChatModel:
@@ -59,18 +137,33 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
         ValueError: if the provider is unsupported.
     """
 
-    provider = settings.provider.lower()
+    provider = _normalize_provider(settings.provider)
+
+    if provider == "fake":
+        return _OfflineChatModel(
+            template=(
+                "Offline placeholder response for '{prompt}'. "
+                "Set llm_provider to openai/openrouter/ollama for real generations."
+            )
+        )
+
+    model_name = _validate_model(provider, settings.model)
+    _validate_temperature(settings.temperature)
+    _validate_request_timeout(settings.request_timeout)
 
     if provider in ("openai", "openrouter"):
         api_key = _resolve_api_key(provider, settings.api_key_env)
         base_url = settings.endpoint or (
-            _OPENROUTER_DEFAULT_ENDPOINT if provider == "openrouter" else None
+            os.getenv("OPENROUTER_BASE_URL") if provider == "openrouter" else None
         )
+        if provider == "openrouter" and not base_url:
+            base_url = _OPENROUTER_DEFAULT_ENDPOINT
+        _validate_endpoint(provider, base_url)
         params: Dict[str, object] = {
-            "model": settings.model,
+            "model": model_name,
             "temperature": settings.temperature,
         }
-        if settings.request_timeout:
+        if settings.request_timeout is not None:
             params["timeout"] = settings.request_timeout
         if base_url:
             params["base_url"] = base_url
@@ -88,30 +181,33 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
         if headers:
             params["default_headers"] = headers
 
-        return ChatOpenAI(api_key=api_key, **params)
+        try:
+            return ChatOpenAI(api_key=api_key, **params)
+        except Exception as exc:
+            raise LLMInitializationError(
+                f"Failed to initialize provider '{provider}' with model '{model_name}'."
+            ) from exc
 
     if provider == "ollama":
         base_url = settings.endpoint or os.getenv("OLLAMA_BASE_URL")
+        _validate_endpoint(provider, base_url)
         params = {
-            "model": settings.model,
+            "model": model_name,
             "temperature": settings.temperature,
         }
         if base_url:
             params["base_url"] = base_url
-        if settings.request_timeout:
+        if settings.request_timeout is not None:
             params["timeout"] = settings.request_timeout
 
-        return ChatOllama(**params)
+        try:
+            return ChatOllama(**params)
+        except Exception as exc:
+            raise LLMInitializationError(
+                f"Failed to initialize provider 'ollama' with model '{model_name}'."
+            ) from exc
 
-    if provider == "fake":
-        return _OfflineChatModel(
-            template=(
-                "Offline placeholder response for '{prompt}'. "
-                "Set llm_provider to openai/openrouter/ollama for real generations."
-            )
-        )
-
-    raise ValueError(f"Unsupported LLM provider '{settings.provider}'.")
+    raise LLMConfigurationError(f"Unsupported LLM provider '{settings.provider}'.")
 
 
 class _OfflineChatModel(BaseChatModel):

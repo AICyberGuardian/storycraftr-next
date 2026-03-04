@@ -10,6 +10,8 @@ from typing import Optional
 
 from rich.console import Console
 
+from storycraftr.utils.paths import resolve_project_paths
+
 
 _VS_CODE_SENTINELS = {
     "VSCODE_PID",
@@ -36,7 +38,7 @@ class VSCodeEventEmitter:
 
     def __init__(self, book_path: str):
         self._book_path = Path(book_path)
-        self._events_path = self._book_path / ".storycraftr" / "vscode-events.jsonl"
+        self._events_path = resolve_project_paths(book_path).vscode_events_file
         self._events_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
 

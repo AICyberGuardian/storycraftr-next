@@ -1,14 +1,41 @@
-## 🔒 AIcraftr Security Notice
+# StoryCraftr Security
 
-Please be aware that only versions 0.7.* and 0.8.* of AIcraftr have active security support. To ensure a secure experience, make sure you are using one of these versions.
+## Credential Handling
 
-Older versions (below 0.7.*) or newer versions (beyond 0.8.*) do not currently have security patches or updates. It is strongly recommended to upgrade to a supported version if you are using an unsupported one.
+StoryCraftr resolves provider credentials in secure-first order:
 
-### Key Security Recommendations:
+1. Existing environment variables (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `OLLAMA_API_KEY`)
+2. OS keyring entries under service `storycraftr` (override with `STORYCRAFTR_KEYRING_SERVICE`)
+3. Legacy plaintext files in `~/.storycraftr` or `~/.papercraftr` (compatibility fallback only)
 
-- **Use Supported Versions**: Stick to versions 0.7.* or 0.8.* for the latest security fixes.
-- **Keep Updated**: Regularly check for updates within these supported versions to benefit from any additional security patches.
-- **Report Vulnerabilities**: If you discover any security vulnerabilities, please report them to our security team immediately via our [GitHub Issues](https://github.com/raestrada/aicraftr/issues).
+Prefer OS keyring storage over plaintext files:
 
-Your security is a priority, and we appreciate the community's help in keeping AIcraftr safe for everyone.
+```bash
+python -c "from storycraftr.llm.credentials import store_local_credential; store_local_credential('OPENAI_API_KEY', 'sk-...')"
+python -c "from storycraftr.llm.credentials import store_local_credential; store_local_credential('OPENROUTER_API_KEY', 'or-...')"
+```
 
+## LLM Configuration Safety
+
+- OpenRouter requires an explicit `llm_model` in `provider/model` format (for example, `meta-llama/llama-3.3-70b-instruct`).
+- Provider endpoints are validated as full `http(s)` URLs before model startup.
+- Invalid model/provider combinations fail fast with provider-specific errors in `storycraftr.llm.factory`.
+
+## Secret Hygiene
+
+- Never commit API keys, `.env` files, or credential text files.
+- Run `poetry run detect-secrets scan` after config changes.
+- Run `poetry run pre-commit run --all-files` before opening a pull request.
+
+## Reporting Vulnerabilities
+
+Report vulnerabilities through the project issue tracker:
+
+- https://github.com/raestrada/storycraftr/issues
+
+When reporting, include:
+
+- affected StoryCraftr version
+- reproduction steps
+- impact assessment
+- any temporary mitigation you identified

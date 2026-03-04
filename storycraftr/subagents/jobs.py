@@ -28,6 +28,9 @@ from .storage import ensure_storage_dirs, load_roles, seed_default_roles
 
 logger = logging.getLogger(__name__)
 
+# Serializes module-level console swaps across concurrent sub-agent workers.
+_CONSOLE_SWAP_LOCK = threading.Lock()
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -203,24 +206,25 @@ class SubAgentJobManager:
         status = "succeeded"
         error_text: Optional[str] = None
 
-        swaps = _swap_storycraftr_consoles(job_console)
-        try:
-            with redirect_stdout(buffer_out), redirect_stderr(buffer_err):
-                run_module_command(
-                    job.command_text,
-                    console=job_console,
-                    book_path=str(self.book_path),
-                )
-        except ModuleCommandError as exc:
-            status = "failed"
-            error_text = str(exc)
-            logger.warning("Sub-agent job %s failed: %s", job.job_id, exc)
-        except Exception as exc:  # pragma: no cover - safety net
-            status = "failed"
-            error_text = f"{type(exc).__name__}: {exc}"
-            logger.exception("Unhandled exception in sub-agent job %s", job.job_id)
-        finally:
-            _restore_storycraftr_consoles(swaps)
+        with _CONSOLE_SWAP_LOCK:
+            swaps = _swap_storycraftr_consoles(job_console)
+            try:
+                with redirect_stdout(buffer_out), redirect_stderr(buffer_err):
+                    run_module_command(
+                        job.command_text,
+                        console=job_console,
+                        book_path=str(self.book_path),
+                    )
+            except ModuleCommandError as exc:
+                status = "failed"
+                error_text = str(exc)
+                logger.warning("Sub-agent job %s failed: %s", job.job_id, exc)
+            except Exception as exc:  # pragma: no cover - safety net
+                status = "failed"
+                error_text = f"{type(exc).__name__}: {exc}"
+                logger.exception("Unhandled exception in sub-agent job %s", job.job_id)
+            finally:
+                _restore_storycraftr_consoles(swaps)
 
         stdout_text = buffer_out.getvalue()
         stderr_text = buffer_err.getvalue()

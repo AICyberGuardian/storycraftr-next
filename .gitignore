@@ -307,3 +307,6 @@ behaviors/
 
 # Generated embeddings
 *.sqlite3
+
+# StoryCraftr runtime
+.storycraftr/cache/

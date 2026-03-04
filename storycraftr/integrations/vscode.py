@@ -10,6 +10,9 @@ from typing import Optional
 
 from rich.console import Console
 
+from storycraftr.utils.core import load_book_config
+from storycraftr.utils.paths import resolve_project_paths
+
 
 _VS_CODE_SENTINELS = {
     "VSCODE_PID",
@@ -17,6 +20,13 @@ _VS_CODE_SENTINELS = {
     "CODE_PORTABLE_EXECUTABLE",
     "VSCODE_CWD",
 }
+
+
+def _load_config_if_present(book_path: str):
+    root = Path(book_path)
+    if (root / "storycraftr.json").exists() or (root / "papercraftr.json").exists():
+        return load_book_config(book_path)
+    return None
 
 
 def is_running_in_vscode(env: Optional[dict] = None) -> bool:
@@ -36,7 +46,10 @@ class VSCodeEventEmitter:
 
     def __init__(self, book_path: str):
         self._book_path = Path(book_path)
-        self._events_path = self._book_path / ".storycraftr" / "vscode-events.jsonl"
+        config = _load_config_if_present(book_path)
+        self._events_path = resolve_project_paths(
+            book_path, config=config
+        ).vscode_events_file
         self._events_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
 

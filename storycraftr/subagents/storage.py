@@ -5,21 +5,23 @@ from typing import Dict, List
 
 import yaml
 
+from storycraftr.utils.paths import resolve_project_paths
+
 from .defaults import get_default_roles_for_language
 from .models import SubAgentRole
 
-SUBAGENT_ROOT = ".storycraftr/subagents"
 LOGS_DIRNAME = "logs"
 
 
-def subagent_root(book_path: str) -> Path:
-    return Path(book_path) / SUBAGENT_ROOT
+def subagent_root(book_path: str, config: object | None = None) -> Path:
+    return resolve_project_paths(book_path, config=config).subagents_root
 
 
-def ensure_storage_dirs(book_path: str) -> Path:
-    root = subagent_root(book_path)
+def ensure_storage_dirs(book_path: str, config: object | None = None) -> Path:
+    paths = resolve_project_paths(book_path, config=config)
+    root = paths.subagents_root
     root.mkdir(parents=True, exist_ok=True)
-    (root / LOGS_DIRNAME).mkdir(parents=True, exist_ok=True)
+    paths.subagents_logs_root.mkdir(parents=True, exist_ok=True)
     return root
 
 
@@ -27,8 +29,8 @@ def role_file_path(root: Path, slug: str) -> Path:
     return root / f"{slug}.yaml"
 
 
-def load_roles(book_path: str) -> Dict[str, SubAgentRole]:
-    root = ensure_storage_dirs(book_path)
+def load_roles(book_path: str, config: object | None = None) -> Dict[str, SubAgentRole]:
+    root = ensure_storage_dirs(book_path, config=config)
     roles: Dict[str, SubAgentRole] = {}
     for file_path in root.glob("*.yaml"):
         data = yaml.safe_load(file_path.read_text(encoding="utf-8")) or {}
@@ -43,6 +45,7 @@ def seed_default_roles(
     language: str = "en",
     *,
     force: bool = False,
+    config: object | None = None,
 ) -> List[Path]:
     """
     Materialise the default role YAML files for the project.
@@ -54,7 +57,7 @@ def seed_default_roles(
     Returns:
         A list of file paths that were created or updated.
     """
-    root = ensure_storage_dirs(book_path)
+    root = ensure_storage_dirs(book_path, config=config)
     roles = get_default_roles_for_language(language)
     written: List[Path] = []
 

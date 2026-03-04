@@ -15,6 +15,11 @@ from storycraftr.llm.embeddings import EmbeddingSettings
 console = Console()
 
 
+def _default_model_for_provider(provider: str) -> str:
+    normalized = (provider or "").strip().lower()
+    return "gpt-4o" if normalized == "openai" else ""
+
+
 def generate_prompt_with_hash(original_prompt: str, date: str, book_path: str) -> str:
     """
     Generates a modified prompt by combining a random phrase from a list,
@@ -123,6 +128,8 @@ def load_book_config(book_path: str):
         return None
 
     try:
+        resolved_book_path = str(Path(book_path).resolve())
+
         # Intentar cargar papercraftr.json primero
         config_path = Path(book_path) / "papercraftr.json"
         if not config_path.exists():
@@ -140,6 +147,7 @@ def load_book_config(book_path: str):
 
         # Ensure required fields exist with default values
         default_config = {
+            "book_path": resolved_book_path,
             "book_name": "Untitled Paper",
             "authors": [],
             "primary_language": "en",
@@ -152,7 +160,7 @@ def load_book_config(book_path: str):
             "cli_name": "papercraftr",
             "multiple_answer": True,
             "llm_provider": "openai",
-            "llm_model": "gpt-4o",
+            "llm_model": "",
             "llm_endpoint": "",
             "llm_api_key_env": "",
             "temperature": 0.7,
@@ -166,6 +174,13 @@ def load_book_config(book_path: str):
         for key, value in config_data.items():
             default_config[key] = value
 
+        # Always keep runtime project root canonical for path resolution.
+        default_config["book_path"] = resolved_book_path
+
+        provider = str(default_config.get("llm_provider", "openai")).strip().lower()
+        if "llm_model" not in config_data:
+            default_config["llm_model"] = _default_model_for_provider(provider)
+
         return SimpleNamespace(**default_config)
 
     except Exception as e:
@@ -178,9 +193,14 @@ def llm_settings_from_config(config: BookConfig) -> LLMSettings:
     Map the persisted configuration to normalized LLM settings.
     """
 
+    provider = getattr(config, "llm_provider", "openai")
+    model = getattr(config, "llm_model", None)
+    if model is None:
+        model = _default_model_for_provider(provider)
+
     return LLMSettings(
-        provider=getattr(config, "llm_provider", "openai"),
-        model=getattr(config, "llm_model", "gpt-4o"),
+        provider=provider,
+        model=model,
         endpoint=getattr(config, "llm_endpoint", ""),
         api_key_env=getattr(config, "llm_api_key_env", ""),
         temperature=getattr(config, "temperature", 0.7),

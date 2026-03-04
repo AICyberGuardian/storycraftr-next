@@ -12,9 +12,10 @@ This refactor removes all direct usage of the legacy OpenAI SDK and re-centers S
 ## Target Architecture
 - **LLM service layer**: Introduce `storycraftr/llm/` with a `LangChainClient` factory that reads CLI options and environment variables to build one of:
   - `ChatOpenAI` (`langchain-openai`) for OpenAI with `OPENAI_API_KEY`.
-  - `ChatOpenRouter` (`langchain_community.chat_models`) with `OPENROUTER_API_KEY` and `OPENROUTER_BASE_URL`.
+  - `ChatOpenAI` (`langchain-openai`) targeting OpenRouter-compatible endpoints with `OPENROUTER_API_KEY` and optional `OPENROUTER_BASE_URL`.
   - `ChatOllama` (`langchain_community.chat_models`) with optional `OLLAMA_BASE_URL`.
 - **Configuration changes**: Replace `openai_url`/`openai_model` fields with `llm_provider`, `llm_model`, `llm_endpoint`, `temperature`, and `request_timeout`. Update `BookConfig` and persisted JSON templates accordingly.
+- **Runtime path resolution**: Resolve internal storage paths (`subagents`, `sessions`, `vector_store`, VS Code events) from the canonical project root with optional config overrides, avoiding hardcoded directory literals across modules.
 - **Prompt handling**: Migrate prompt assembly to LangChain `Runnable` chains so formatting, hashing, and multi-turn chat operate through structured `Messages`.
 - **Retrieval**: Replace OpenAI vector stores with an embedded ChromaDB instance stored under each project (for example, `<book>/vector_store/`). Populate it via LangChain’s `Chroma` integration using `BAAI/bge-large-en-v1.5` as the default embedding model, which produces results closest to OpenAI’s text-embedding-3 series while running locally. Offer a fallback like `sentence-transformers/all-MiniLM-L6-v2` for low-resource setups. Define a shared loader for Markdown knowledge bases and centralize chunking parameters.
 - **Streaming & multi-part answers**: Implement LangChain callbacks to stream tokens and manage multi-part responses without the bespoke `END_OF_RESPONSE` sentinel workarounds.
@@ -28,7 +29,8 @@ This refactor removes all direct usage of the legacy OpenAI SDK and re-centers S
 2. **Configuration & CLI**
    - Update CLI options: `--llm-provider`, `--llm-model`, `--llm-endpoint`, `--llm-api-key-env`, defaulting from environment variables (`STORYCRAFTR_LLM_PROVIDER`, etc.).
    - Add embedding flags: `--embed-model`, `--embed-device`, `--embed-cache-dir`; read defaults from env vars (`STORYCRAFTR_EMBED_MODEL`, `STORYCRAFTR_EMBED_DEVICE`, `STORYCRAFTR_EMBED_CACHE`).
-   - Rewrite `load_openai_api_key` into a generic credentials loader supporting `{OPENAI,OPENROUTER,OLLAMA}_API_KEY` plus optional config files under `.storycraftr/`.
+   - Rewrite `load_openai_api_key` into a generic credentials loader supporting `{OPENAI,OPENROUTER,OLLAMA}_API_KEY` with secure-first resolution (environment variables -> OS keyring -> legacy config files under `.storycraftr/`).
+   - Centralize runtime path computation behind a shared resolver (`resolve_project_paths`) and allow optional path overrides in project config.
    - Modify scaffolding commands (`init_structure_*`) to generate new config fields and drop OpenAI-only keys.
    - Adjust `BookConfig` and `load_book_config` to reflect new schema, including migration fallback when encountering legacy fields.
 3. **Agent Pipeline**
@@ -53,7 +55,7 @@ This refactor removes all direct usage of the legacy OpenAI SDK and re-centers S
 | Provider   | Required Env Vars                 | CLI Overrides                        | LangChain Class             |
 |------------|-----------------------------------|--------------------------------------|-----------------------------|
 | OpenAI     | `OPENAI_API_KEY`                  | `--llm-provider=openai`              | `ChatOpenAI`                |
-| OpenRouter | `OPENROUTER_API_KEY`, optional `OPENROUTER_BASE_URL` | `--llm-provider=openrouter` | `ChatOpenRouter` (base URL set to `https://openrouter.ai/api/v1`) |
+| OpenRouter | `OPENROUTER_API_KEY`, optional `OPENROUTER_BASE_URL` | `--llm-provider=openrouter` | `ChatOpenAI` with OpenRouter-compatible base URL (default `https://openrouter.ai/api/v1`), explicit `provider/model` `llm_model` required |
 | Ollama     | *(none by default)*, optional `OLLAMA_BASE_URL` | `--llm-provider=ollama`             | `ChatOllama`                |
 | Embeddings | `STORYCRAFTR_EMBED_MODEL` (defaults to `BAAI/bge-large-en-v1.5`), optional `STORYCRAFTR_EMBED_DEVICE` | `--embed-model`, `--embed-device` | `HuggingFaceEmbeddings` (defaulting to `bge-large-en-v1.5`) feeding Chroma |
 

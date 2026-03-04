@@ -6,7 +6,7 @@ import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from langchain.schema import Document
@@ -26,6 +26,7 @@ from storycraftr.utils.core import (
     llm_settings_from_config,
     embedding_settings_from_config,
 )
+from storycraftr.utils.paths import resolve_project_paths
 from storycraftr.vectorstores import build_chroma_store
 
 console = Console()
@@ -62,10 +63,11 @@ class LangChainAssistant:
                 "Vector store is not initialised. Ensure embeddings are available before continuing."
             )
 
+        project_paths = resolve_project_paths(self.book_path, config=self.config)
         persist_dir_str = getattr(
             self.vector_store,
             "_persist_directory",
-            str(Path(self.book_path) / "vector_store"),
+            str(project_paths.vector_store_root),
         )
         persist_dir = Path(persist_dir_str)
         if force:
@@ -81,11 +83,13 @@ class LangChainAssistant:
             if not reset_succeeded:
                 shutil.rmtree(persist_dir, ignore_errors=True)
 
-            self.vector_store = build_chroma_store(self.book_path, self.embeddings)
+            self.vector_store = build_chroma_store(
+                self.book_path, self.embeddings, config=self.config
+            )
             persist_dir_str = getattr(
                 self.vector_store,
                 "_persist_directory",
-                str(Path(self.book_path) / "vector_store"),
+                str(project_paths.vector_store_root),
             )
             persist_dir = Path(persist_dir_str)
 
@@ -97,7 +101,7 @@ class LangChainAssistant:
             needs_refresh = True
 
         if needs_refresh:
-            documents = load_markdown_documents(self.book_path)
+            documents = load_markdown_documents(self.book_path, config=self.config)
             if not documents:
                 raise RuntimeError(
                     f"No Markdown documents available to index for project {self.book_path}."
@@ -141,7 +145,7 @@ _ASSISTANT_CACHE: Dict[str, LangChainAssistant] = {}
 _THREADS: Dict[str, ConversationThread] = {}
 
 
-def load_markdown_documents(book_path: str) -> List[Document]:
+def load_markdown_documents(book_path: str, config: object | None = None) -> List[Document]:
     """
     Load Markdown files from the project for indexing.
     """
@@ -150,16 +154,23 @@ def load_markdown_documents(book_path: str) -> List[Document]:
         os.path.join(book_path, "**", "*.md"),
     ]
     book_path_obj = Path(book_path)
+    vector_store_dir = resolve_project_paths(book_path, config=config).vector_store_root
+    vector_store_dir_resolved = vector_store_dir.resolve()
     documents: List[Document] = []
 
     for pattern in patterns:
         # Use iglob for an iterator-based approach to avoid loading all paths into memory at once.
         for file_path_str in glob.iglob(pattern, recursive=True):
             file_path = Path(file_path_str)
-            if "/vector_store/" in file_path.as_posix():
-                continue
             if not file_path.is_file():
                 continue
+            try:
+                resolved_file = file_path.resolve()
+                if vector_store_dir_resolved in resolved_file.parents:
+                    continue
+            except OSError:
+                if str(vector_store_dir) in file_path.as_posix():
+                    continue
             try:
                 content = file_path.read_text(encoding="utf-8")
                 # Files with 3 or fewer lines are skipped.
@@ -212,7 +223,7 @@ def create_or_get_assistant(book_path: str) -> LangChainAssistant:
 
     llm = build_chat_model(llm_settings)
     embeddings = build_embedding_model(embedding_settings)
-    vector_store = build_chroma_store(book_path, embeddings)
+    vector_store = build_chroma_store(book_path, embeddings, config=config)
 
     assistant = LangChainAssistant(
         id=f"assistant:{Path(book_path).name}",
@@ -250,11 +261,92 @@ def _resolve_thread(thread_id: str, book_path: str) -> ConversationThread:
     return thread
 
 
+def _build_message_content(
+    content: str,
+    *,
+    config: object,
+    file_path: Optional[str],
+    force_single_answer: bool,
+) -> str:
+    """
+    Build the user-facing message payload, including optional file context.
+    """
+
+    composed_content = content
+    if file_path and os.path.exists(file_path):
+        file_text = Path(file_path).read_text(encoding="utf-8")
+        composed_content = (
+            f"{composed_content}\n\n"
+            f"Here is the existing content to adjust:\n{file_text}"
+        )
+
+    if getattr(config, "multiple_answer", False) and not force_single_answer:
+        composed_content = (
+            "Divide the answer into three titled sections (Part 1, Part 2, Part 3). "
+            "Conclude the final section with the token END_OF_RESPONSE. "
+            f"{composed_content}"
+        )
+
+    return composed_content
+
+
+def _build_prompt_with_metadata(book_path: str, config: object, content: str) -> str:
+    """
+    Build the final prompt and persist prompt metadata for traceability.
+    """
+
+    prompt_body = FORMAT_OUTPUT.format(
+        reference_author=getattr(config, "reference_author", ""),
+        language=getattr(config, "primary_language", "en"),
+    )
+    prompt_text = f"{prompt_body}\n\n{content}"
+    return generate_prompt_with_hash(
+        prompt_text,
+        datetime.now().strftime("%B %d, %Y"),
+        book_path=book_path,
+    )
+
+
+def _invoke_assistant_graph(
+    assistant: LangChainAssistant, prompt_with_hash: str
+) -> Tuple[str, List[Document]]:
+    """
+    Invoke the LangChain graph only and normalize its response payload.
+    """
+
+    if not assistant.graph:
+        raise RuntimeError("Assistant graph is not initialised.")
+
+    result = assistant.graph.invoke({"question": prompt_with_hash})
+    if isinstance(result, dict):
+        response_text = str(result.get("answer", ""))
+        documents = result.get("documents") or []
+        return response_text, documents
+
+    return str(result), []
+
+
+def _record_thread_turn(
+    thread: ConversationThread, prompt_with_hash: str, response_text: str
+) -> None:
+    user_message = HumanMessage(content=prompt_with_hash)
+    assistant_message = AIMessage(content=response_text)
+    thread.messages.extend([user_message, assistant_message])
+
+
+def _update_progress(progress: Optional[Progress], task_id) -> None:
+    if progress and task_id is not None:
+        try:
+            progress.update(task_id, completed=1)
+        except Exception as exc:
+            console.print(f"[yellow]Warning: progress update failed ({exc}).[/yellow]")
+
+
 def create_message(
     book_path: str,
     thread_id: str,
     content: str,
-    assistant: LangChainAssistant,
+    assistant: Optional[LangChainAssistant],
     file_path: Optional[str] = None,
     progress: Optional[Progress] = None,
     task_id=None,
@@ -268,50 +360,18 @@ def create_message(
     thread = _resolve_thread(thread_id, book_path)
     config = assistant.config
 
-    if file_path and os.path.exists(file_path):
-        file_text = Path(file_path).read_text(encoding="utf-8")
-        content = f"{content}\n\nHere is the existing content to adjust:\n{file_text}"
-
-    if config.multiple_answer and not force_single_answer:
-        content = (
-            "Divide the answer into three titled sections (Part 1, Part 2, Part 3). "
-            "Conclude the final section with the token END_OF_RESPONSE. " + content
-        )
-
-    prompt_body = FORMAT_OUTPUT.format(
-        reference_author=getattr(config, "reference_author", ""),
-        language=getattr(config, "primary_language", "en"),
+    message_content = _build_message_content(
+        content,
+        config=config,
+        file_path=file_path,
+        force_single_answer=force_single_answer,
     )
-    prompt_text = f"{prompt_body}\n\n{content}"
-
-    prompt_with_hash = generate_prompt_with_hash(
-        prompt_text,
-        datetime.now().strftime("%B %d, %Y"),
-        book_path=book_path,
-    )
-
-    if not assistant.graph:
-        raise RuntimeError("Assistant graph is not initialised.")
-
-    result = assistant.graph.invoke({"question": prompt_with_hash})
-    if isinstance(result, dict):
-        response_text = result.get("answer", "")
-        documents = result.get("documents") or []
-    else:
-        response_text = str(result)
-        documents = []
+    prompt_with_hash = _build_prompt_with_metadata(book_path, config, message_content)
+    response_text, documents = _invoke_assistant_graph(assistant, prompt_with_hash)
 
     assistant.last_documents = documents
-
-    user_message = HumanMessage(content=prompt_with_hash)
-    assistant_message = AIMessage(content=response_text)
-    thread.messages.extend([user_message, assistant_message])
-
-    if progress and task_id is not None:
-        try:
-            progress.update(task_id, completed=1)
-        except Exception as exc:
-            console.print(f"[yellow]Warning: progress update failed ({exc}).[/yellow]")
+    _record_thread_turn(thread, prompt_with_hash, response_text)
+    _update_progress(progress, task_id)
 
     return response_text.replace("END_OF_RESPONSE", "").strip()
 

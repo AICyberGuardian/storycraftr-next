@@ -76,7 +76,7 @@ def test_openrouter_builds_chatopenai_with_default_endpoint_and_headers(monkeypa
 
     assert result is mock_chat_openai.return_value
     kwargs = mock_chat_openai.call_args.kwargs
-    assert kwargs["api_key"] == "or-test"  # pragma: allowlist secret
+    assert kwargs["api_key"] == "or-test"  # nosec B105  # pragma: allowlist secret
     assert kwargs["model"] == "openrouter/free"
     assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
     assert kwargs["timeout"] == 30
@@ -143,7 +143,9 @@ def test_openrouter_prefers_explicit_endpoint_over_env(monkeypatch):
 
 
 def test_openrouter_honors_custom_api_key_env_override(monkeypatch):
-    monkeypatch.setenv("CUSTOM_OPENROUTER_KEY", "or-custom")  # pragma: allowlist secret
+    monkeypatch.setenv(
+        "CUSTOM_OPENROUTER_KEY", "or-custom"
+    )  # nosec B105  # pragma: allowlist secret
 
     with mock.patch("storycraftr.llm.factory.ChatOpenAI") as mock_chat_openai:
         mock_chat_openai.return_value = object()
@@ -151,14 +153,14 @@ def test_openrouter_honors_custom_api_key_env_override(monkeypatch):
             LLMSettings(
                 provider="openrouter",
                 model="meta-llama/llama-3.3-70b-instruct",
-                api_key_env="CUSTOM_OPENROUTER_KEY",  # pragma: allowlist secret
+                api_key_env="CUSTOM_OPENROUTER_KEY",  # nosec B105  # pragma: allowlist secret
             )
         )
 
     assert result is mock_chat_openai.return_value
     assert (
         mock_chat_openai.call_args.kwargs["api_key"]
-        == "or-custom"  # pragma: allowlist secret
+        == "or-custom"  # nosec B105  # pragma: allowlist secret
     )
 
 
@@ -184,8 +186,10 @@ def test_openrouter_wraps_chatopenai_initialization_errors(monkeypatch):
 
 
 def test_openrouter_provider_auth_error_is_actionable_and_redacts_key(monkeypatch):
-    secret = "or-super-secret-token"  # nosec B105 pragma: allowlist secret
-    monkeypatch.setenv("OPENROUTER_API_KEY", secret)  # pragma: allowlist secret
+    secret = "or-super-secret-token"  # nosec B105  # pragma: allowlist secret
+    monkeypatch.setenv(
+        "OPENROUTER_API_KEY", secret
+    )  # nosec B105  # pragma: allowlist secret
     with mock.patch(
         "storycraftr.llm.factory.ChatOpenAI",
         side_effect=RuntimeError(f"401 unauthorized api key {secret}"),
@@ -204,8 +208,10 @@ def test_openrouter_provider_auth_error_is_actionable_and_redacts_key(monkeypatc
 
 
 def test_openrouter_timeout_error_is_actionable_and_redacts_key(monkeypatch):
-    secret = "or-timeout-secret"  # nosec B105 pragma: allowlist secret
-    monkeypatch.setenv("OPENROUTER_API_KEY", secret)  # pragma: allowlist secret
+    secret = "or-timeout-secret"  # nosec B105  # pragma: allowlist secret
+    monkeypatch.setenv(
+        "OPENROUTER_API_KEY", secret
+    )  # nosec B105  # pragma: allowlist secret
     with mock.patch(
         "storycraftr.llm.factory.ChatOpenAI",
         side_effect=TimeoutError(f"request timed out using {secret}"),

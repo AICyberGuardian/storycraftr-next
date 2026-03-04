@@ -36,7 +36,8 @@ def test_load_local_credentials_prefers_os_keyring(monkeypatch, tmp_path):
     with mock.patch("pathlib.Path.home", return_value=tmp_path):
         credentials.load_local_credentials()
 
-    assert os.environ["OPENAI_API_KEY"] == "keyring-token"  # pragma: allowlist secret
+    expected = "keyring-token"  # nosec B105  # pragma: allowlist secret
+    assert os.environ["OPENAI_API_KEY"] == expected
 
 
 def test_load_local_credentials_falls_back_to_legacy_file(monkeypatch, tmp_path):
@@ -54,7 +55,7 @@ def test_load_local_credentials_falls_back_to_legacy_file(monkeypatch, tmp_path)
     with mock.patch("pathlib.Path.home", return_value=tmp_path):
         credentials.load_local_credentials()
 
-    expected = "legacy-fallback-token"  # pragma: allowlist secret
+    expected = "legacy-fallback-token"  # nosec B105  # pragma: allowlist secret
     assert os.environ["OPENAI_API_KEY"] == expected
 
 
@@ -62,7 +63,7 @@ def test_store_local_credential_persists_to_keyring(monkeypatch):
     fake_keyring = mock.Mock()
     monkeypatch.setattr(credentials, "keyring", fake_keyring)
     monkeypatch.setattr(credentials, "KeyringError", RuntimeError)
-    token = "or-test-token"  # pragma: allowlist secret
+    token = "or-test-token"  # nosec B105  # pragma: allowlist secret
 
     credentials.store_local_credential(
         "OPENROUTER_API_KEY",

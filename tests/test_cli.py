@@ -96,7 +96,7 @@ def test_load_local_credentials(tmp_path):
     ):
         load_local_credentials()
 
-    expected = "placeholder-token"  # pragma: allowlist secret
+    expected = "placeholder-token"  # nosec B105  # pragma: allowlist secret
     assert os.environ["OPENAI_API_KEY"] == expected
 
 

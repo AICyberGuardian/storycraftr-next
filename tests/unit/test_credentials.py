@@ -62,19 +62,20 @@ def test_store_local_credential_persists_to_keyring(monkeypatch):
     fake_keyring = mock.Mock()
     monkeypatch.setattr(credentials, "keyring", fake_keyring)
     monkeypatch.setattr(credentials, "KeyringError", RuntimeError)
+    token = "or-test-token"  # pragma: allowlist secret
 
     credentials.store_local_credential(
         "OPENROUTER_API_KEY",
-        "or-test-token",
+        token,
         service_name="storycraftr-test",
     )
 
     fake_keyring.set_password.assert_called_once_with(
         "storycraftr-test",
         "OPENROUTER_API_KEY",
-        "or-test-token",
+        token,
     )
-    assert os.environ["OPENROUTER_API_KEY"] == "or-test-token"
+    assert os.environ["OPENROUTER_API_KEY"] == token
 
 
 def test_store_local_credential_requires_keyring_package(monkeypatch):

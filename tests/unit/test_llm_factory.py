@@ -117,7 +117,7 @@ def test_openrouter_prefers_explicit_endpoint_over_env(monkeypatch):
 
 
 def test_openrouter_honors_custom_api_key_env_override(monkeypatch):
-    monkeypatch.setenv("CUSTOM_OPENROUTER_KEY", "or-custom")
+    monkeypatch.setenv("CUSTOM_OPENROUTER_KEY", "or-custom")  # pragma: allowlist secret
 
     with mock.patch("storycraftr.llm.factory.ChatOpenAI") as mock_chat_openai:
         mock_chat_openai.return_value = object()
@@ -130,7 +130,10 @@ def test_openrouter_honors_custom_api_key_env_override(monkeypatch):
         )
 
     assert result is mock_chat_openai.return_value
-    assert mock_chat_openai.call_args.kwargs["api_key"] == "or-custom"
+    assert (
+        mock_chat_openai.call_args.kwargs["api_key"]
+        == "or-custom"  # pragma: allowlist secret
+    )
 
 
 def test_openrouter_rejects_invalid_model_identifier(monkeypatch):

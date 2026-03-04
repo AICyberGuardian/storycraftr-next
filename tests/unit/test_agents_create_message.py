@@ -25,8 +25,11 @@ def test_invoke_assistant_graph_normalizes_dict_payload():
     assert graph.calls == [{"question": "prompt-hash"}]
 
 
-def test_create_message_separates_prompt_build_from_graph_invocation(monkeypatch):
-    thread = agents.ConversationThread(id="thread-1", book_path="/tmp/book")
+def test_create_message_separates_prompt_build_from_graph_invocation(
+    monkeypatch, tmp_path
+):
+    book_path = str(tmp_path / "book")
+    thread = agents.ConversationThread(id="thread-1", book_path=book_path)
     assistant = SimpleNamespace(
         config=SimpleNamespace(
             multiple_answer=False,
@@ -52,7 +55,7 @@ def test_create_message_separates_prompt_build_from_graph_invocation(monkeypatch
     monkeypatch.setattr(agents, "_invoke_assistant_graph", fake_graph_invoke)
 
     response = agents.create_message(
-        book_path="/tmp/book",
+        book_path=book_path,
         thread_id="thread-1",
         content="Summarize chapter",
         assistant=assistant,

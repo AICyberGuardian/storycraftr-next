@@ -24,7 +24,9 @@ class SessionManager:
 
     def __post_init__(self) -> None:
         config = _load_config_if_present(self.book_path)
-        storage_root = resolve_project_paths(self.book_path, config=config).sessions_root
+        storage_root = resolve_project_paths(
+            self.book_path, config=config
+        ).sessions_root
         storage_root.mkdir(parents=True, exist_ok=True)
         self._directory = storage_root
 

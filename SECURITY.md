@@ -15,6 +15,8 @@ python -c "from storycraftr.llm.credentials import store_local_credential; store
 python -c "from storycraftr.llm.credentials import store_local_credential; store_local_credential('OPENROUTER_API_KEY', 'or-...')"
 ```
 
+If no OS keyring backend is available, `store_local_credential` falls back to legacy plaintext files under `~/.storycraftr/` and prints a warning.
+
 ## LLM Configuration Safety
 
 - OpenRouter requires an explicit `llm_model` in `provider/model` format (for example, `meta-llama/llama-3.3-70b-instruct`).

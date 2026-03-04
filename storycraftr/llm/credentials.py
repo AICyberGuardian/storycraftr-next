@@ -10,10 +10,11 @@ console = Console()
 
 try:
     import keyring
-    from keyring.errors import KeyringError
+    from keyring.errors import KeyringError, NoKeyringError
 except ImportError:  # pragma: no cover - exercised through dependency matrix.
     keyring = None
     KeyringError = Exception  # type: ignore[assignment]
+    NoKeyringError = Exception  # type: ignore[assignment]
 
 _KEY_FILE_MAP: Mapping[str, tuple[str, ...]] = {
     "OPENAI_API_KEY": ("openai_api_key.txt",),
@@ -26,6 +27,8 @@ _KEYRING_USERNAME_MAP: Mapping[str, tuple[str, ...]] = {
     "OLLAMA_API_KEY": ("OLLAMA_API_KEY", "ollama_api_key"),
 }
 _DEFAULT_KEYRING_SERVICE = "storycraftr"
+_KEYRING_BACKEND_AVAILABLE: Optional[bool] = None
+_KEYRING_BACKEND_WARNING_SHOWN = False
 
 
 def _search_dirs(extra_dirs: Iterable[Path] | None) -> list[Path]:
@@ -39,14 +42,55 @@ def _search_dirs(extra_dirs: Iterable[Path] | None) -> list[Path]:
     return search_dirs
 
 
+def _legacy_key_path(env_var: str) -> Path:
+    filenames = _KEY_FILE_MAP.get(env_var, ())
+    if not filenames:
+        raise ValueError(f"Unsupported credential variable: {env_var}")
+    return Path.home() / ".storycraftr" / filenames[0]
+
+
+def _persist_legacy_credential(env_var: str, value: str) -> Path:
+    key_path = _legacy_key_path(env_var)
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.write_text(value, encoding="utf-8")
+    try:
+        key_path.chmod(0o600)
+    except OSError:
+        # Best effort: chmod can fail on some platforms/filesystems.
+        pass
+    return key_path
+
+
+def _warn_keyring_backend_unavailable(service_name: str, exc: Exception) -> None:
+    global _KEYRING_BACKEND_WARNING_SHOWN
+    if _KEYRING_BACKEND_WARNING_SHOWN:
+        return
+    console.print(
+        "[yellow]"
+        f"OS keyring backend unavailable for service '{service_name}': {exc}. "
+        "Falling back to environment variables and legacy credential files."
+        "[/yellow]"
+    )
+    _KEYRING_BACKEND_WARNING_SHOWN = True
+
+
 def _load_from_keyring(env_var: str, service_name: str) -> Optional[str]:
+    global _KEYRING_BACKEND_AVAILABLE
+
     if keyring is None:
+        return None
+    if _KEYRING_BACKEND_AVAILABLE is False:
         return None
 
     usernames = _KEYRING_USERNAME_MAP.get(env_var, (env_var,))
     for username in usernames:
         try:
             value = keyring.get_password(service_name, username)
+            _KEYRING_BACKEND_AVAILABLE = True
+        except NoKeyringError as exc:
+            _KEYRING_BACKEND_AVAILABLE = False
+            _warn_keyring_backend_unavailable(service_name, exc)
+            return None
         except KeyringError as exc:
             console.print(
                 f"[yellow]Unable to read {env_var} from OS keyring '{service_name}': {exc}[/yellow]"
@@ -77,7 +121,10 @@ def store_local_credential(
     env_var: str, api_key: str, service_name: Optional[str] = None
 ) -> None:
     """
-    Securely persist a provider API key into the system keyring.
+    Persist a provider API key into the OS keyring when available.
+
+    Falls back to the legacy plaintext path when the keyring package or backend
+    is unavailable.
     """
 
     if env_var not in _KEYRING_USERNAME_MAP:
@@ -87,23 +134,39 @@ def store_local_credential(
     if not value:
         raise ValueError("API key value cannot be empty.")
 
-    if keyring is None:
-        raise RuntimeError(
-            "The 'keyring' package is not installed. Install it to store credentials securely."
-        )
-
     resolved_service = (
         service_name
         or os.getenv("STORYCRAFTR_KEYRING_SERVICE")
         or _DEFAULT_KEYRING_SERVICE
     )
     username = _KEYRING_USERNAME_MAP[env_var][0]
-    try:
-        keyring.set_password(resolved_service, username, value)
-    except KeyringError as exc:
-        raise RuntimeError(
-            f"Unable to store credential '{env_var}' in keyring service '{resolved_service}'."
-        ) from exc
+
+    if keyring is None:
+        key_path = _persist_legacy_credential(env_var, value)
+        console.print(
+            "[yellow]"
+            f"The 'keyring' package is not installed. Stored {env_var} in legacy file {key_path}. "
+            "Install keyring + an OS backend for secure storage."
+            "[/yellow]"
+        )
+    else:
+        global _KEYRING_BACKEND_AVAILABLE
+        try:
+            keyring.set_password(resolved_service, username, value)
+            _KEYRING_BACKEND_AVAILABLE = True
+        except NoKeyringError as exc:
+            _KEYRING_BACKEND_AVAILABLE = False
+            _warn_keyring_backend_unavailable(resolved_service, exc)
+            key_path = _persist_legacy_credential(env_var, value)
+            console.print(
+                "[yellow]"
+                f"Stored {env_var} in legacy file {key_path} because no OS keyring backend is available."
+                "[/yellow]"
+            )
+        except KeyringError as exc:
+            raise RuntimeError(
+                f"Unable to store credential '{env_var}' in keyring service '{resolved_service}'."
+            ) from exc
 
     os.environ[env_var] = value
 

@@ -31,6 +31,8 @@ python -c "from storycraftr.llm.credentials import store_local_credential; store
 python -c "from storycraftr.llm.credentials import store_local_credential; store_local_credential('OPENROUTER_API_KEY', 'or-your-openrouter-secret')"
 ```
 
+If your OS keyring backend is unavailable, the helper falls back to `~/.storycraftr/*_api_key.txt` and emits a warning.
+
 Legacy plaintext files are still supported for compatibility:
 
 ```bash
@@ -124,7 +126,7 @@ In the behavior file, you can include a variety of elements to help guide the AI
 The **behavior file** provides the essential **guidelines** that will define the AI’s approach to everything it writes for your book. Here's an example:
 
 ```bash
-echo "Write in a dark, introspective tone focusing on a morally ambiguous protagonist. The novel should explore themes of power, control, and manipulation in a futuristic society. The writing should reflect a complex character-driven narrative, emphasizing internal conflict and relationships. The pacing should allow for detailed worldbuilding, with the story unfolding gradually. Target length: 250-300 pages." > behaviors/default.txt
+echo "Write in a dark, introspective tone focusing on a morally ambiguous protagonist. The novel should explore themes of power, control, and manipulation in a futuristic society. The writing should reflect a complex character-driven narrative, emphasizing internal conflict and relationships. The pacing should allow for detailed worldbuilding, with the story unfolding gradually. Target length: 250-300 pages." > behavior.txt
 ```
 
 ---

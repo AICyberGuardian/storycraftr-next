@@ -227,17 +227,21 @@ def init(
         sys.exit(1)
 
     # Manejar la ruta del archivo behavior
-    behavior_path = Path(behavior).resolve()
-    if not behavior_path.is_file():
-        # Intentar buscar el archivo en el directorio actual
-        current_dir_behavior = Path.cwd() / behavior
-        if current_dir_behavior.is_file():
-            behavior_path = current_dir_behavior
-        else:
-            console.print(
-                f"[red]Behavior file not found at {behavior_path} or {current_dir_behavior}[/red]"
-            )
-            sys.exit(1)
+    behavior_input = Path(behavior).expanduser()
+    candidate_paths = (
+        [behavior_input]
+        if behavior_input.is_absolute()
+        else [Path.cwd() / behavior_input]
+    )
+    behavior_path = next((path for path in candidate_paths if path.is_file()), None)
+    if behavior_path is None:
+        checked = " or ".join(str(path.resolve()) for path in candidate_paths)
+        console.print(f"[red]Behavior file not found at {checked}[/red]")
+        console.print(
+            "[yellow]Create the file before running init "
+            "(example: mkdir -p behaviors && printf 'Write in a dark, introspective tone.\\n' > behaviors/default.txt).[/yellow]"
+        )
+        sys.exit(1)
 
     try:
         behavior_content = behavior_path.read_text(encoding="utf-8")

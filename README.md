@@ -50,6 +50,8 @@ python -c "from storycraftr.llm.credentials import store_local_credential; store
 python -c "from storycraftr.llm.credentials import store_local_credential; store_local_credential('OPENROUTER_API_KEY', 'or-your-openrouter-secret')"
 ```
 
+If your system has no usable OS keyring backend, this helper falls back to `~/.storycraftr/*_api_key.txt` and prints a warning.
+
 Legacy plaintext files are still read, but they are now treated as a migration fallback:
 
 ```bash

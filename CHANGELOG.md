@@ -20,6 +20,14 @@
   - Added Node setup for lock validation.
   - Added lock-file drift guard (`git diff --exit-code poetry.lock package-lock.json`).
 - Codified repository invariants in `AGENTS.md` and `.github/copilot-instructions.md`, including mandatory `make sync-deps` usage for routine dependency sync operations.
+- Hardened credential storage fallback behavior:
+  - `store_local_credential` now falls back to legacy files under `~/.storycraftr` when OS keyring backends are unavailable, while preserving environment > keyring > legacy read precedence.
+  - Keyring backend unavailability warnings are emitted once per process instead of repeating for every credential lookup.
+- Improved `storycraftr init` behavior-file validation with clearer missing-file guidance and aligned docs/examples.
+- Hardened embedding initialization in `storycraftr/llm/embeddings.py`:
+  - Lazy-loads ML stack dependencies at runtime to avoid CLI startup penalties.
+  - Resolves `embed_device=auto` explicitly to `cuda`, then `mps`, then `cpu`.
+  - Raises `LLMConfigurationError` with actionable install instructions when local ML dependencies are missing.
 
 ## [0.14.0] - 2026-03-03
 

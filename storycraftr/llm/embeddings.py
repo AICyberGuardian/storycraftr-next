@@ -62,9 +62,21 @@ def build_embedding_model(settings: EmbeddingSettings):
     )
     import logging
 
-    os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-    logging.getLogger("transformers").setLevel(logging.ERROR)
-    logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+    from storycraftr.state import debug_state
+
+    if not debug_state.is_debug():
+        os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+        os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+        os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+        logging.getLogger("transformers").setLevel(logging.ERROR)
+        logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+        logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+        try:
+            transformers_logging = import_module("transformers.logging")
+            transformers_logging.set_verbosity_error()
+        except ImportError:
+            # transformers is optional until embeddings are requested.
+            pass
 
     try:
         torch = import_module("torch")

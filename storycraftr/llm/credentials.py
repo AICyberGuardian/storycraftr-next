@@ -67,7 +67,7 @@ def _warn_keyring_backend_unavailable(_service_name: str, _exc: Exception) -> No
         return
     console.print(
         "[yellow]"
-        "OS keyring backend unavailable. Falling back to environment variables and legacy credential files."
+        "No system keyring available; falling back to environment variables."
         "[/yellow]"
     )
     _KEYRING_BACKEND_WARNING_SHOWN = True

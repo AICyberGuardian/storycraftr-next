@@ -1,5 +1,5 @@
-[![GitHub Actions Status](https://github.com/raestrada/storycraftr/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/raestrada/storycraftr/actions)
-[![GitHub Actions Status](https://github.com/raestrada/storycraftr/actions/workflows/pytest.yml/badge.svg)](https://github.com/raestrada/storycraftr/actions)
+[![GitHub Actions Status](https://github.com/AICyberGuardian/storycraftr-next/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/AICyberGuardian/storycraftr-next/actions)
+[![GitHub Actions Status](https://github.com/AICyberGuardian/storycraftr-next/actions/workflows/pytest.yml/badge.svg)](https://github.com/AICyberGuardian/storycraftr-next/actions)
 
 # <img src="https://res.cloudinary.com/dyknhuvxt/image/upload/f_auto,q_auto/ofhhkf6f7bryfgvbxxwc" alt="StoryCraftr Logo" width="100" height="100"> StoryCraftr - Your AI-powered Book Creation Assistant 📚🤖
 
@@ -26,13 +26,13 @@ First, install **StoryCraftr** using [pipx](https://pypa.github.io/pipx/), a too
 To install **StoryCraftr**, run the following command:
 
 ```bash
-pipx install git+https://github.com/raestrada/storycraftr.git@main
+pipx install git+https://github.com/AICyberGuardian/storycraftr-next.git@main
 ```
 
 Alternatively, if you have `uv` and `uvx` installed on your system, you can run storycraftr without installing it first:
 
 ```bash
-uvx --from git+https://github.com/raestrada/storycraftr.git@main storycraftr
+uvx --from git+https://github.com/AICyberGuardian/storycraftr-next.git@main storycraftr
 ```
 
 ### Configure Provider Credentials

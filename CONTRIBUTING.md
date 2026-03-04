@@ -6,7 +6,7 @@ Thank you for your interest in contributing to **StoryCraftr**! We welcome contr
 
 ### 1. Fork the Repository
 
-Start by forking the repository to your own GitHub account. You can fork the project by clicking the "Fork" button on the top-right of the [repository page](https://github.com/raestrada/storycraftr).
+Start by forking the repository to your own GitHub account. You can fork the project by clicking the "Fork" button on the top-right of the [repository page](https://github.com/AICyberGuardian/storycraftr-next).
 
 ### 2. Clone the Forked Repository
 
@@ -103,7 +103,7 @@ Please be respectful and considerate in all interactions with the community. We 
 
 ## Issues and Bug Reports
 
-If you encounter an issue with StoryCraftr, please report it using the [issue tracker](https://github.com/raestrada/storycraftr/issues). Include details such as your system environment, steps to reproduce the issue, and any error messages or logs.
+If you encounter an issue with StoryCraftr, please report it using the [issue tracker](https://github.com/AICyberGuardian/storycraftr-next/issues). Include details such as your system environment, steps to reproduce the issue, and any error messages or logs.
 
 ## Need Help?
 

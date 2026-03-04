@@ -31,7 +31,7 @@ python -c "from storycraftr.llm.credentials import store_local_credential; store
 
 Report vulnerabilities through the project issue tracker:
 
-- https://github.com/raestrada/storycraftr/issues
+- https://github.com/AICyberGuardian/storycraftr-next/issues
 
 When reporting, include:
 

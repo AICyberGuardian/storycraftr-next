@@ -29,6 +29,8 @@
   - `SubAgentJobManager` now uses a re-entrant lock for safer concurrent lifecycle updates.
   - Job submissions retain `Future` references and inspect completion callbacks to surface executor-level crashes.
   - `_run_job` now logs unexpected exceptions with stack traces, preserves stderr in output, and marks persistence failures as explicit failed jobs.
+  - `shutdown(wait=False)` now cancels pending jobs using a stable future snapshot, preventing dictionary-mutation races while callbacks run.
+  - Cancelled pending jobs are persisted and surfaced as failed jobs with explicit cancellation diagnostics instead of silently disappearing.
 - **Message Orchestration Separation**:
   - `create_message` was decomposed into focused helpers that separately handle prompt content construction, prompt metadata persistence, LangChain graph invocation, and thread/progress bookkeeping.
   - This keeps graph execution isolated from metadata-writing concerns and improves testability of each stage.
@@ -79,6 +81,10 @@
 - Added OpenRouter-focused factory tests and graph mock tests:
   - `tests/unit/test_llm_factory.py`
   - `tests/unit/test_assistant_graph.py`
+- Added deterministic concurrency, path-invariant, and CLI smoke coverage:
+  - `tests/unit/test_subagent_jobs.py` (`shutdown(wait=False)` cancellation behavior with `threading.Event`)
+  - `tests/unit/test_core_paths.py` (custom `internal_state_dir` resolution for sub-agent logs, sessions, vector store, and VS Code event feed)
+  - `tests/integration/test_cli_smoke.py` (`storycraftr init` with isolated filesystem and mocked LLM bootstrap)
 
 ## [0.10.1-beta4] - 2024-11-01
 

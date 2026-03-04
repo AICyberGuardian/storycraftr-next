@@ -224,6 +224,23 @@ Once installed, the extension will:
 
 Let your creativity flow with the power of AI! ✨
 
+## Testing
+
+Run the full Python suite with:
+
+```bash
+poetry run pytest
+```
+
+Recent regression coverage includes:
+
+- OpenRouter validation hardening (`tests/unit/test_llm_factory.py`)
+- Deterministic sub-agent shutdown cancellation behavior (`tests/unit/test_subagent_jobs.py`)
+- Runtime path invariants for configurable internal state directories (`tests/unit/test_core_paths.py`)
+- CLI init smoke flow with isolated filesystem and mocked model bootstrap (`tests/integration/test_cli_smoke.py`)
+
+All tests are designed to run offline without live LLM network calls.
+
 ## Contributing
 
 We welcome contributions of all kinds! Whether you’re a developer, writer, or simply interested in improving the tool, you can help. Here’s how you can contribute:

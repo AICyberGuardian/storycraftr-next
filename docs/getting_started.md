@@ -365,6 +365,21 @@ exit()
 
 This will gracefully close the chat session and return you to your terminal.
 
+## Contributor Testing Notes
+
+If you are contributing changes, run the full suite before opening a PR:
+
+```bash
+poetry run pytest
+```
+
+Key regression suites for recent hardening work:
+
+- `tests/unit/test_llm_factory.py` (OpenRouter/provider validation)
+- `tests/unit/test_subagent_jobs.py` (`shutdown(wait=False)` cancellation behavior)
+- `tests/unit/test_core_paths.py` (runtime path invariants with custom `internal_state_dir`)
+- `tests/integration/test_cli_smoke.py` (`storycraftr init` isolated smoke flow)
+
 ## Learn More About Writing
 
 The ideas in this tool are heavily inspired by [Brandon Sanderson’s Laws of Magic and Writing](https://www.brandonsanderson.com/the-law-of-writing). StoryCraftr is designed to help you implement these concepts while crafting well-structured stories with strong character arcs and consistent plot development.

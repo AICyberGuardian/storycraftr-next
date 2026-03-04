@@ -101,7 +101,7 @@ class LangChainAssistant:
             needs_refresh = True
 
         if needs_refresh:
-            documents = load_markdown_documents(self.book_path)
+            documents = load_markdown_documents(self.book_path, config=self.config)
             if not documents:
                 raise RuntimeError(
                     f"No Markdown documents available to index for project {self.book_path}."
@@ -145,7 +145,7 @@ _ASSISTANT_CACHE: Dict[str, LangChainAssistant] = {}
 _THREADS: Dict[str, ConversationThread] = {}
 
 
-def load_markdown_documents(book_path: str) -> List[Document]:
+def load_markdown_documents(book_path: str, config: object | None = None) -> List[Document]:
     """
     Load Markdown files from the project for indexing.
     """
@@ -154,7 +154,7 @@ def load_markdown_documents(book_path: str) -> List[Document]:
         os.path.join(book_path, "**", "*.md"),
     ]
     book_path_obj = Path(book_path)
-    vector_store_dir = resolve_project_paths(book_path).vector_store_root
+    vector_store_dir = resolve_project_paths(book_path, config=config).vector_store_root
     vector_store_dir_resolved = vector_store_dir.resolve()
     documents: List[Document] = []
 

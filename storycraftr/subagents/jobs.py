@@ -6,6 +6,7 @@ import shlex
 import threading
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import CancelledError as FutureCancelledError
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -89,12 +90,13 @@ class SubAgentJobManager:
         self.futures: Dict[str, Future] = {}
         self.event_callback = event_callback
 
-    def shutdown(self) -> None:
+    def shutdown(self, wait: bool = False) -> None:
         with self.lock:
-            for future in self.futures.values():
+            futures = list(self.futures.values())
+            for future in futures:
                 future.cancel()
             self.futures.clear()
-        self.executor.shutdown(wait=False, cancel_futures=True)
+        self.executor.shutdown(wait=wait, cancel_futures=True)
 
     # Role management -----------------------------------------------------------------
 
@@ -258,8 +260,31 @@ class SubAgentJobManager:
         with self.lock:
             self.futures.pop(job_id, None)
 
+        if future.cancelled():
+            logger.info("Sub-agent job %s was cancelled.", job_id)
+            with self.lock:
+                job = self.jobs.get(job_id)
+                if not job:
+                    return
+                job.status = "failed"
+                job.finished_at = job.finished_at or _utcnow()
+                job.error = self._merge_errors(
+                    job.error, "Job was cancelled before execution completed."
+                )
+            try:
+                self._persist_job(job)
+            except Exception:  # pragma: no cover - defensive
+                logger.exception(
+                    "Failed to persist cancellation diagnostics for sub-agent job %s",
+                    job_id,
+                )
+            self._emit_event("failed", job)
+            return
+
         try:
             exc = future.exception()
+        except FutureCancelledError:
+            return
         except Exception:  # pragma: no cover - defensive
             logger.exception(
                 "Unable to inspect completion state for sub-agent job %s", job_id

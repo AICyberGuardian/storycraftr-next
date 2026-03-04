@@ -7,10 +7,12 @@
 - Migrated credential loading to secure-first order: environment variables -> OS keyring -> legacy plaintext files.
 - Added `store_local_credential` helper for OS keyring persistence.
 - Hardened sub-agent background job execution with explicit lifecycle locking, crash visibility, and failure persistence.
+- Fixed `SubAgentJobManager.shutdown(wait=False)` cancellation race conditions and now persist cancellation failures explicitly.
 - Refactored `create_message` to separate prompt assembly/metadata writing from LangChain graph invocation and thread bookkeeping.
 - Removed hardcoded runtime storage paths by introducing config-rooted path resolution for sub-agent files/logs, sessions, VS Code event stream, and vector store persistence/cleanup.
 - Expanded unit coverage for factory validation and credential loading precedence.
 - Added mock-based graph tests for retrieval + prompt assembly without live API calls.
+- Added deterministic tests for sub-agent shutdown cancellation, custom runtime path invariants, and CLI init smoke execution (`tests/unit/test_subagent_jobs.py`, `tests/unit/test_core_paths.py`, `tests/integration/test_cli_smoke.py`).
 - Updated user and contributor docs (`README.md`, `docs/getting_started.md`, `docs/chat.md`, `AGENTS.md`, `SECURITY.md`, `docs/langchain-refactor-plan.md`, `CHANGELOG.md`).
 
 # PaperCraftr 0.10.1-beta4

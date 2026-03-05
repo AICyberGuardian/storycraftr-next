@@ -64,17 +64,17 @@ Flashbacks are a great way to add depth to a character’s backstory. This comma
 storycraftr iterate add-flashback 3 "Insert a flashback revealing a hidden alliance the protagonist formed years ago, explaining a key turning point in the current events."
 ```
 
-### 7. Update Plot Points
+### 7. Targeted Single-Chapter Rewrite
 
-Plot points are critical to maintaining tension and momentum in your story. Use this command to **update or refine key plot points** across the story, making sure they align with the latest developments in the book.
+Use this command when you want to surgically revise **only one chapter** without touching the rest of the book.
 
 ```bash
-storycraftr iterate update-plot-points "Refine the plot points around the rebellion’s climax."
+storycraftr iterate chapter 1 "Add the declassified diner incident report at the end and tighten pacing."
 ```
 
-### 8. Consistency Check Across All Files
+### 8. Consistency Check Across All Chapters
 
-Before completing your book, it's important to check for consistency across all files. This command will **review the entire structure** to ensure character arcs, motivations, plot points, and even worldbuilding elements are aligned.
+Before completing your book, it's important to check for consistency across the entire manuscript. This command runs as a **global batch pass** over your chapter files to ensure character arcs, motivations, plot points, and worldbuilding elements stay aligned.
 
 ```bash
 storycraftr iterate check-consistency "Ensure consistency of character arcs and motivations throughout the story."

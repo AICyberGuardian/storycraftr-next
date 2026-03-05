@@ -14,6 +14,7 @@ from storycraftr.prompts.story.iterate import (
     CHECK_CHAPTER_CONSISTENCY_PROMPT,
     INSERT_SPLIT_CHAPTER_PROMPT,
     REWRITE_SURROUNDING_CHAPTERS_FOR_SPLIT_PROMPT,
+    ITERATE_SINGLE_CHAPTER_PROMPT,
 )
 from storycraftr.agent.agents import (
     update_agent_files,
@@ -125,6 +126,50 @@ def check_consistency_across(book_path: str, consistency_type: str):
     )
 
 
+def iterate_single_chapter(book_path: str, chapter_num: int, prompt: str):
+    """
+    Apply a targeted rewrite prompt to a single chapter.
+
+    Args:
+        book_path (str): The path to the book's directory.
+        chapter_num (int): Chapter number to rewrite.
+        prompt (str): User-provided rewrite instruction.
+    """
+    resolved_book_path = str(Path(book_path).resolve())
+    chapter_path = Path(resolved_book_path) / "chapters" / f"chapter-{chapter_num}.md"
+    if not chapter_path.exists():
+        raise FileNotFoundError(f"Chapter file not found: {chapter_path}")
+
+    with Progress() as progress:
+        task_chapter = progress.add_task(
+            f"[cyan]Iterating chapter {chapter_num}...", total=2
+        )
+        assistant = create_or_get_assistant(resolved_book_path)
+        thread = get_thread(resolved_book_path)
+        progress.update(task_chapter, advance=1)
+
+        rewritten_chapter_text = create_message(
+            resolved_book_path,
+            thread_id=thread.id,
+            content=ITERATE_SINGLE_CHAPTER_PROMPT.format(prompt=prompt),
+            assistant=assistant,
+            progress=progress,
+            task_id=task_chapter,
+            file_path=str(chapter_path),
+        )
+
+        save_to_markdown(
+            resolved_book_path,
+            chapter_path,
+            f"Chapter {chapter_num}",
+            rewritten_chapter_text,
+            progress,
+            task_chapter,
+        )
+
+        progress.update(task_chapter, advance=1)
+
+
 def insert_new_chapter(
     book_path: str,
     position: int,
@@ -190,7 +235,9 @@ def insert_new_chapter(
         prompt_text = (
             INSERT_FLASHBACK_CHAPTER_PROMPT
             if flashback
-            else INSERT_SPLIT_CHAPTER_PROMPT if split else INSERT_CHAPTER_PROMPT
+            else INSERT_SPLIT_CHAPTER_PROMPT
+            if split
+            else INSERT_CHAPTER_PROMPT
         ).format(prompt=prompt, position=position)
 
         # Generate new chapter content

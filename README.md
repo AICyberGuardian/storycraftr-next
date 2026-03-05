@@ -175,6 +175,12 @@ The **StoryCraftr Chat** feature allows users to engage directly with an AI assi
   !iterate insert-chapter 3 "Add a flashback between chapters 2 and 3."
   ```
 
+  Target only one chapter:
+
+  ```bash
+  !iterate chapter 1 "Strengthen the reveal in the final scene."
+  ```
+
 - **Outline**: Generate the general plot, chapter summaries, or key plot points.  
   Example:
 

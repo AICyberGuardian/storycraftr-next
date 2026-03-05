@@ -76,6 +76,14 @@ The **Iterate** commands are designed to help you iteratively improve the book's
   !iterate check-consistency "Ensure consistency of character arcs and motivations."
   ```
 
+  This runs as a global batch pass across all chapter files.
+
+- **Target a single chapter**:
+
+  ```bash
+  !iterate chapter 1 "Tighten dialogue and add a stronger cliffhanger ending."
+  ```
+
 - **Insert a chapter**:
 
   ```bash

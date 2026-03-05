@@ -352,7 +352,7 @@ In this interactive chat, you can ask the assistant to help with both your book 
 3. **Executing any StoryCraftr command directly in the chat:**
 
    ```bash
-   [You]: !iterate check-names "Check character names for consistency."
+   [You]: !iterate chapter 1 "Tighten this chapter's pacing and improve the transition into chapter 2."
    ```
 
 In this session, you can seamlessly combine book content with command generation and execution, streamlining your writing process and giving you real-time insights.

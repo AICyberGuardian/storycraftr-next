@@ -9,6 +9,7 @@ from storycraftr.agent.story.iterate import (
     strengthen_core_argument,
     insert_new_chapter,
     check_consistency_across,
+    iterate_single_chapter,
 )
 
 console = Console()
@@ -238,6 +239,28 @@ def check_consistency(prompt: str, book_path: str = None):
     )
     check_consistency_across(book_path, prompt)
     console.print(f"[green bold]Consistency check completed successfully![/green bold]")
+
+
+@iterate.command(name="chapter")
+@click.option(
+    "--book-path", type=click.Path(), help="Path to the book directory", required=False
+)
+@click.argument("chapter_num", type=int)
+@click.argument("prompt", type=str)
+def iterate_chapter_cmd(chapter_num: int, prompt: str, book_path: str = None):
+    """Apply a specific revision prompt to a single chapter."""
+    book_path = book_path or os.getcwd()
+
+    if not load_book_config(book_path):
+        return
+
+    console.print(
+        f"[bold blue]Applying targeted iteration to chapter {chapter_num} in: {book_path}[/bold blue]"
+    )
+    iterate_single_chapter(book_path, chapter_num, prompt)
+    console.print(
+        f"[green bold]Chapter {chapter_num} iteration completed successfully![/green bold]"
+    )
 
 
 if __name__ == "__main__":

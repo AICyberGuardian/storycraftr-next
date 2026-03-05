@@ -95,3 +95,11 @@ Generate content only for the requested chapters, without altering or including 
 Review and enhance the content while preserving its original format, structure, and intent.
 Ensure that 'Chapter' remains as 'Chapter,' and the same applies for 'cover,' 'back-cover,' and 'epilogue.'
 """
+
+ITERATE_SINGLE_CHAPTER_PROMPT = """
+You are an expert editor. Review the following chapter and apply these specific instructions:
+
+Instructions: {prompt}
+
+Return the fully rewritten chapter text. Do not include introductory conversational filler.
+"""

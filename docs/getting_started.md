@@ -58,6 +58,7 @@ When you run `storycraftr init`, the generated `storycraftr.json` includes the n
   "llm_api_key_env": "",
   "temperature": 0.7,
   "request_timeout": 120,
+  "max_tokens": 8192,
   "embed_model": "BAAI/bge-large-en-v1.5",
   "embed_device": "auto",
   "embed_cache_dir": ""
@@ -68,6 +69,7 @@ When you run `storycraftr init`, the generated `storycraftr.json` includes the n
 - `llm_provider=openrouter` requires an explicit `llm_model` in `provider/model` format (for example, `meta-llama/llama-3.3-70b-instruct`).
 - `llm_endpoint` lets you point at custom-compatible bases.
 - Provider/model/endpoint settings are validated before runtime model invocation, with provider-specific error messages for invalid config or missing keys.
+- `max_tokens` limits completion size per request (default `8192`) to reduce truncated outputs.
 - `embed_model` defaults to `BAAI/bge-large-en-v1.5` for OpenAI-quality local embeddings; switch to a smaller model if resources are limited.
 
 ### Runtime path overrides (optional)

@@ -75,6 +75,7 @@ Each project stores its configuration in `storycraftr.json` or `papercraftr.json
   "llm_api_key_env": "",
   "temperature": 0.7,
   "request_timeout": 120,
+  "max_tokens": 8192,
   "embed_model": "BAAI/bge-large-en-v1.5",
   "embed_device": "auto",
   "embed_cache_dir": ""
@@ -85,6 +86,7 @@ Each project stores its configuration in `storycraftr.json` or `papercraftr.json
 - For `llm_provider=openrouter`, set `llm_model` explicitly in `provider/model` format (for example `meta-llama/llama-3.3-70b-instruct`).
 - `llm_endpoint` lets you target custom bases (e.g., `https://openrouter.ai/api/v1`).
 - StoryCraftr now validates provider/model/endpoint settings before runtime model calls and raises provider-specific configuration/authentication errors early.
+- `max_tokens` caps completion length per LLM request (default `8192`) to reduce truncation risk on long generations.
 - `embed_model` defaults to `BAAI/bge-large-en-v1.5` for OpenAI-quality local embeddings. Use a lighter model (e.g., `sentence-transformers/all-MiniLM-L6-v2`) on constrained hardware.
 
 ### Runtime Storage Paths (Optional)

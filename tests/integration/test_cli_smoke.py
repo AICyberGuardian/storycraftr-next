@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 from unittest import mock
 
 from click.testing import CliRunner
@@ -39,6 +40,8 @@ def test_storycraftr_init_smoke_creates_expected_structure(tmp_path):
         project = workspace / "demo-book"
         assert project.is_dir()
         assert (project / "storycraftr.json").is_file()
+        config = json.loads((project / "storycraftr.json").read_text(encoding="utf-8"))
+        assert config["max_tokens"] == 8192
         assert (project / "behaviors" / "default.txt").is_file()
         assert (project / "templates" / "template.tex").is_file()
         assert (project / "storycraftr" / "getting_started.md").is_file()

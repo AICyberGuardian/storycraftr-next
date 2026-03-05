@@ -26,6 +26,7 @@ def test_llm_settings_from_config_openai_missing_model_uses_openai_default():
     settings = llm_settings_from_config(config)
 
     assert settings.model == "gpt-4o"
+    assert settings.max_tokens == 8192
 
 
 def test_llm_settings_from_config_openrouter_missing_model_stays_empty():
@@ -34,3 +35,35 @@ def test_llm_settings_from_config_openrouter_missing_model_stays_empty():
     settings = llm_settings_from_config(config)
 
     assert settings.model == ""
+    assert settings.max_tokens == 8192
+
+
+def test_load_book_config_defaults_max_tokens(tmp_path):
+    config_data = {
+        "book_name": "Test",
+        "llm_provider": "openai",
+    }
+    (tmp_path / "storycraftr.json").write_text(
+        json.dumps(config_data), encoding="utf-8"
+    )
+
+    config = load_book_config(str(tmp_path))
+
+    assert config is not None
+    assert config.max_tokens == 8192
+
+
+def test_load_book_config_respects_configured_max_tokens(tmp_path):
+    config_data = {
+        "book_name": "Test",
+        "llm_provider": "openai",
+        "max_tokens": 4096,
+    }
+    (tmp_path / "storycraftr.json").write_text(
+        json.dumps(config_data), encoding="utf-8"
+    )
+
+    config = load_book_config(str(tmp_path))
+
+    assert config is not None
+    assert config.max_tokens == 4096

@@ -88,6 +88,7 @@ class BookConfig(NamedTuple):
         llm_api_key_env (str): Optional environment variable override for API key lookup.
         temperature (float): Sampling temperature for completions.
         request_timeout (int): Timeout in seconds for LLM calls.
+        max_tokens (int): Maximum output tokens per generation.
         embed_model (str): Hugging Face model name for embeddings.
         embed_device (str): Device directive passed to the embedding runtime.
         embed_cache_dir (str): Local cache directory for embeddings.
@@ -110,6 +111,7 @@ class BookConfig(NamedTuple):
     llm_api_key_env: str
     temperature: float
     request_timeout: int
+    max_tokens: int
     embed_model: str
     embed_device: str
     embed_cache_dir: str
@@ -165,6 +167,7 @@ def load_book_config(book_path: str, model_override: str | None = None):
             "llm_api_key_env": "",
             "temperature": 0.7,
             "request_timeout": 120,
+            "max_tokens": 8192,
             "embed_model": "BAAI/bge-large-en-v1.5",
             "embed_device": "auto",
             "embed_cache_dir": "",
@@ -214,6 +217,7 @@ def llm_settings_from_config(
         api_key_env=getattr(config, "llm_api_key_env", ""),
         temperature=getattr(config, "temperature", 0.7),
         request_timeout=getattr(config, "request_timeout", 120),
+        max_tokens=getattr(config, "max_tokens", 8192),
     )
 
 

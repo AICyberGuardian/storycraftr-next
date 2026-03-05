@@ -130,7 +130,7 @@ Regression coverage:
 - provider normalization (`_normalize_provider`)
 - model presence and shape (`_validate_model`)
 - endpoint URL validation (`_validate_endpoint`)
-- temperature and timeout validation
+- temperature, timeout, and `max_tokens` validation
 
 Provider-specific exceptions:
 - `LLMConfigurationError`
@@ -171,7 +171,7 @@ Primary config files:
 
 Core fields include:
 - Project metadata: `book_path`, `book_name`, `primary_language`, etc.
-- LLM: `llm_provider`, `llm_model`, `llm_endpoint`, `llm_api_key_env`, `temperature`, `request_timeout`.
+- LLM: `llm_provider`, `llm_model`, `llm_endpoint`, `llm_api_key_env`, `temperature`, `request_timeout`, `max_tokens`.
 - Embeddings: `embed_model`, `embed_device`, `embed_cache_dir`.
 
 Note on model defaults:

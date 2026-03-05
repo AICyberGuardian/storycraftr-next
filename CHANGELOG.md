@@ -5,6 +5,7 @@
 ### Changed
 
 - Current development target set to `v0.15.x` (`0.15.2-dev`).
+- Added explicit `max_tokens` support (default `8192`) across config loading and LLM settings mapping, and now pass it directly to OpenAI/OpenRouter `ChatOpenAI` clients to reduce truncation risk.
 
 ## [0.15.1] - 2026-03-04
 

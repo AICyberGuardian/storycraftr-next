@@ -143,6 +143,7 @@ class LLMSettings:
     api_key_env: Optional[str] = None
     temperature: float = 0.7
     request_timeout: Optional[float] = None
+    max_tokens: Optional[int] = 8192
     default_headers: Dict[str, str] = field(default_factory=dict)
 
 
@@ -231,6 +232,15 @@ def _validate_request_timeout(request_timeout: Optional[float]) -> None:
         raise LLMConfigurationError("Request timeout must be greater than zero.")
 
 
+def _validate_max_tokens(max_tokens: Optional[int]) -> None:
+    if max_tokens is None:
+        return
+    if not isinstance(max_tokens, int):
+        raise LLMConfigurationError("max_tokens must be an integer.")
+    if max_tokens <= 0:
+        raise LLMConfigurationError("max_tokens must be greater than zero.")
+
+
 def _validate_endpoint(provider: str, endpoint: Optional[str]) -> None:
     if not endpoint:
         return
@@ -264,6 +274,7 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
     model_name = _validate_model(provider, settings.model)
     _validate_temperature(settings.temperature)
     _validate_request_timeout(settings.request_timeout)
+    _validate_max_tokens(settings.max_tokens)
 
     if provider in ("openai", "openrouter"):
         base_url = settings.endpoint or (
@@ -286,6 +297,8 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
             "model": model_name,
             "temperature": settings.temperature,
         }
+        if settings.max_tokens is not None:
+            params["max_tokens"] = settings.max_tokens
         if settings.request_timeout is not None:
             params["timeout"] = settings.request_timeout
         if base_url:

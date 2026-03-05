@@ -79,9 +79,44 @@ def test_openrouter_builds_chatopenai_with_default_endpoint_and_headers(monkeypa
     assert kwargs["api_key"] == "or-test"  # nosec B105  # pragma: allowlist secret
     assert kwargs["model"] == "openrouter/free"
     assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
+    assert kwargs["max_tokens"] == 8192
     assert kwargs["timeout"] == 30
     assert kwargs["default_headers"]["HTTP-Referer"] == "https://storycraftr.app"
     assert kwargs["default_headers"]["X-Title"] == "StoryCraftr CLI"
+
+
+def test_openai_builds_chatopenai_with_explicit_max_tokens(monkeypatch):
+    monkeypatch.setenv(
+        "OPENAI_API_KEY", "sk-test"  # nosec B105  # pragma: allowlist secret
+    )
+
+    with mock.patch("storycraftr.llm.factory.ChatOpenAI") as mock_chat_openai:
+        mock_chat_openai.return_value = object()
+        result = build_chat_model(
+            LLMSettings(
+                provider="openai",
+                model="gpt-4o",
+                max_tokens=2048,
+            )
+        )
+
+    assert result is mock_chat_openai.return_value
+    kwargs = mock_chat_openai.call_args.kwargs
+    assert kwargs["model"] == "gpt-4o"
+    assert kwargs["max_tokens"] == 2048
+
+
+def test_openrouter_invalid_max_tokens_fails_before_client_init(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+
+    with pytest.raises(LLMConfigurationError, match="max_tokens"):
+        build_chat_model(
+            LLMSettings(
+                provider="openrouter",
+                model="openrouter/free",
+                max_tokens=0,
+            )
+        )
 
 
 def test_openrouter_does_not_silently_fallback_to_openai_default(monkeypatch):

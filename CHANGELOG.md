@@ -7,6 +7,10 @@
 - Current development target set to `v0.15.x` (`0.15.2-dev`).
 - Added explicit `max_tokens` support (default `8192`) across config loading and LLM settings mapping, and now pass it directly to OpenAI/OpenRouter `ChatOpenAI` clients to reduce truncation risk.
 - Added a targeted `iterate chapter` command for surgical single-chapter rewrites, while keeping `check-consistency` as a global batch workflow.
+- **Python 3.13 upgrade**: bumped the project's Python baseline from `>=3.10,<3.13` to `>=3.13,<3.14`.
+  - Updated `pyproject.toml` `python` constraint and Black `target-version` to `py313`.
+  - Updated CI workflows (`pytest.yml`, `pre-commit.yml`) to use Python 3.13.
+  - Regenerated `poetry.lock` for the new baseline.
 - **Python 3.13 Compliance — Dependency & Import Modernisation**:
   - Replaced deprecated `langchain.schema.Document` import in `storycraftr/agent/agents.py` with `langchain_core.documents.Document` (canonical location since langchain 0.2).
   - Replaced deprecated `langchain.text_splitter.RecursiveCharacterTextSplitter` import with `langchain_text_splitters.RecursiveCharacterTextSplitter`; added `langchain-text-splitters` as an explicit direct dependency in `pyproject.toml`.

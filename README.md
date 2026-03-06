@@ -1,6 +1,5 @@
 [![GitHub Actions Status](https://github.com/AICyberGuardian/storycraftr-next/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/AICyberGuardian/storycraftr-next/actions)
 [![GitHub Actions Status](https://github.com/AICyberGuardian/storycraftr-next/actions/workflows/pytest.yml/badge.svg)](https://github.com/AICyberGuardian/storycraftr-next/actions)
-[![Python 3.13 supported](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/release/python-3130/)
 
 # <img src="https://res.cloudinary.com/dyknhuvxt/image/upload/f_auto,q_auto/ofhhkf6f7bryfgvbxxwc" alt="StoryCraftr Logo" width="100" height="100"> StoryCraftr - Your AI-powered Book Creation Assistant 📚🤖
 

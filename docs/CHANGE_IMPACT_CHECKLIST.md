@@ -1,3 +1,19 @@
+# Change Impact Checklist
+
+## Change History
+
+### 2026-03-06 — Python baseline upgrade to 3.13 (feat: upgrade Python baseline to 3.13)
+- **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 7 (Security & Tooling), 8 (Documentation & Versioning)
+- **Impact:** Python constraint in `pyproject.toml` updated to `>=3.13,<3.14`; `poetry.lock` regenerated; CI workflows updated to Python 3.13; `CHANGELOG.md` updated.
+- **No impact** on sections 2–6: no config schema changes, no LLM/sub-agent/vector-store/VS Code extension changes, no credential or security logic touched.
+
+### 2026-03-06 — Python 3.13 compliance: deprecated import removal, dep floor bump, CI hardening
+- **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 5 (Vector Store & RAG), 7 (Security & Tooling), 8 (Documentation & Versioning)
+- **Impact:** Replaced deprecated LangChain import paths in `agents.py`; bumped dep floors for `langchain-openai`, `chromadb`, `huggingface-hub`, `sentence-transformers`, `torch`; replaced `curl | bash` uv install with `astral-sh/setup-uv@v5` in CI; pinned all third-party action SHAs; added Python baseline assertion steps; scoped `ci-failure-fix` away from protected branches.
+- **No impact** on sections 2–4, 6: no config schema changes, no LLM routing/sub-agent/IPC contract changes.
+
+---
+
 ### 1. Dependency and Lockfile Integrity
 - [ ] For routine dependency regeneration after changing `pyproject.toml` or `package.json`, run `make sync-deps` and commit synchronized `poetry.lock` and `package-lock.json`.
 - [ ] Avoid raw `poetry lock` or `npm install` for routine dependency regeneration; use `make sync-deps`.
@@ -55,32 +71,6 @@
 
 ## Checklist Review Notes
 
-- 2026-03-06: `pyproject.toml` tooling-config cleanup only.
-- Impact: Removed invalid pytest options (`line-length`, `target-version`) and added equivalent `[tool.black]` settings.
-- No impact: Runtime behavior, dependencies, lockfiles, CLI/LLM/subagent/IPC flows, and user-facing docs.
-- 2026-03-06: CI test coverage expanded in `.github/workflows/pytest.yml`.
-- Impact: Added matrix testing for Python `3.11` and `3.13` via `actions/setup-python`.
-- No impact: Application runtime logic, dependency metadata, lockfiles, and user-facing CLI/docs behavior.
-- 2026-03-06: Python 3.13 modernization follow-ups.
-- Impact: Migrated core metadata/scripts to PEP 621 (`[project]`, `[project.scripts]`), switched CI dependency install to `uv pip` with `poetry export`, and added a Python 3.13 README badge.
-- Impact: Regenerated lock metadata through `make sync-deps` after `pyproject.toml` change.
-- No impact: Story/Paper runtime command behavior, LLM routing, sub-agent execution semantics, and IPC payload contracts.
-- 2026-03-06: Python 3.13 support policy finalized and validated.
-- Impact: CI `pytest.yml` now enforces Python `3.13` only, restores `poetry install` flow, and adds CLI + VS Code extension build smoke steps.
-- Impact: Updated Black target runtime from `py39` to `py313`, aligned architecture overview language statement, and documented runtime requirement in `README.md`.
-- No impact: Runtime command semantics, vector store schema, sub-agent event payload contract, and credential resolution precedence.
-- 2026-03-06: Optional embeddings CI lane added.
-- Impact: Added `embeddings-smoke` workflow job in `.github/workflows/pytest.yml` to install `--with embeddings` on Python `3.13` and run import-level smoke validation for `sentence_transformers` and `torch`.
-- No impact: Core CLI behavior, base dependency set, LLM provider routing, and extension event payload schema.
-- 2026-03-06: pre-commit workflow install path optimized with uv.
-- Impact: `.github/workflows/pre-commit.yml` now uses Python `3.13`, installs `uv`, creates `.venv`, and installs `pre-commit`/`poetry` via `uv pip install` for faster CI dependency setup.
-- No impact: Hook set, pre-commit behavior, lockfile policies, and application runtime semantics.
-- 2026-03-06: Full-stack dependency upgrade matrix added.
-- Impact: Added `docs/python-3.13-full-stack-upgrade-matrix.md` with staged upgrade waves, version targets, risk tiers, validation gates, and rollback strategy for Python 3.13-compatible modernization.
-- No impact: Runtime behavior, dependency specifications, lockfiles, CI execution logic, and extension IPC contract.
-- 2026-03-06: Python 3.13 compliance — deprecated import removal and dependency floor bump.
-- Impact: Removed three deprecated langchain import paths in `storycraftr/agent/agents.py` (`langchain.schema`, `langchain.text_splitter`, `langchain_community.vectorstores`) in favour of canonical `langchain_core`/`langchain_text_splitters`/`langchain_chroma` namespaces. Updated minimum version floors for `langchain-openai`, `chromadb`, `huggingface-hub`, `sentence-transformers`, `torch`, and added explicit `langchain-text-splitters` direct dependency in `pyproject.toml`. Regenerated `poetry.lock` content-hash via `make sync-deps` (resolved versions unchanged).
-- No impact: Runtime command semantics, LLM provider routing, sub-agent execution, credential resolution precedence, vector store schema, and VS Code extension IPC contract.
 - 2026-03-06: Python 3.13 governance and CI consistency hardening.
 - Impact: Aligned `.github/workflows/pytest.yml` and `.github/workflows/pre-commit.yml` to Python `3.13`, added explicit Python-baseline assertions, and kept `uv`-based install acceleration in CI.
 - Impact: Pinned third-party workflow actions to immutable commit SHAs in `pytest.yml`, `pre-commit.yml`, and `ci-failure-fix.yml`.
@@ -91,3 +81,6 @@
 - No impact: Story/Paper command behavior, LLM routing semantics, sub-agent lifecycle payload schemas, and vector-store persistence contract.
 - 2026-03-06: CI supply-chain hardening — replaced `curl | bash` uv install with `astral-sh/setup-uv@v5` GitHub Action in `pytest.yml` and `pre-commit.yml`; pinned `actions/setup-python` to immutable SHA. Python line-length doc corrected from 79 to 88 chars.
 - No impact: Runtime behavior, dependency specifications, lockfiles, and application semantics.
+- 2026-03-06: Python 3.13 compliance — deprecated import removal and dependency floor bump.
+- Impact: Removed three deprecated langchain import paths in `storycraftr/agent/agents.py`; updated minimum dep floors for `langchain-openai`, `chromadb`, `huggingface-hub`, `sentence-transformers`, `torch`; converted `pyproject.toml` to `[tool.poetry]` format; regenerated `poetry.lock` content-hash.
+- No impact: Runtime command semantics, LLM provider routing, sub-agent execution, credential resolution precedence, vector store schema, and VS Code extension IPC contract.

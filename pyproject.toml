@@ -1,18 +1,10 @@
-[project]
+[tool.poetry]
 name = "storycraftr"
 version = "0.15.1"
 description = "A CLI tool for writing books and research papers using LangChain-compatible LLM providers."
-readme = "README.md"
-requires-python = ">=3.13,<3.14"
-authors = [{ name = "Rodrigo Estrada", email = "rodrigo.estrada@gmail.com" }]
+authors = ["Rodrigo Estrada <rodrigo.estrada@gmail.com>"]
 license = "MIT"
-dynamic = ["dependencies"]
-
-[project.scripts]
-storycraftr = "storycraftr.cli:cli"
-papercraftr = "storycraftr.cli:cli"
-
-[tool.poetry]
+readme = "README.md"
 include = [
     "docs/getting_started.md",
     "docs/iterate.md",
@@ -40,6 +32,10 @@ langchain-text-splitters = ">=0.3.0"
 chromadb = ">=1.0.0"
 huggingface-hub = ">=0.30.0"
 markdown-pdf = "^1.10"
+
+[tool.poetry.scripts]
+storycraftr = "storycraftr.cli:cli"
+papercraftr = "storycraftr.cli:cli"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=6.2.4"

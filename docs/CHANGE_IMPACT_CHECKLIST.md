@@ -2,6 +2,11 @@
 
 ## Change History
 
+### 2026-03-06 — CI bottleneck removal and uv cache-key fix
+- **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 7 (Security & Tooling), 8 (Documentation & Versioning)
+- **Impact:** Removed `jlumbroso/free-disk-space` from `.github/workflows/pytest.yml` and `.github/workflows/pre-commit.yml` to eliminate startup overhead; configured `setup-uv` cache invalidation with explicit dependency globs (`poetry.lock` for pytest jobs, `pyproject.toml` for pre-commit) to avoid default cache-key mismatch behavior.
+- **No impact** on sections 2–6: no runtime config schema, LLM routing, sub-agent lifecycle, vector-store contract, or extension IPC behavior changes.
+
 ### 2026-03-06 — Release notes wording deduplication
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:** Refined `release_notes.md` CI update wording to reduce duplication with `CHANGELOG.md` while preserving the same factual coverage and adding a pointer to `[Unreleased]` changelog details.

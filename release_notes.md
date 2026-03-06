@@ -8,6 +8,8 @@ Current development target: `v0.15.x` (`0.15.2-dev`).
 - The pytest pipeline now follows the cached `setup-uv` + `poetry export` + `uv pip` installation path and runs `npm ci` before extension compilation.
 - Embeddings smoke checks use the same export-and-install pattern, and CI fails fast when `poetry export` support is unavailable.
 - Legacy curl-based uv bootstrap has been removed, and redundant pre-commit startup steps were trimmed to reduce latency.
+- Expensive disk cleanup actions were removed from pytest and pre-commit workflows to remove startup bottlenecks.
+- `setup-uv` cache invalidation now maps to repository dependency files (`poetry.lock`/`pyproject.toml`) for more reliable reuse across runs.
 - Project documentation was synchronized with this CI convention (`README.md`, `CHANGELOG.md`, `AGENTS.md`, `.github/copilot-instructions.md`).
 
 For full step-level details, see `CHANGELOG.md` under `[Unreleased]`.

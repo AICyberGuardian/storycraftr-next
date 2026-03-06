@@ -8,6 +8,8 @@
 - CI dependency installation modernized for speed and determinism:
   - `.github/workflows/pytest.yml` now uses `astral-sh/setup-uv@v5` native cache, validates `poetry export` availability, exports requirements from `poetry.lock`, installs with `uv pip`, and runs `npm ci` before extension compile.
   - `.github/workflows/pytest.yml` `embeddings-smoke` now uses the same `poetry export` + `uv pip` flow for embeddings extras.
+  - `.github/workflows/pytest.yml` and `.github/workflows/pre-commit.yml` remove expensive disk cleanup steps (`jlumbroso/free-disk-space`) to eliminate startup bottlenecks.
+  - `setup-uv` cache invalidation is now keyed to repository dependency files (`poetry.lock` for pytest jobs, `pyproject.toml` for pre-commit), avoiding stale/default cache-key behavior.
   - `.github/workflows/pre-commit.yml` now uses cached `setup-uv` without curl-based bootstrap and removes redundant secondary disk-space maximization to reduce startup latency.
 - Added explicit `max_tokens` support (default `8192`) across config loading and LLM settings mapping, and now pass it directly to OpenAI/OpenRouter `ChatOpenAI` clients to reduce truncation risk.
 - Added a targeted `iterate chapter` command for surgical single-chapter rewrites, while keeping `check-consistency` as a global batch workflow.

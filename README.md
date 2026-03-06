@@ -13,11 +13,13 @@ Welcome to [**StoryCraftr**](https://storycraftr.app), the open-source project d
 
 ---
 
-## Development Cycle v0.16.x
+## Development Cycle v0.16
 
-Current development target: `v0.16.x` (`0.16.0-dev`).
+Current development target: `v0.16` (`0.16.0-dev`).
 
 For in-progress changes, see `CHANGELOG.md` under `[Unreleased]`.
+
+Recent dependency baseline updates include `textual` in the Python runtime stack and synchronized lockfile refreshes for related transitive packages.
 
 ### CI Dependency Install Pattern
 
@@ -230,6 +232,23 @@ You can start a chat session with the assistant using:
 ```bash
 storycraftr chat --book-path /path/to/your/book
 ```
+
+You can also launch the minimal terminal-native TUI command center:
+
+```bash
+python -m storycraftr.tui.app --book-path /path/to/your/book
+```
+
+The v0.1 TUI includes a project file tree, a chat/output pane, and a single
+command input with slash-command routing through existing CLI dispatchers.
+
+Current TUI slash commands include:
+
+- `/help` for a concise command reference
+- `/status` for project/assistant/runtime status
+- `/session ...` and `/sub-agent ...` passthrough commands
+- `/model-list` to fetch and show current free OpenRouter models
+- `/model-change <model_id>` to switch the active TUI session model safely
 
 For help with available commands during the session, simply type:
 

@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Extended the Textual TUI command UX with native `/help` and `/status` slash commands, visible provider/model status display, and OpenRouter-focused model commands: `/model-list` (free model discovery) and `/model-change <model_id>` (session-level safe model switch with continuity messaging).
+- Added focused unit tests for TUI help/command parsing and OpenRouter free-model metadata filtering/parsing (`tests/unit/test_tui_app.py`, `tests/unit/test_tui_openrouter_models.py`).
+- Added a minimal Textual-based TUI shell at `storycraftr/tui/app.py` with a single-screen dashboard (`DirectoryTree` sidebar, `RichLog` output, and `Input` prompt) that reuses existing assistant/chat dispatch logic without modifying core agent/vector/sub-agent behavior.
+- Added module launch support for the TUI via `python -m storycraftr.tui.app` with optional `--book-path` argument parsing.
 - Phase 0 runtime-safety hardening:
   - Performed a small architectural extraction by moving assistant cache management from `storycraftr/agent/agents.py` into `storycraftr/agent/assistant_cache.py` (cache key normalization, lock-guarded lookup/store, shared cache state).
   - Performed a second small architectural extraction by moving vector-store refresh/hydration helpers from `storycraftr/agent/agents.py` into `storycraftr/agent/vector_hydration.py` and wiring `LangChainAssistant.ensure_vector_store` through the extracted helper functions.
@@ -33,7 +37,7 @@
   - Added dedicated sub-agent command event-contract tests (`tests/unit/test_chat_commands.py`) to lock event names and payload schemas for `sub_agent.roles`, `sub_agent.status`, `sub_agent.queued`, and `sub_agent.error`.
   - Added vector-store integrity regressions (`tests/unit/test_agents_vectorstore_integrity.py`) for empty-corpus failure handling, deterministic `force=True` rebuild behavior, and non-empty-store reindex bypass in `LangChainAssistant.ensure_vector_store`.
   - Removed import-time credential loading side effect in `storycraftr/cli.py` by introducing lazy one-time bootstrap (`_ensure_local_credentials_loaded`) executed from the Click group callback; added startup regressions in `tests/unit/test_cli_startup.py`.
-- Current development target set to `v0.16.x` (`0.16.0-dev`).
+- Current development target set to `v0.16` (`0.16.0-dev`).
 - CI dependency installation modernized for speed and determinism:
   - `.github/workflows/pytest.yml` now uses `astral-sh/setup-uv@v5` native cache, validates `poetry export` availability, exports requirements from `poetry.lock`, installs with `uv pip`, and runs `npm ci` before extension compile.
   - `.github/workflows/pytest.yml` `embeddings-smoke` now uses the same `poetry export` + `uv pip` flow for embeddings extras.
@@ -57,14 +61,15 @@
     - `huggingface-hub >= 0.30.0` (required for Python 3.13 wheel availability).
     - `sentence-transformers >= 3.0.0` (3.x added Python 3.13 support and a revised inference API).
     - `torch >= 2.5.0` (first PyTorch release with published Python 3.13 wheels).
-  - Regenerated `poetry.lock` via `make sync-deps` to record updated content-hash; resolved package versions are unchanged.
+  - Regenerated `poetry.lock` via `make sync-deps` to record updated content-hash and resolved dependency updates.
+  - Added `textual >=8.0.2` and synchronized related lockfile updates (including `rich` `14.3.3` and transitive Markdown/linkify dependencies).
   - Updated `uv venv` creation in CI to explicitly target Python 3.13 (`--python 3.13`).
   - Regenerated `poetry.lock` for the new baseline.
 
 ### Fixed
 
 - Made `project_write_lock` tolerant of mocked file handles by falling back to process-local locking when `fileno()` is missing or non-integer, preserving real-file `flock` behavior.
-- Stabilized `tests/unit/test_subagents.py::test_job_manager_persist_job_uses_project_write_lock` by waiting for worker future completion before asserting lock usage, removing async persistence race flakes.
+- Stabilized `tests/unit/test_subagents.py::test_job_manager_persist_job_uses_project_write_lock` by asserting lock usage through the deterministic `_persist_job()` seam instead of real worker-future timing.
 
 ## [0.15.1] - 2026-03-04
 

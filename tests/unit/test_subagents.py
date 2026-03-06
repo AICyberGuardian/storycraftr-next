@@ -7,6 +7,7 @@ from pathlib import Path
 from rich.console import Console
 
 from storycraftr.subagents import SubAgentJobManager, seed_default_roles
+from storycraftr.subagents.jobs import SubAgentJob
 from storycraftr.subagents.storage import ensure_storage_dirs, load_roles
 
 
@@ -19,22 +20,6 @@ def _wait_for_job_completion(
             return status
         time.sleep(0.1)
     return manager.list_jobs()[0].status
-
-
-def _wait_for_worker_future_completion(
-    manager: SubAgentJobManager, job_id: str, timeout_seconds: float = 5.0
-) -> None:
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        with manager.lock:
-            future = manager.futures.get(job_id)
-        if future is None:
-            return
-        if future.done():
-            future.result(timeout=0)
-            return
-        time.sleep(0.05)
-    raise TimeoutError(f"Timed out waiting for sub-agent worker future {job_id}.")
 
 
 def _minimal_config(tmp_path: Path) -> None:
@@ -225,12 +210,17 @@ def test_job_manager_persist_job_uses_project_write_lock(monkeypatch, tmp_path):
     monkeypatch.setattr("storycraftr.subagents.jobs.project_write_lock", fake_lock)
 
     try:
-        job = manager.submit(
-            command_token="!outline",  # nosec B106
-            args=["general-outline", "Refine the prologue"],
-            role_slug="editor",
+        role = manager.get_role("editor")
+        assert role is not None
+
+        job = SubAgentJob(
+            job_id="lock-test-job",
+            role=role,
+            command_text="outline general-outline 'Refine the prologue'",
+            status="succeeded",
+            output="ok",
         )
-        _wait_for_worker_future_completion(manager, job.job_id)
+        manager._persist_job(job)
     finally:
         manager.shutdown()
 

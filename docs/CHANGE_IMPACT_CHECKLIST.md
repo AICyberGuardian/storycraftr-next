@@ -2,11 +2,38 @@
 
 ## Change History
 
+### 2026-03-06 — TUI slash-command UX extension with OpenRouter free-model controls
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
+- **Impact:**
+	- Extended `storycraftr/tui/app.py` with TUI-native `/help` and `/status` responses, visible model/provider status text, and slash-command handling for `/model-list` and `/model-change <model_id>`.
+	- Added `storycraftr/tui/openrouter_models.py` to fetch and normalize free-model metadata from OpenRouter's authoritative `/api/v1/models` endpoint, with graceful failure and cache fallback handling.
+	- Model switching remains a thin UI-layer override by reusing `create_or_get_assistant(book_path, model_override=...)`; vector-store/project context is preserved and continuity messaging is explicit.
+	- Added focused unit tests in `tests/unit/test_tui_app.py` and `tests/unit/test_tui_openrouter_models.py`.
+	- Updated `README.md` and `CHANGELOG.md` with new TUI slash-command behavior.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no lockfile/dependency manifest changes, no Story/Paper config schema changes, no sub-agent lifecycle contract changes, no vector-store/runtime path contract changes, no VS Code IPC schema changes, and no security tooling policy changes).
+
+### 2026-03-06 — Minimal Textual TUI shell (v0.1)
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
+- **Impact:**
+	- Added a new thin UI layer module under `storycraftr/tui/` (`__init__.py`, `app.py`) implementing a terminal-native Textual dashboard with `Header`, `Footer`, `DirectoryTree`, `RichLog`, and `Input` widgets.
+	- TUI assistant flow reuses existing APIs (`create_or_get_assistant`, `get_thread`, `create_message`) and does not modify core agent/vector/sub-agent/session behavior.
+	- Slash-command routing reuses existing chat/CLI dispatchers (`storycraftr.chat.commands.handle_command` and `storycraftr.chat.module_runner.run_module_command`) rather than introducing new execution logic.
+	- Added user-facing documentation updates in `README.md` and `CHANGELOG.md` for TUI launch and scope.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no config schema changes, no sub-agent lifecycle changes, no vector-store contract changes, no VS Code IPC changes, and no security-tooling policy changes).
+
+### 2026-03-06 — Documentation and dependency snapshot synchronization (v0.16 target + textual lock update)
+- **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 8 (Documentation & Versioning)
+- **Impact:**
+	- Synchronized development target wording to `v0.16` (`0.16.0-dev`) across core docs (`README.md`, `AGENTS.md`, `release_notes.md`, `docs/getting_started.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `CHANGELOG.md`).
+	- Updated dependency documentation to reflect current lock state by recording `textual` in runtime dependency narratives and updating `docs/python-3.13-full-stack-upgrade-matrix.md` locked rows (`rich` `14.3.3`, `textual` `8.0.2`, `black` `26.1.0`).
+	- Updated unreleased release notes/changelog text to reflect the lockfile change semantics accurately.
+- **No impact:** sections 2–7 (no runtime config schema, LLM routing logic, sub-agent lifecycle behavior, vector-store logic, VS Code IPC contract, or security-tooling policy changes).
+
 ### 2026-03-06 — Test compatibility fix: mock-safe project lock + deterministic sub-agent persistence assertion
 - **Sections reviewed:** 4 (Sub-Agents & Background Jobs), 5 (Vector Store & RAG Integrity), 8 (Documentation & Versioning)
 - **Impact:**
 	- Updated `storycraftr/utils/project_lock.py` to gracefully fall back to process-local locking when the opened lock-handle does not provide a usable integer file descriptor (for example, `mock_open` handles in unit tests), while preserving POSIX `flock` behavior for real file descriptors.
-	- Updated `tests/unit/test_subagents.py::test_job_manager_persist_job_uses_project_write_lock` to wait for worker future completion before asserting lock usage, removing a race where job status could become terminal before `_persist_job()` executed.
+	- Updated `tests/unit/test_subagents.py::test_job_manager_persist_job_uses_project_write_lock` to assert lock usage through a deterministic `_persist_job()` seam, removing executor timing dependence from the lock-behavior assertion.
 	- Restored passing regressions for `tests/test_markdown.py::test_append_to_markdown_success` and `tests/unit/test_subagents.py::test_job_manager_persist_job_uses_project_write_lock`.
 - **No impact:** sections 1, 2, 3, 6, and 7 (no dependency/lockfile changes, no config schema or LLM routing contract changes, no VS Code IPC contract changes, and no security-tooling policy changes).
 

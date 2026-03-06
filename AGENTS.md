@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-Current development target: v0.16.x.
+Current development target: v0.16.
 
 ## Repository Invariants
 - `DEP_UPDATE`: Modifying `pyproject.toml` requires updating `poetry.lock` via `make sync-deps` (do not run `poetry lock` directly in routine workflows).

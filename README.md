@@ -15,11 +15,13 @@ Welcome to [**StoryCraftr**](https://storycraftr.app), the open-source project d
 
 ## Development Cycle v0.15.x
 
-Current development target: `v0.15.x` (`0.15.0-dev`).
+Current development target: `v0.15.x` (`0.15.2-dev`).
 
 For in-progress changes, see `CHANGELOG.md` under `[Unreleased]`.
 
 ## Step 1: Install StoryCraftr
+
+StoryCraftr requires Python `3.13.x`.
 
 First, install **StoryCraftr** using [pipx](https://pypa.github.io/pipx/), a tool to help you install and run Python applications in isolated environments. It works on most platforms, including macOS, Linux, and Windows. Using `pipx` ensures that **StoryCraftr** runs in its own virtual environment, keeping your system's Python installation clean.
 

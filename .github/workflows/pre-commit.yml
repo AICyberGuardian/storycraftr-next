@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # main
         with:
           tool-cache: false
           android: true
@@ -24,7 +24,7 @@ jobs:
           docker-images: true
           swap-storage: true
       - name: Maximize build space
-        uses: easimon/maximize-build-space@master
+        uses: easimon/maximize-build-space@c28619d8999a147d5e09c1199f84ff6af6ad5794 # master
         with:
           root-reserve-mb: 30000
           swap-size-mb: 1024
@@ -49,6 +49,9 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | bash
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Create venv
         run: |

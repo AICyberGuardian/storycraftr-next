@@ -22,6 +22,8 @@
     - `sentence-transformers >= 3.0.0` (3.x added Python 3.13 support and a revised inference API).
     - `torch >= 2.5.0` (first PyTorch release with published Python 3.13 wheels).
   - Regenerated `poetry.lock` via `make sync-deps` to record updated content-hash; resolved package versions are unchanged.
+  - Updated `uv venv` creation in CI to explicitly target Python 3.13 (`--python 3.13`).
+  - Regenerated `poetry.lock` for the new baseline.
 
 ## [0.15.1] - 2026-03-04
 

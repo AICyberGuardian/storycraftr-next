@@ -32,6 +32,7 @@ langchain-text-splitters = ">=0.3.0"
 chromadb = ">=1.0.0"
 huggingface-hub = ">=0.30.0"
 markdown-pdf = "^1.10"
+textual = "^8.0.2"
 
 [tool.poetry.scripts]
 storycraftr = "storycraftr.cli:cli"

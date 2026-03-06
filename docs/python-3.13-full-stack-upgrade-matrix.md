@@ -27,7 +27,8 @@ Move the full stack toward latest stable versions while preserving StoryCraftr C
 | chromadb | 1.3.2 | 1.5.2 | Major API/behavior shifts | High |
 | sentence-transformers | 5.1.2 | 5.2.3 | Minor | Medium |
 | torch | 2.9.0 | 2.10.0 | Minor | Medium |
-| rich | 14.0.0 | 14.3.3 | Minor | Low |
+| rich | 14.3.3 | 14.3.3 | None | Low |
+| textual | 8.0.2 | 8.0.2 | None | Low |
 | requests | 2.32.3 | 2.32.5 | Patch | Low |
 | pyyaml | 6.0.2 | 6.0.3 | Patch | Low |
 | python-dotenv | 1.1.0 | 1.2.2 | Minor | Low |
@@ -37,7 +38,7 @@ Move the full stack toward latest stable versions while preserving StoryCraftr C
 |---|---:|---:|---|---|
 | pytest | 8.3.5 | 9.0.2 | Major | Medium |
 | pre-commit | 4.2.0 | 4.5.1 | Minor | Low |
-| black | 25.1.0 | 26.1.0 | Major | Medium |
+| black | 26.1.0 | 26.1.0 | None | Low |
 | sphinx | 8.1.3 | 9.1.0 | Major | Medium |
 | sphinx-click | 6.0.0 | 6.2.0 | Minor | Low |
 

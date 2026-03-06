@@ -20,7 +20,7 @@ If you prefer uv tooling, use:
 uv tool install --from git+https://github.com/AICyberGuardian/storycraftr-next.git@main storycraftr
 ```
 
-Current development target: `v0.16`.
+Current development target: `v0.16` (`0.16.0-dev`).
 
 Quick sanity check:
 

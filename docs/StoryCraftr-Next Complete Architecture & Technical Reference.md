@@ -5,7 +5,7 @@
 This document is the canonical architecture reference for StoryCraftr-Next.
 It focuses on current, verified behavior and omits speculative roadmap content.
 
-Current development target: `v0.16.x`.
+Current development target: `v0.16` (`0.16.0-dev`).
 
 ## System Summary
 

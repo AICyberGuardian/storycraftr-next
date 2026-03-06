@@ -10,6 +10,18 @@
 - **Python 3.13 upgrade**: bumped the project's Python baseline from `>=3.10,<3.13` to `>=3.13,<3.14`.
   - Updated `pyproject.toml` `python` constraint and Black `target-version` to `py313`.
   - Updated CI workflows (`pytest.yml`, `pre-commit.yml`) to use Python 3.13.
+  - Regenerated `poetry.lock` for the new baseline.
+- **Python 3.13 Compliance — Dependency & Import Modernisation**:
+  - Replaced deprecated `langchain.schema.Document` import in `storycraftr/agent/agents.py` with `langchain_core.documents.Document` (canonical location since langchain 0.2).
+  - Replaced deprecated `langchain.text_splitter.RecursiveCharacterTextSplitter` import with `langchain_text_splitters.RecursiveCharacterTextSplitter`; added `langchain-text-splitters` as an explicit direct dependency in `pyproject.toml`.
+  - Replaced deprecated `langchain_community.vectorstores.Chroma` import with `langchain_chroma.Chroma`, aligning the type annotation in `LangChainAssistant` with the concrete type returned by `build_chroma_store`.
+  - Updated minimum dependency version bounds in `pyproject.toml` to reflect Python 3.13-compatible floor versions:
+    - `langchain-openai >= 0.3.0` (aligns with openai SDK 1.x compatibility layer).
+    - `chromadb >= 1.0.0` (1.0 introduced a new persistent-client API used throughout `vectorstores/chroma.py`; 0.5.x is incompatible).
+    - `huggingface-hub >= 0.30.0` (required for Python 3.13 wheel availability).
+    - `sentence-transformers >= 3.0.0` (3.x added Python 3.13 support and a revised inference API).
+    - `torch >= 2.5.0` (first PyTorch release with published Python 3.13 wheels).
+  - Regenerated `poetry.lock` via `make sync-deps` to record updated content-hash; resolved package versions are unchanged.
   - Updated `uv venv` creation in CI to explicitly target Python 3.13 (`--python 3.13`).
   - Regenerated `poetry.lock` for the new baseline.
 

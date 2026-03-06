@@ -7,6 +7,11 @@
 - **Impact:** Python constraint in `pyproject.toml` updated to `>=3.13,<3.14`; `poetry.lock` regenerated; CI workflows updated to Python 3.13; `CHANGELOG.md` updated.
 - **No impact** on sections 2–6: no config schema changes, no LLM/sub-agent/vector-store/VS Code extension changes, no credential or security logic touched.
 
+### 2026-03-06 — Python 3.13 compliance: deprecated import removal, dep floor bump, CI hardening
+- **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 5 (Vector Store & RAG), 7 (Security & Tooling), 8 (Documentation & Versioning)
+- **Impact:** Replaced deprecated LangChain import paths in `agents.py`; bumped dep floors for `langchain-openai`, `chromadb`, `huggingface-hub`, `sentence-transformers`, `torch`; replaced `curl | bash` uv install with `astral-sh/setup-uv@v5` in CI; pinned all third-party action SHAs; added Python baseline assertion steps; scoped `ci-failure-fix` away from protected branches.
+- **No impact** on sections 2–4, 6: no config schema changes, no LLM routing/sub-agent/IPC contract changes.
+
 ---
 
 ### 1. Dependency and Lockfile Integrity
@@ -74,3 +79,8 @@
 - Impact: Fixed `pyproject.toml` config drift by moving `line-length`/`target-version` into `[tool.black]` and targeting `py313`.
 - Impact: Synchronized development-target references in `README.md` and `release_notes.md` to `0.15.2-dev`, and documented Python `3.13.x` runtime requirement in `README.md`.
 - No impact: Story/Paper command behavior, LLM routing semantics, sub-agent lifecycle payload schemas, and vector-store persistence contract.
+- 2026-03-06: CI supply-chain hardening — replaced `curl | bash` uv install with `astral-sh/setup-uv@v5` GitHub Action in `pytest.yml` and `pre-commit.yml`; pinned `actions/setup-python` to immutable SHA. Python line-length doc corrected from 79 to 88 chars.
+- No impact: Runtime behavior, dependency specifications, lockfiles, and application semantics.
+- 2026-03-06: Python 3.13 compliance — deprecated import removal and dependency floor bump.
+- Impact: Removed three deprecated langchain import paths in `storycraftr/agent/agents.py`; updated minimum dep floors for `langchain-openai`, `chromadb`, `huggingface-hub`, `sentence-transformers`, `torch`; converted `pyproject.toml` to `[tool.poetry]` format; regenerated `poetry.lock` content-hash.
+- No impact: Runtime command semantics, LLM provider routing, sub-agent execution, credential resolution precedence, vector store schema, and VS Code extension IPC contract.

@@ -78,3 +78,6 @@
 - 2026-03-06: Full-stack dependency upgrade matrix added.
 - Impact: Added `docs/python-3.13-full-stack-upgrade-matrix.md` with staged upgrade waves, version targets, risk tiers, validation gates, and rollback strategy for Python 3.13-compatible modernization.
 - No impact: Runtime behavior, dependency specifications, lockfiles, CI execution logic, and extension IPC contract.
+- 2026-03-06: Python 3.13 compliance — deprecated import removal and dependency floor bump.
+- Impact: Removed three deprecated langchain import paths in `storycraftr/agent/agents.py` (`langchain.schema`, `langchain.text_splitter`, `langchain_community.vectorstores`) in favour of canonical `langchain_core`/`langchain_text_splitters`/`langchain_chroma` namespaces. Updated minimum version floors for `langchain-openai`, `chromadb`, `huggingface-hub`, `sentence-transformers`, `torch`, and added explicit `langchain-text-splitters` direct dependency in `pyproject.toml`. Regenerated `poetry.lock` content-hash via `make sync-deps` (resolved versions unchanged).
+- No impact: Runtime command semantics, LLM provider routing, sub-agent execution, credential resolution precedence, vector store schema, and VS Code extension IPC contract.

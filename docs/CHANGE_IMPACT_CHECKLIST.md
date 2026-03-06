@@ -63,3 +63,14 @@
 - [ ] Core architecture changes touching LLM factory, sub-agents, or IPC must update `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`.
 - [ ] Every feature or fix commit must have a corresponding `CHANGELOG.md` entry.
 - [ ] Any behavior-affecting CLI change must be reflected in user-facing docs where relevant.
+
+## Checklist Review Notes
+
+- 2026-03-06: Python 3.13 governance and CI consistency hardening.
+- Impact: Aligned `.github/workflows/pytest.yml` and `.github/workflows/pre-commit.yml` to Python `3.13`, added explicit Python-baseline assertions, and kept `uv`-based install acceleration in CI.
+- Impact: Pinned third-party workflow actions to immutable commit SHAs in `pytest.yml`, `pre-commit.yml`, and `ci-failure-fix.yml`.
+- Impact: Scoped autonomous `ci-failure-fix` execution away from `main`/`release/*` and same-repository branch guardrails.
+- Impact: Added workflow-governance items to `.github/pull_request_template.md`.
+- Impact: Fixed `pyproject.toml` config drift by moving `line-length`/`target-version` into `[tool.black]` and targeting `py313`.
+- Impact: Synchronized development-target references in `README.md` and `release_notes.md` to `0.15.2-dev`, and documented Python `3.13.x` runtime requirement in `README.md`.
+- No impact: Story/Paper command behavior, LLM routing semantics, sub-agent lifecycle payload schemas, and vector-store persistence contract.

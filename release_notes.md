@@ -1,6 +1,6 @@
 ## Draft Update - 2026-03-03 (Security, Reliability, and Path Hardening)
 
-Current development target: `v0.15.x` (`0.15.0-dev`).
+Current development target: `v0.15.x` (`0.15.2-dev`).
 
 ### Highlights
 

@@ -13,8 +13,8 @@ Start by forking the repository to your own GitHub account. You can fork the pro
 After forking, clone the repository to your local machine:
 
 ```bash
-git clone https://github.com/your-username/storycraftr.git
-cd storycraftr
+git clone https://github.com/AICyberGuardian/storycraftr-next.git
+cd storycraftr-next
 ```
 
 ### 3. Create a New Branch

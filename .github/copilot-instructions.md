@@ -1,6 +1,6 @@
 # Copilot Coding Agent Instructions
 
-Current development target: v0.15.x.
+Current development target: v0.16.x.
 
 ## Repository Invariants
 
@@ -65,7 +65,7 @@ tsconfig.json
 poetry install                          # Install all dependencies
 poetry install --extras embeddings      # Include sentence-transformers + torch
 make sync-deps                          # Rebuild Python/Node lock files together
-make bump-version VERSION=0.15.1-dev    # Bump versions + refresh locks + changelog target line
+make bump-version VERSION=0.16.0-dev    # Bump versions + refresh locks + changelog target line
 poetry run storycraftr --help           # Verify CLI loads
 poetry run pytest                       # Run all tests
 poetry run pre-commit run --all-files   # Lint + security scan (run before every push)

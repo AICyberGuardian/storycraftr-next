@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-Current development target: v0.15.x.
+Current development target: v0.16.x.
 
 ## Repository Invariants
 - `DEP_UPDATE`: Modifying `pyproject.toml` requires updating `poetry.lock` via `make sync-deps` (do not run `poetry lock` directly in routine workflows).
@@ -14,7 +14,7 @@ StoryCraftr ships a Python CLI plus a lightweight VS Code companion extension. P
 
 ## Build, Test, and Development Commands
 - Unified dependency runner: `make sync-deps` updates Python/Node lock files together and stages them.
-- Version bump runner: `make bump-version VERSION=0.15.1-dev` updates version metadata + lock files atomically.
+- Version bump runner: `make bump-version VERSION=0.16.0-dev` updates version metadata + lock files atomically.
 - Python: `poetry install` bootstraps dependencies; `poetry run storycraftr --help` validates the CLI loads; `poetry run pytest` runs the full suite. Use `poetry run pre-commit run --all-files` before pushing.
 - Extension: run `npm install` once, then use `npm run compile` to emit `out/extension.js`. `npm run watch` keeps the TypeScript build live during development.
 

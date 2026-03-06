@@ -2,6 +2,16 @@
 
 ## Change History
 
+### 2026-03-06 — Repository link and docs target version alignment
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:** Updated repository links in `README.md`, `docs/getting_started.md`, `CONTRIBUTING.md`, and `SECURITY.md` to `AICyberGuardian/storycraftr-next`; updated `CONTRIBUTING.md` clone command to the canonical repository, removed a non-canonical external GitHub link in `CODE_OF_CONDUCT.md`, and updated `docs/getting_started.md` development target to `0.16.0-dev`.
+- **No impact** on sections 1–7: documentation-only link/version corrections.
+
+### 2026-03-06 — v0.16 target normalization
+- **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 8 (Documentation & Versioning)
+- **Impact:** Bumped project version metadata to `0.16.0-dev` via `scripts/bump-version.sh` (`pyproject.toml`, `package.json`, `package-lock.json`, `CHANGELOG.md`), and updated development-target references across docs/instructions to `v0.16.x`/`0.16.0-dev`.
+- **No impact** on sections 2–7: no runtime config schema, LLM routing, sub-agent lifecycle, vector-store contract, extension IPC behavior, or security-tooling policy changes.
+
 ### 2026-03-06 — CI bottleneck removal and uv cache-key fix
 - **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 7 (Security & Tooling), 8 (Documentation & Versioning)
 - **Impact:** Removed `jlumbroso/free-disk-space` from `.github/workflows/pytest.yml` and `.github/workflows/pre-commit.yml` to eliminate startup overhead; configured `setup-uv` cache invalidation with explicit dependency globs (`poetry.lock` for pytest jobs, `pyproject.toml` for pre-commit) to avoid default cache-key mismatch behavior.
@@ -107,7 +117,7 @@
 - Impact: Scoped autonomous `ci-failure-fix` execution away from `main`/`release/*` and same-repository branch guardrails.
 - Impact: Added workflow-governance items to `.github/pull_request_template.md`.
 - Impact: Fixed `pyproject.toml` config drift by moving `line-length`/`target-version` into `[tool.black]` and targeting `py313`.
-- Impact: Synchronized development-target references in `README.md` and `release_notes.md` to `0.15.2-dev`, and documented Python `3.13.x` runtime requirement in `README.md`.
+- Impact: Synchronized development-target references in `README.md` and `release_notes.md` to `0.16.0-dev`, and documented Python `3.13.x` runtime requirement in `README.md`.
 - No impact: Story/Paper command behavior, LLM routing semantics, sub-agent lifecycle payload schemas, and vector-store persistence contract.
 - 2026-03-06: CI supply-chain hardening — replaced `curl | bash` uv install with `astral-sh/setup-uv@v5` GitHub Action in `pytest.yml` and `pre-commit.yml`; pinned `actions/setup-python` to immutable SHA. Python line-length doc corrected from 79 to 88 chars.
 - No impact: Runtime behavior, dependency specifications, lockfiles, and application semantics.

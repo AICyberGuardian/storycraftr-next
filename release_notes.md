@@ -1,6 +1,6 @@
 ## Draft Update - 2026-03-06 (CI Acceleration and Documentation Sync)
 
-Current development target: `v0.15.x` (`0.15.2-dev`).
+Current development target: `v0.16.x` (`0.16.0-dev`).
 
 ### Highlights
 
@@ -11,6 +11,7 @@ Current development target: `v0.15.x` (`0.15.2-dev`).
 - Expensive disk cleanup actions were removed from pytest and pre-commit workflows to remove startup bottlenecks.
 - `setup-uv` cache invalidation now maps to repository dependency files (`poetry.lock`/`pyproject.toml`) for more reliable reuse across runs.
 - Project documentation was synchronized with this CI convention (`README.md`, `CHANGELOG.md`, `AGENTS.md`, `.github/copilot-instructions.md`).
+- Repository links and install snippets were normalized to `AICyberGuardian/storycraftr-next`, and `docs/getting_started.md` now reflects development target `0.16.0-dev`.
 
 For full step-level details, see `CHANGELOG.md` under `[Unreleased]`.
 
@@ -22,7 +23,7 @@ For full step-level details, see `CHANGELOG.md` under `[Unreleased]`.
 
 ## Draft Update - 2026-03-03 (Security, Reliability, and Path Hardening)
 
-Current development target: `v0.15.x` (`0.15.2-dev`).
+Current development target: `v0.16.x` (`0.16.0-dev`).
 
 ### Highlights
 

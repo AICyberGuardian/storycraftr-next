@@ -3,9 +3,9 @@
 ## Document Metadata
 - Last updated: March 4, 2026
 - Codebase root: `/home/orion22/storycraftr-next`
-- Python package version in source: `0.15.0-dev` (`pyproject.toml`)
+- Python package version in source: `0.16.0-dev` (`pyproject.toml`)
 - Status note: this document includes unreleased hardening work present in the current working tree as of March 2026.
-- Current development target: `v0.15.x`.
+- Current development target: `v0.16.x`.
 
 ## Executive Summary
 StoryCraftr-Next is a local-first writing platform with two CLIs (`storycraftr`, `papercraftr`) and a VS Code extension.

@@ -14,7 +14,7 @@ To install **StoryCraftr**, run the following command:
 pipx install git+https://github.com/AICyberGuardian/storycraftr-next.git@main
 ```
 
-Current development target: `v0.15.x` (`0.15.0-dev`).
+Current development target: `v0.16.x` (`0.16.0-dev`).
 
 ### Configure credentials
 

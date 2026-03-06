@@ -44,7 +44,7 @@ jobs:
 
       - name: Create venv
         run: |
-          uv venv .venv --python 3.13
+          uv venv .venv
 
       - name: Install Poetry (inside venv)
         run: |

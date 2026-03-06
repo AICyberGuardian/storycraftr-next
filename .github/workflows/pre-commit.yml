@@ -23,17 +23,6 @@ jobs:
           large-packages: true
           docker-images: true
           swap-storage: true
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@c28619d8999a147d5e09c1199f84ff6af6ad5794 # master
-        with:
-          root-reserve-mb: 30000
-          swap-size-mb: 1024
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
-
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -49,9 +38,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | bash
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+        with:
+          enable-cache: true
 
       - name: Create venv
         run: |

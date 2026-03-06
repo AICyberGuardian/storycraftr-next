@@ -1,5 +1,5 @@
-[![GitHub Actions Status](https://github.com/AICyberGuardian/storycraftr-next/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/AICyberGuardian/storycraftr-next/actions)
-[![GitHub Actions Status](https://github.com/AICyberGuardian/storycraftr-next/actions/workflows/pytest.yml/badge.svg)](https://github.com/AICyberGuardian/storycraftr-next/actions)
+[![GitHub Actions Status](https://github.com/raestrada/storycraftr/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/raestrada/storycraftr/actions)
+[![GitHub Actions Status](https://github.com/raestrada/storycraftr/actions/workflows/pytest.yml/badge.svg)](https://github.com/raestrada/storycraftr/actions)
 
 # <img src="https://res.cloudinary.com/dyknhuvxt/image/upload/f_auto,q_auto/ofhhkf6f7bryfgvbxxwc" alt="StoryCraftr Logo" width="100" height="100"> StoryCraftr - Your AI-powered Book Creation Assistant 📚🤖
 
@@ -18,6 +18,27 @@ Welcome to [**StoryCraftr**](https://storycraftr.app), the open-source project d
 Current development target: `v0.15.x` (`0.15.2-dev`).
 
 For in-progress changes, see `CHANGELOG.md` under `[Unreleased]`.
+
+### CI Dependency Install Pattern
+
+Local development should continue to use Poetry directly (`poetry install`).
+CI uses a faster, deterministic hybrid path:
+
+```bash
+uv venv .venv
+source .venv/bin/activate
+uv pip install poetry poetry-plugin-export
+poetry export --with dev --format requirements.txt --without-hashes --output requirements-ci.txt
+uv pip install -r requirements-ci.txt
+uv pip install -e .
+pytest
+```
+
+Key CI invariants:
+
+- `setup-uv` uses native cache (`enable-cache: true`).
+- Lock drift must fail CI via `git diff --exit-code poetry.lock package-lock.json`.
+- TypeScript build steps run `npm ci` before `npm run compile`.
 
 ## Step 1: Install StoryCraftr
 

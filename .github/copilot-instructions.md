@@ -71,17 +71,19 @@ poetry run pytest                       # Run all tests
 poetry run pre-commit run --all-files   # Lint + security scan (run before every push)
 ```
 
-The CI pipeline uses **uv** to create the venv and **Poetry** inside it:
+The CI pipeline uses **uv** with native caching and **Poetry export** for deterministic installs:
 
 ```bash
 uv venv .venv
 source .venv/bin/activate
-uv pip install poetry
-poetry install --no-interaction --no-root
-poetry run pytest
+uv pip install poetry poetry-plugin-export
+poetry export --with dev --format requirements.txt --without-hashes --output requirements-ci.txt
+uv pip install -r requirements-ci.txt
+uv pip install -e .
+pytest
 ```
 
-> **Do not** run `poetry install --no-root` locally unless you mirror the CI exactly; the normal `poetry install` is sufficient for development.
+> **Do not** mirror CI export/install steps for local development unless needed; local development should continue using `poetry install`.
 
 ### TypeScript (VS Code Extension)
 
@@ -97,7 +99,7 @@ npm run watch        # Live rebuild during development
 
 | File | Trigger | Purpose |
 |------|---------|---------|
-| `.github/workflows/pytest.yml` | push / PR to any branch | Runs `poetry run pytest` via uv+Poetry on Python 3.11 |
+| `.github/workflows/pytest.yml` | push / PR to any branch | Runs tests and smoke checks on Python 3.13 using uv cached setup + `poetry export` + `uv pip` installs |
 | `.github/workflows/pre-commit.yml` | push / PR to any branch | Runs pre-commit hooks (Black, Bandit, detect-secrets, large-file) |
 | `.github/workflows/ci-failure-fix.yml` | `workflow_run` completion failure | Invokes Jules AI agent to propose a fix |
 
@@ -227,7 +229,7 @@ The graph uses a `RunnableParallel` that retrieves documents from Chroma and the
 3. **Dual graph field on `LangChainAssistant`**: The dataclass declares `graph` twice (a known duplicate); do not add a third declaration.
 4. **Chroma telemetry**: `anonymized_telemetry=False` must always be passed to `chromadb.config.Settings` to prevent outbound telemetry calls in tests/CI.
 5. **Embedding model download in CI**: Tests that instantiate a real `HuggingFaceEmbeddings` model will attempt to download multi-GB artifacts. Always mock or use `llm_provider=fake` in unit tests.
-6. **`uv` in CI**: The CI workflow installs Poetry *inside* the uv virtual environment. When running locally, a standard `poetry install` is sufficient.
+6. **`uv` + Poetry export in CI**: CI installs `poetry` + `poetry-plugin-export` inside the uv virtual environment, exports requirements from `poetry.lock`, and installs via `uv pip`. Local development should continue to use `poetry install`.
 7. **Pre-commit large-file limit**: 500 KB. Do not commit model weights, lock file diffs, or large test fixtures directly.
 
 ## Repository Change Impact Checklist — Agent Contract

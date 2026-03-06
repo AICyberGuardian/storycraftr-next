@@ -2,6 +2,31 @@
 
 ## Change History
 
+### 2026-03-06 — Release notes wording deduplication
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:** Refined `release_notes.md` CI update wording to reduce duplication with `CHANGELOG.md` while preserving the same factual coverage and adding a pointer to `[Unreleased]` changelog details.
+- **No impact** on sections 1–7: documentation-only phrasing update.
+
+### 2026-03-06 — README and release notes sync for CI workflow changes
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:** Updated `README.md` with the current CI dependency install pattern and invariants, corrected workflow badge links to the active repository, and added a new `release_notes.md` draft section covering CI acceleration and merge-readiness notes.
+- **No impact** on sections 1–7: no runtime code, dependency specs, lockfiles, security tooling policy, or extension/runtime behavior changed.
+
+### 2026-03-06 — Documentation sync for CI install pattern
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:** Updated `.github/copilot-instructions.md`, `AGENTS.md`, and `CHANGELOG.md` so project guidance and release notes reflect the current CI install convention (`setup-uv` cache + `poetry export` + `uv pip`) and Python 3.13-oriented pytest workflow description.
+- **No impact** on sections 1–7: no dependency spec, runtime configuration, LLM routing, sub-agent lifecycle, vector-store behavior, extension IPC, or security-tooling policy changes.
+
+### 2026-03-06 — Pre-commit CI uv cache consistency update
+- **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 7 (Security & Tooling), 8 (Documentation & Versioning)
+- **Impact:** Updated `.github/workflows/pre-commit.yml` to use `astral-sh/setup-uv@v5` native cache (`enable-cache: true`), removed deprecated `curl | bash` install path from the same step, and removed redundant secondary disk-space maximization action to reduce startup latency while preserving pre-commit behavior.
+- **No impact** on sections 2–6: no Story/Paper config, LLM routing, sub-agent lifecycle, vector-store, or VS Code extension contract changes.
+
+### 2026-03-06 — Pytest CI acceleration with uv cache + Poetry export
+- **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 6 (VS Code Extension (IPC & UI)), 7 (Security & Tooling), 8 (Documentation & Versioning)
+- **Impact:** Updated `.github/workflows/pytest.yml` to use `astral-sh/setup-uv@v5` native cache (`enable-cache: true`), export dependencies from `poetry.lock` (`poetry export`) and install via `uv pip`, add explicit `npm ci` before `npm run compile`, align `embeddings-smoke` to the same export+uv flow, add fail-fast validation for `poetry export` availability, and keep lockfile immutability checks.
+- **No impact** on sections 2–5: no config schema, LLM routing, sub-agent lifecycle, or vector-store contract changes.
+
 ### 2026-03-06 — Python baseline upgrade to 3.13 (feat: upgrade Python baseline to 3.13)
 - **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 7 (Security & Tooling), 8 (Documentation & Versioning)
 - **Impact:** Python constraint in `pyproject.toml` updated to `>=3.13,<3.14`; `poetry.lock` regenerated; CI workflows updated to Python 3.13; `CHANGELOG.md` updated.

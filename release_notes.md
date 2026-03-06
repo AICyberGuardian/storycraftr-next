@@ -1,3 +1,23 @@
+## Draft Update - 2026-03-06 (CI Acceleration and Documentation Sync)
+
+Current development target: `v0.15.x` (`0.15.2-dev`).
+
+### Highlights
+
+- CI dependency installation is now modernized for speed and determinism across pytest and pre-commit workflows.
+- The pytest pipeline now follows the cached `setup-uv` + `poetry export` + `uv pip` installation path and runs `npm ci` before extension compilation.
+- Embeddings smoke checks use the same export-and-install pattern, and CI fails fast when `poetry export` support is unavailable.
+- Legacy curl-based uv bootstrap has been removed, and redundant pre-commit startup steps were trimmed to reduce latency.
+- Project documentation was synchronized with this CI convention (`README.md`, `CHANGELOG.md`, `AGENTS.md`, `.github/copilot-instructions.md`).
+
+For full step-level details, see `CHANGELOG.md` under `[Unreleased]`.
+
+### Merge Readiness Notes
+
+- Workflow YAML diagnostics are clean for updated files.
+- Lockfile immutability checks are preserved in CI.
+- Final merge confidence remains contingent on green GitHub Actions runs.
+
 ## Draft Update - 2026-03-03 (Security, Reliability, and Path Hardening)
 
 Current development target: `v0.15.x` (`0.15.2-dev`).

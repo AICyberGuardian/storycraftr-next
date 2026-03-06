@@ -48,9 +48,7 @@ jobs:
           node-version: "20"
 
       - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | bash
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+        uses: astral-sh/setup-uv@v5
 
       - name: Create venv
         run: |

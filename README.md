@@ -16,7 +16,7 @@ Welcome to [**StoryCraftr**](https://storycraftr.app), the open-source project d
 
 ## Development Cycle v0.15.x
 
-Current development target: `v0.15.x` (`0.15.0-dev`).
+Current development target: `v0.15.x` (`0.15.2-dev`).
 
 For in-progress changes, see `CHANGELOG.md` under `[Unreleased]`.
 

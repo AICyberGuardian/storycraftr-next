@@ -81,3 +81,13 @@
 - 2026-03-06: Python 3.13 compliance — deprecated import removal and dependency floor bump.
 - Impact: Removed three deprecated langchain import paths in `storycraftr/agent/agents.py` (`langchain.schema`, `langchain.text_splitter`, `langchain_community.vectorstores`) in favour of canonical `langchain_core`/`langchain_text_splitters`/`langchain_chroma` namespaces. Updated minimum version floors for `langchain-openai`, `chromadb`, `huggingface-hub`, `sentence-transformers`, `torch`, and added explicit `langchain-text-splitters` direct dependency in `pyproject.toml`. Regenerated `poetry.lock` content-hash via `make sync-deps` (resolved versions unchanged).
 - No impact: Runtime command semantics, LLM provider routing, sub-agent execution, credential resolution precedence, vector store schema, and VS Code extension IPC contract.
+- 2026-03-06: Python 3.13 governance and CI consistency hardening.
+- Impact: Aligned `.github/workflows/pytest.yml` and `.github/workflows/pre-commit.yml` to Python `3.13`, added explicit Python-baseline assertions, and kept `uv`-based install acceleration in CI.
+- Impact: Pinned third-party workflow actions to immutable commit SHAs in `pytest.yml`, `pre-commit.yml`, and `ci-failure-fix.yml`.
+- Impact: Scoped autonomous `ci-failure-fix` execution away from `main`/`release/*` and same-repository branch guardrails.
+- Impact: Added workflow-governance items to `.github/pull_request_template.md`.
+- Impact: Fixed `pyproject.toml` config drift by moving `line-length`/`target-version` into `[tool.black]` and targeting `py313`.
+- Impact: Synchronized development-target references in `README.md` and `release_notes.md` to `0.15.2-dev`, and documented Python `3.13.x` runtime requirement in `README.md`.
+- No impact: Story/Paper command behavior, LLM routing semantics, sub-agent lifecycle payload schemas, and vector-store persistence contract.
+- 2026-03-06: CI supply-chain hardening — replaced `curl | bash` uv install with `astral-sh/setup-uv@v5` GitHub Action in `pytest.yml` and `pre-commit.yml`; pinned `actions/setup-python` to immutable SHA. Python line-length doc corrected from 79 to 88 chars.
+- No impact: Runtime behavior, dependency specifications, lockfiles, and application semantics.

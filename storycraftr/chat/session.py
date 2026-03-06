@@ -7,6 +7,7 @@ from typing import List, Mapping
 
 from storycraftr.utils.core import load_book_config
 from storycraftr.utils.paths import resolve_project_paths
+from storycraftr.utils.project_lock import project_write_lock
 
 
 def _load_config_if_present(book_path: str):
@@ -21,9 +22,11 @@ class SessionManager:
     book_path: str
     autosave_name: str = "autosave"
     _directory: Path = field(init=False)
+    _config: object | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         config = _load_config_if_present(self.book_path)
+        self._config = config
         storage_root = resolve_project_paths(
             self.book_path, config=config
         ).sessions_root
@@ -41,8 +44,9 @@ class SessionManager:
 
     def save(self, name: str, transcript: List[Mapping]) -> Path:
         path = self._path_for(name)
-        with path.open("w", encoding="utf-8") as fh:
-            json.dump(transcript, fh, ensure_ascii=False, indent=2)
+        with project_write_lock(self.book_path, config=self._config):
+            with path.open("w", encoding="utf-8") as fh:
+                json.dump(transcript, fh, ensure_ascii=False, indent=2)
         return path
 
     def load(self, name: str) -> List[Mapping]:

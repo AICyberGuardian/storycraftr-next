@@ -91,8 +91,9 @@ def test_load_local_credentials(tmp_path):
     key_file = config_dir / "openai_api_key.txt"
     key_file.write_text("placeholder-token", encoding="utf-8")
 
-    with mock.patch("storycraftr.llm.credentials.keyring", None), mock.patch(
-        "pathlib.Path.home", return_value=tmp_path
+    with (
+        mock.patch("storycraftr.llm.credentials.keyring", None),
+        mock.patch("pathlib.Path.home", return_value=tmp_path),
     ):
         load_local_credentials()
 
@@ -128,33 +129,34 @@ def test_chat_llm_model_override_is_passed_to_config_loader(tmp_path):
         "failed": 0,
     }
 
-    with mock.patch(
-        "storycraftr.cmd.chat.load_book_config",
-        side_effect=fake_load_book_config,
-    ), mock.patch(
-        "storycraftr.cmd.chat.create_vscode_event_emitter", return_value=None
-    ), mock.patch(
-        "storycraftr.cmd.chat.create_or_get_assistant", return_value=fake_assistant
-    ) as mock_create_assistant, mock.patch(
-        "storycraftr.cmd.chat.get_thread", return_value=fake_thread
-    ), mock.patch(
-        "storycraftr.cmd.chat.SubAgentJobManager", return_value=fake_job_manager
-    ), mock.patch(
-        "storycraftr.cmd.chat.SessionManager"
-    ), mock.patch(
-        "storycraftr.cmd.chat._run_turn",
-        return_value={
-            "user": "hello",
-            "answer": "ok",
-            "duration": 0.1,
-            "documents": [],
-        },
-    ), mock.patch(
-        "storycraftr.cmd.chat.render_turn"
-    ), mock.patch(
-        "storycraftr.cmd.chat._drain_subagent_events"
-    ), mock.patch(
-        "storycraftr.cmd.chat._render_session_footer"
+    with (
+        mock.patch(
+            "storycraftr.cmd.chat.load_book_config",
+            side_effect=fake_load_book_config,
+        ),
+        mock.patch(
+            "storycraftr.cmd.chat.create_vscode_event_emitter", return_value=None
+        ),
+        mock.patch(
+            "storycraftr.cmd.chat.create_or_get_assistant", return_value=fake_assistant
+        ) as mock_create_assistant,
+        mock.patch("storycraftr.cmd.chat.get_thread", return_value=fake_thread),
+        mock.patch(
+            "storycraftr.cmd.chat.SubAgentJobManager", return_value=fake_job_manager
+        ),
+        mock.patch("storycraftr.cmd.chat.SessionManager"),
+        mock.patch(
+            "storycraftr.cmd.chat._run_turn",
+            return_value={
+                "user": "hello",
+                "answer": "ok",
+                "duration": 0.1,
+                "documents": [],
+            },
+        ),
+        mock.patch("storycraftr.cmd.chat.render_turn"),
+        mock.patch("storycraftr.cmd.chat._drain_subagent_events"),
+        mock.patch("storycraftr.cmd.chat._render_session_footer"),
     ):
         result = runner.invoke(
             cli,
@@ -175,3 +177,87 @@ def test_chat_llm_model_override_is_passed_to_config_loader(tmp_path):
     mock_create_assistant.assert_called_once_with(
         str(project), model_override="custom/model"
     )
+
+
+def test_chat_prompt_emits_event_contract_payloads(tmp_path):
+    runner = CliRunner()
+    project = tmp_path / "demo"
+    project.mkdir()
+
+    class _Emitter:
+        def __init__(self):
+            self.events = []
+
+        def emit(self, event_type, payload):
+            self.events.append((event_type, payload))
+
+    emitter = _Emitter()
+    fake_assistant = SimpleNamespace(last_documents=[])
+    fake_thread = SimpleNamespace(id="thread-test")
+    fake_job_manager = mock.Mock()
+    fake_job_manager.job_stats.return_value = {
+        "pending": 0,
+        "running": 0,
+        "succeeded": 0,
+        "failed": 0,
+    }
+
+    with (
+        mock.patch(
+            "storycraftr.cmd.chat.load_book_config",
+            return_value=SimpleNamespace(
+                book_name="Demo",
+                primary_language="en",
+                llm_provider="openai",
+                llm_model="gpt-4o",
+                embed_model="BAAI/bge-large-en-v1.5",
+            ),
+        ),
+        mock.patch(
+            "storycraftr.cmd.chat.create_vscode_event_emitter", return_value=emitter
+        ),
+        mock.patch("storycraftr.cmd.chat.click.confirm", return_value=False),
+        mock.patch(
+            "storycraftr.cmd.chat.create_or_get_assistant", return_value=fake_assistant
+        ),
+        mock.patch("storycraftr.cmd.chat.get_thread", return_value=fake_thread),
+        mock.patch(
+            "storycraftr.cmd.chat.SubAgentJobManager", return_value=fake_job_manager
+        ),
+        mock.patch("storycraftr.cmd.chat.SessionManager"),
+        mock.patch(
+            "storycraftr.cmd.chat._run_turn",
+            return_value={
+                "user": "hello",
+                "answer": "ok",
+                "duration": 0.1,
+                "documents": [],
+            },
+        ),
+        mock.patch("storycraftr.cmd.chat.render_turn"),
+        mock.patch("storycraftr.cmd.chat._drain_subagent_events"),
+        mock.patch("storycraftr.cmd.chat._render_session_footer"),
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "chat",
+                "--book-path",
+                str(project),
+                "--prompt",
+                "hello",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    event_names = [name for name, _payload in emitter.events]
+    assert event_names == ["session.started", "chat.turn", "session.ended"]
+
+    started_payload = emitter.events[0][1]
+    assert set(["book_path", "metadata", "session"]).issubset(started_payload)
+
+    turn_payload = emitter.events[1][1]
+    assert set(["user", "answer", "documents", "duration"]).issubset(turn_payload)
+
+    ended_payload = emitter.events[2][1]
+    assert set(["book_path", "session"]).issubset(ended_payload)

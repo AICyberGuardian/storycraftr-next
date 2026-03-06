@@ -2,6 +2,154 @@
 
 ## Change History
 
+### 2026-03-06 — Test compatibility fix: mock-safe project lock + deterministic sub-agent persistence assertion
+- **Sections reviewed:** 4 (Sub-Agents & Background Jobs), 5 (Vector Store & RAG Integrity), 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/utils/project_lock.py` to gracefully fall back to process-local locking when the opened lock-handle does not provide a usable integer file descriptor (for example, `mock_open` handles in unit tests), while preserving POSIX `flock` behavior for real file descriptors.
+	- Updated `tests/unit/test_subagents.py::test_job_manager_persist_job_uses_project_write_lock` to wait for worker future completion before asserting lock usage, removing a race where job status could become terminal before `_persist_job()` executed.
+	- Restored passing regressions for `tests/test_markdown.py::test_append_to_markdown_success` and `tests/unit/test_subagents.py::test_job_manager_persist_job_uses_project_write_lock`.
+- **No impact:** sections 1, 2, 3, 6, and 7 (no dependency/lockfile changes, no config schema or LLM routing contract changes, no VS Code IPC contract changes, and no security-tooling policy changes).
+
+### 2026-03-06 — Small architectural extraction: vector hydration helper module + canonical docs sync
+- **Sections reviewed:** 5 (Vector Store & RAG Integrity), 6 (VS Code Extension (IPC & UI)), 8 (Documentation & Versioning)
+- **Impact:**
+	- Extracted vector-store refresh/hydration responsibilities from `storycraftr/agent/agents.py` into `storycraftr/agent/vector_hydration.py` (`resolve_persist_dir`, force rebuild helper, refresh checks, markdown ingestion, dedupe, conditional populate).
+	- Updated `LangChainAssistant.ensure_vector_store` in `storycraftr/agent/agents.py` to delegate to helper functions while preserving existing compatibility wrappers (`load_markdown_documents`, `_dedupe_documents`) for existing tests/monkeypatch seams.
+	- Synced canonical architecture docs to current implementation contracts:
+		- `.github/copilot-instructions.md`
+		- `docs/architecture-onboarding.md`
+		- `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`
+	- Documentation now reflects typed `BookConfig` runtime semantics, extracted `assistant_cache.py`/`vector_hydration.py` seams, lock-scope matrix reference, and VS Code event-contract test artifacts (`src/event-contract.ts`, `src/event-contract.test.ts`).
+- **No impact:** sections 1, 2, 3, 4, and 7 (no dependency/lockfile changes, config schema changes, provider routing changes, sub-agent lifecycle changes, or security-tooling policy changes).
+
+### 2026-03-06 — Small architectural extraction: assistant cache helper module
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 5 (Vector Store & RAG Integrity), 8 (Documentation & Versioning)
+- **Impact:**
+	- Extracted assistant cache management into `storycraftr/agent/assistant_cache.py`, moving cache key generation/normalization plus lock-guarded cache lookup/store helpers out of `storycraftr/agent/agents.py`.
+	- Preserved compatibility by re-exporting cache internals through `storycraftr/agent/agents.py` (`_ASSISTANT_CACHE`, `_ASSISTANT_CACHE_LOCK`, `_assistant_cache_key`) so existing tests and call patterns remain stable.
+	- Updated `tests/unit/test_agents_create_message.py` cache fixtures to use `BookConfig.from_mapping(...)` for typed-config parity.
+	- Validated targeted assistant/runtime regressions: `tests/unit/test_agents_create_message.py`, `tests/unit/test_agents_vectorstore_integrity.py`, `tests/test_cli.py`, `tests/unit/test_cli_startup.py`.
+- **No impact:** sections 1, 2, 4, 6, and 7 (no dependency/lockfile changes, dual-config schema changes, sub-agent runtime contract changes, extension IPC schema changes, or security-tooling policy changes).
+
+### 2026-03-06 — P1 lock audit completion: runtime mutation coverage + reentrant lock safety
+- **Sections reviewed:** 4 (Sub-Agents & Background Jobs), 5 (Vector Store & RAG Integrity), 6 (VS Code Extension (IPC & UI)), 8 (Documentation & Versioning)
+- **Impact:**
+	- Completed lock-coverage hardening for remaining runtime mutation paths by adding `project_write_lock` usage to:
+		- `storycraftr/init.py::init_structure_story` and `storycraftr/init.py::init_structure_paper` (project scaffolding/config/template writes)
+		- `storycraftr/integrations/vscode.py::VSCodeEventEmitter.emit` (JSONL append serialization)
+		- `storycraftr/utils/cleanup.py::cleanup_vector_stores` (vector-store directory removal)
+		- `storycraftr/vectorstores/chroma.py::build_chroma_store` (store-directory creation/failure cleanup)
+	- Fixed nested lock acquisition behavior in `storycraftr/utils/project_lock.py` by tracking per-thread lock depth per lock path so nested calls do not deadlock while outer acquisitions still enforce cross-process `flock`.
+	- Added lock regression tests:
+		- `tests/unit/test_init_locks.py` (init scaffolding lock usage)
+		- `tests/unit/test_project_lock.py` (nested reentrant acquire)
+		- `tests/unit/test_cleanup.py` (cleanup lock usage)
+		- `tests/unit/test_core_paths.py` (Chroma builder lock usage)
+		- `tests/unit/test_vscode_integration.py` (event emitter lock usage)
+	- Added a lock-coverage decision matrix under Checklist Review Notes to classify remaining mutation paths as must-lock, safe single-writer, non-shared runtime state, or deferred with rationale.
+- **No impact:** sections 1, 2, 3, and 7 (no dependency/lockfile changes, config schema changes, provider/model routing semantics, or security tooling policy changes).
+
+### 2026-03-06 — Contract consolidation: typed config migration, TS event fixtures, and RAG edge-case coverage
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 5 (Vector Store & RAG Integrity), 6 (VS Code Extension (IPC & UI)), 8 (Documentation & Versioning)
+- **Impact:**
+	- Replaced runtime `getattr(config, ...)` usage with explicit `BookConfig` attributes across core config mapping, assistant prompt composition, chat metadata payloads, markdown/pdf metadata readers, sub-agent role bootstrap language selection, and `resolve_project_paths` path-override resolution.
+	- Expanded `BookConfig` typed schema/defaults to include runtime path overrides (`internal_state_dir`, `subagents_dir`, `subagent_logs_dir`, `sessions_dir`, `vector_store_dir`, `vscode_events_file`) and normalized `authors` as a string list.
+	- Added extension event parser contract module `src/event-contract.ts` and fixture-based TypeScript tests (`src/event-contract.test.ts`) validating representative JSONL event parsing for `session.started`, `chat.turn`, `session.ended`, `sub_agent.roles`, `sub_agent.status`, `sub_agent.queued`, and `sub_agent.error`.
+	- Hardened `LangChainAssistant.ensure_vector_store` by deduplicating identical source/content documents before chunking and adding one-shot force-rebuild recovery when retriever construction fails.
+	- Expanded `tests/unit/test_agents_vectorstore_integrity.py` with edge cases for corrupted retriever recovery, reset-failure fallback cleanup, unreadable/short markdown handling, duplicate ingestion deduplication, force rebuild idempotency, and empty-corpus force rebuild failure path.
+- **No impact:** sections 1, 2, 4, and 7 (no dependency/lockfile changes, no dual-config filename behavior changes, no sub-agent command lifecycle/payload contract changes, and no security tooling policy changes).
+
+### 2026-03-06 — CLI startup hardening: remove import-time credential side effect
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/cli.py` to stop calling `load_local_credentials()` at module import time.
+	- Added lazy one-time bootstrap helper (`_ensure_local_credentials_loaded`) guarded by a process lock and invoked from the Click group callback.
+	- Added startup regressions in `tests/unit/test_cli_startup.py` to verify:
+		- importing/reloading CLI module does not trigger credential loading
+		- credential bootstrap executes once when explicitly invoked repeatedly
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, project config schema changes, sub-agent runtime semantics, vector-store indexing behavior, IPC schema updates, or security tooling policy changes).
+
+### 2026-03-06 — RAG/vector-store integrity regression coverage
+- **Sections reviewed:** 5 (Vector Store & RAG Integrity), 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `tests/unit/test_agents_vectorstore_integrity.py` to validate `LangChainAssistant.ensure_vector_store` behavior for:
+		- empty Markdown corpus failure path (`RuntimeError`)
+		- `force=True` rebuild path (client reset + reindex + retriever wiring)
+		- no-op reindex path when persistent store is already non-empty
+	- Re-ran combined regression suites including event-contract tests to ensure no integration drift.
+- **No impact:** sections 1–4, 6, and 7 (no dependency manifests/lockfiles, config schema, CLI routing semantics, sub-agent runtime behavior, extension IPC schema changes, or security tooling policy changes).
+
+### 2026-03-06 — Event contract hardening: prompt-mode session lifecycle completion
+- **Sections reviewed:** 6 (VS Code Extension (IPC & UI)), 8 (Documentation & Versioning)
+- **Impact:**
+	- Fixed chat non-interactive prompt path in `storycraftr/cmd/chat.py` to emit `session.ended` before returning, preserving session lifecycle symmetry with interactive mode.
+	- Added event-contract regression in `tests/test_cli.py` to assert prompt-mode emission sequence (`session.started`, `chat.turn`, `session.ended`) and required payload keys for each event.
+	- Added sub-agent command contract tests in `tests/unit/test_chat_commands.py` to assert event type + payload shape for `sub_agent.roles`, `sub_agent.status`, `sub_agent.queued`, and `sub_agent.error` emissions.
+	- Re-validated baseline integration behavior with `tests/unit/test_vscode_integration.py`.
+- **No impact:** sections 1–5 and 7 (no dependency/lockfile, config schema, LLM routing, sub-agent execution semantics, vector-store behavior, or security tooling policy changes).
+
+### 2026-03-06 — Phase 0 stability follow-up: extended mutation lock coverage
+- **Sections reviewed:** 4 (Sub-Agents & Background Jobs), 5 (Vector Store & RAG Integrity), 8 (Documentation & Versioning)
+- **Impact:**
+	- Extended `project_write_lock` usage to additional mutation paths:
+		- prompt metadata log writes (`storycraftr/utils/core.py::generate_prompt_with_hash`)
+		- session transcript saves (`storycraftr/chat/session.py::SessionManager.save`)
+		- markdown save/append/consolidation output writes (`storycraftr/utils/markdown.py`)
+		- sub-agent role seeding writes (`storycraftr/subagents/storage.py::seed_default_roles`)
+		- sub-agent run log/metadata writes (`storycraftr/subagents/jobs.py::_persist_job`)
+	- Added lock invocation regression tests in `tests/unit/test_core_paths.py`, `tests/unit/test_llm_config.py`, and `tests/unit/test_subagents.py`.
+- **No impact:** sections 1, 2, 3, 6, and 7 (no dependency/lockfile changes, no dual-config filename behavior changes, no LLM routing changes, no VS Code extension payload/path changes, and no security tooling configuration changes).
+
+### 2026-03-06 — Phase 0 stability: assistant cache hardening, typed config, role YAML validation, project mutation lock
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 4 (Sub-Agents & Background Jobs), 5 (Vector Store & RAG Integrity), 8 (Documentation & Versioning)
+- **Impact:**
+	- Hardened assistant cache behavior in `storycraftr/agent/agents.py`: cache key normalization now trims `model_override`; cache access is protected by a re-entrant lock; cache key separation for model overrides is regression-tested.
+	- Introduced typed configuration model `BookConfig` in `storycraftr/utils/core.py` while preserving attribute-style compatibility; `load_book_config` now normalizes/coerces core fields (provider, booleans, numeric timeouts/tokens) and returns `BookConfig`.
+	- Added project-scoped mutation lock utility `storycraftr/utils/project_lock.py` and applied it to Chroma reset/rebuild and document ingestion writes in `storycraftr/agent/agents.py` to reduce concurrent mutation risk.
+	- Hardened sub-agent role loading in `storycraftr/subagents/models.py` and `storycraftr/subagents/storage.py`: malformed YAML or invalid role schema no longer crashes role discovery; invalid role files are skipped with warnings.
+	- Added regression tests in `tests/unit/test_agents_create_message.py`, `tests/unit/test_llm_config.py`, and `tests/unit/test_subagents.py`.
+- **No impact:** sections 1, 2, 6, and 7 (no dependency manifest/lockfile changes, no dual-config file name behavior changes, no VS Code extension payload/path changes, and no security tooling config changes).
+
+### 2026-03-06 — Tooling ecosystem-wide metadata/version audit refresh
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:** Audited all current Copilot customization assets (`Agents: 21`, `Skills: 13`, `Instructions: 6`, `Hooks: 1`, `Workflows: 3`) and applied targeted normalization updates: Python baseline wording updated to `3.13+` in `.github/agents/python-mcp-expert.agent.md`; `.github/copilot-instructions.md` target wording normalized to `v0.16` and bump-version example updated to `0.16.0`.
+- **No impact** on sections 1–7: metadata/instructions-only changes with no runtime package code, dependency lock regeneration, config schema, LLM routing, sub-agent lifecycle, vector-store behavior, IPC contract, or security-tooling policy changes.
+
+### 2026-03-06 — StoryCraftr engineering agent spec refresh
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:** Updated `.github/agents/storycraftr-engineering.agent.md` to align with current repository contracts: `v0.16` target wording, dependency/lockfile invariants (`make sync-deps`), Python 3.13 baseline, runtime path resolver requirement, mandatory `docs/CHANGE_IMPACT_CHECKLIST.md` tracking, Story/Paper config parity emphasis, and validation guidance including optional uv CI-parity flow.
+- **No impact** on sections 1–7: agent instruction/docs-only update with no runtime package code, dependency metadata, config schema, LLM routing, sub-agent lifecycle, vector-store behavior, IPC contract, or security-tooling policy changes.
+
+### 2026-03-06 — Example scripts aligned to v0.16 and uv execution option
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:** Updated `examples/storycraftr_example_usage.sh` and `examples/papercraftr_example_usage.sh` with `v0.16`/canonical repository header notes and consistent execution flag support including `--use-uv` (`uv run ...`) alongside existing direct and Poetry execution modes.
+- **No impact** on sections 1–7: examples-only script ergonomics update with no runtime package code, dependency, config schema, LLM, sub-agent, vector-store, IPC, or security-tooling behavior changes.
+
+### 2026-03-06 — Getting started refresh for v0.16 and uv guidance
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:** Revised `docs/getting_started.md` to normalize target-version wording to `v0.16`, retain canonical GitHub repository URLs under `AICyberGuardian/storycraftr-next`, add uv-based install and optional CI-parity contributor workflow guidance, and clarify chat invocation examples.
+- **No impact** on sections 1–7: docs-only update with no runtime, dependency, config schema, LLM, sub-agent, vector-store, IPC, or security-tooling behavior changes.
+
+### 2026-03-06 — Inventory enrichment with usage guidance
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:** Expanded `docs/Complete StoryCraftr-Next Awesome Copilot Inventory.txt` with per-item details for all agents, skills, instructions, hooks, and workflows, including practical "what it does" and "when to use" guidance.
+- **No impact** on sections 1–7: docs-only enhancement with no runtime, dependency, config schema, LLM, sub-agent, vector-store, IPC, or security-tooling behavior changes.
+
+### 2026-03-06 — Copilot ecosystem inventory normalization
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:** Rewrote `docs/Complete StoryCraftr-Next Awesome Copilot Inventory.txt` into a single canonical inventory based on actual `.github/` assets, removed duplicated/conflicting sections, and corrected resource counts (agents/skills/instructions/hooks/workflows).
+- **No impact** on sections 1–7: docs-only update with no runtime, dependency, config schema, LLM, sub-agent, vector-store, IPC, or security-tooling behavior changes.
+
+### 2026-03-06 — Architecture docs cleanup and deprecation removal
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:** Rewrote `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md` into a concise canonical architecture reference, removed deprecated duplicate `docs/storycraftr-next_Architecture Overview.txt`, and aligned onboarding references to the cleaned architecture set.
+- **No impact** on sections 1–7: docs-only cleanup with no runtime, config, dependency, IPC, LLM, vector-store, or security-tooling behavior changes.
+
+### 2026-03-06 — Architecture onboarding consolidation for junior developers
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:** Added `docs/architecture-onboarding.md` as a concise, canonical onboarding map that consolidates key architecture context and points to source-of-truth files for structure, runtime flow, and CI model.
+- **No impact** on sections 1–7: documentation-only addition; no runtime code, dependency, config schema, LLM, sub-agent, vector-store, IPC, or security-tooling behavior changes.
+
 ### 2026-03-06 — Repository link and docs target version alignment
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:** Updated repository links in `README.md`, `docs/getting_started.md`, `CONTRIBUTING.md`, and `SECURITY.md` to `AICyberGuardian/storycraftr-next`; updated `CONTRIBUTING.md` clone command to the canonical repository, removed a non-canonical external GitHub link in `CODE_OF_CONDUCT.md`, and updated `docs/getting_started.md` development target to `0.16.0-dev`.
@@ -110,6 +258,19 @@
 - [ ] Any behavior-affecting CLI change must be reflected in user-facing docs where relevant.
 
 ## Checklist Review Notes
+
+### Lock Coverage Decision Matrix (Phase 0.5)
+
+| Module | Mutation Type | Shared Runtime State | Lock Required | Decision | Rationale |
+|---|---|---:|---:|---|---|
+| `storycraftr/init.py` | Project scaffolding + config/template writes | Yes | Yes | Patched | Initializes canonical project state that can race with assistant/vector bootstrap and role seeding. |
+| `storycraftr/integrations/vscode.py` | JSONL append events | Yes | Yes | Patched | Shared event stream consumed concurrently by CLI and extension watchers. |
+| `storycraftr/vectorstores/chroma.py` | Vector-store dir create/reset-on-failure | Yes | Yes | Patched | Shared persisted retrieval state; concurrent create/reset must serialize. |
+| `storycraftr/utils/cleanup.py` | Vector-store recursive delete | Yes | Yes | Patched | Deletes shared persisted retrieval state used by runtime assistant. |
+| `storycraftr/cmd/paper/abstract.py` | One-off section directory creation | No | No | Safe single-writer path | Main content writes already route through `save_to_markdown` lock path; directory ensure is command-local. |
+| `storycraftr/cmd/paper/publish.py` | Output artifact directory creation + external tool output | No | No | Safe single-writer path | Export artifacts are non-authoritative runtime state; command intentionally run as single writer. |
+| `storycraftr/pdf/renderer.py` | Output PDF write | No | No | Not shared runtime state | Generates derived publish artifact only; no impact on assistant/sub-agent mutable state. |
+| `storycraftr/llm/credentials.py` | User home credential persistence | No (project-scoped) | No (project lock) | Defer with rationale | Uses user-level secret storage outside project paths; requires separate credential-store locking strategy if needed. |
 
 - 2026-03-06: Python 3.13 governance and CI consistency hardening.
 - Impact: Aligned `.github/workflows/pytest.yml` and `.github/workflows/pre-commit.yml` to Python `3.13`, added explicit Python-baseline assertions, and kept `uv`-based install acceleration in CI.

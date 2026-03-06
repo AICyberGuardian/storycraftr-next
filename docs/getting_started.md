@@ -8,13 +8,25 @@ Sanderson emphasizes strong **structure** and **rules for storytelling**, which 
 
 First, install **StoryCraftr** using [pipx](https://pypa.github.io/pipx/), a tool to help you install and run Python applications in isolated environments. It works on most platforms, including macOS, Linux, and Windows. Using `pipx` ensures that **StoryCraftr** runs in its own virtual environment, keeping your system's Python installation clean.
 
-To install **StoryCraftr**, run the following command:
+Install from the canonical repository:
 
 ```bash
 pipx install git+https://github.com/AICyberGuardian/storycraftr-next.git@main
 ```
 
-Current development target: `v0.16.x` (`0.16.0-dev`).
+If you prefer uv tooling, use:
+
+```bash
+uv tool install --from git+https://github.com/AICyberGuardian/storycraftr-next.git@main storycraftr
+```
+
+Current development target: `v0.16`.
+
+Quick sanity check:
+
+```bash
+storycraftr --help
+```
 
 ### Configure credentials
 
@@ -316,13 +328,19 @@ StoryCraftr now includes a command to chat directly with your AI assistant. This
 
 ### How to Start a Chat
 
-To start chatting with your assistant, make sure your book project is initialized and then run the following command:
+To start chatting with your assistant, make sure your book project is initialized and then run:
 
 ```bash
 storycraftr chat
 ```
 
-Replace `"book_path"` with the actual name of your book. This will open an interactive session where you can type messages to your AI assistant. The responses will be formatted in Markdown, making it easy to read any formatted text, lists, or other structures returned by the assistant.
+If you are outside the project directory, pass an explicit path:
+
+```bash
+storycraftr chat --book-path "/path/to/your/project"
+```
+
+This opens an interactive session where you can type messages to your AI assistant. The responses are formatted in Markdown for readability.
 
 ### Example Chat Session
 
@@ -378,6 +396,28 @@ If you are contributing changes, run the full suite before opening a PR:
 ```bash
 poetry run pytest
 ```
+
+Local development remains Poetry-first:
+
+```bash
+poetry install
+```
+
+For CI-parity validation with uv (optional), use:
+
+```bash
+uv venv .venv --python 3.13
+source .venv/bin/activate
+uv pip install poetry poetry-plugin-export
+poetry export --with dev --format requirements.txt --without-hashes --output requirements-ci.txt
+uv pip install -r requirements-ci.txt
+uv pip install -e .
+pytest
+```
+
+Lockfile invariant reminder:
+
+- If `pyproject.toml` or `package.json` changes, regenerate lock files with `make sync-deps`.
 
 Key regression suites for recent hardening work:
 

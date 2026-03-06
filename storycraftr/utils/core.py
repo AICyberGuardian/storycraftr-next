@@ -1,16 +1,22 @@
+from __future__ import annotations
+
+import json
 import os
 import secrets  # Para generar números aleatorios seguros
+from pathlib import Path
+from typing import Any
+
 import yaml
-import json
-from typing import NamedTuple
 from rich.console import Console
 from rich.markdown import Markdown  # Importar soporte de Markdown de Rich
+
+from storycraftr.llm.embeddings import EmbeddingSettings
+from storycraftr.llm.factory import LLMSettings
 from storycraftr.prompts.permute import longer_date_formats
 from storycraftr.state import debug_state  # Importar el estado de debug
-from pathlib import Path
 from types import SimpleNamespace
-from storycraftr.llm.factory import LLMSettings
-from storycraftr.llm.embeddings import EmbeddingSettings
+
+from storycraftr.utils.project_lock import project_write_lock
 
 console = Console()
 
@@ -43,21 +49,22 @@ def generate_prompt_with_hash(original_prompt: str, date: str, book_path: str) -
     # Nueva entrada de log con fecha y prompt original
     log_entry = {"date": str(date), "original_prompt": original_prompt}
 
-    # Verifica si el archivo YAML existe y carga los datos
-    if yaml_path.exists():
-        with yaml_path.open("r", encoding="utf-8") as file:
-            existing_data = (
-                yaml.safe_load(file) or []
-            )  # Carga una lista vacía si está vacío
-    else:
-        existing_data = []
+    with project_write_lock(book_path):
+        # Verifica si el archivo YAML existe y carga los datos
+        if yaml_path.exists():
+            with yaml_path.open("r", encoding="utf-8") as file:
+                existing_data = (
+                    yaml.safe_load(file) or []
+                )  # Carga una lista vacía si está vacío
+        else:
+            existing_data = []
 
-    # Añade la nueva entrada al log
-    existing_data.append(log_entry)
+        # Añade la nueva entrada al log
+        existing_data.append(log_entry)
 
-    # Guarda los datos actualizados en el archivo YAML
-    with yaml_path.open("w", encoding="utf-8") as file:
-        yaml.dump(existing_data, file, default_flow_style=False)
+        # Guarda los datos actualizados en el archivo YAML
+        with yaml_path.open("w", encoding="utf-8") as file:
+            yaml.dump(existing_data, file, default_flow_style=False)
 
     # Imprime el prompt modificado en Markdown si el modo debug está activado
     if debug_state.is_debug():
@@ -66,7 +73,47 @@ def generate_prompt_with_hash(original_prompt: str, date: str, book_path: str) -
     return modified_prompt
 
 
-class BookConfig(NamedTuple):
+def _coerce_str(value: Any, fallback: str) -> str:
+    if value is None:
+        return fallback
+    return str(value)
+
+
+def _coerce_bool(value: Any, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return fallback
+
+
+def _coerce_float(value: Any, fallback: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _coerce_int(value: Any, fallback: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _coerce_str_list(value: Any, fallback: list[str] | None = None) -> list[str]:
+    if value is None:
+        return list(fallback or [])
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return list(fallback or [])
+
+
+class BookConfig(SimpleNamespace):
     """
     Typed view over the project's persisted configuration.
 
@@ -97,7 +144,8 @@ class BookConfig(NamedTuple):
     book_path: str
     book_name: str
     primary_language: str
-    alternate_languages: list
+    alternate_languages: list[str]
+    authors: list[str]
     default_author: str
     genre: str
     license: str
@@ -115,9 +163,153 @@ class BookConfig(NamedTuple):
     embed_model: str
     embed_device: str
     embed_cache_dir: str
+    internal_state_dir: str
+    subagents_dir: str
+    subagent_logs_dir: str
+    sessions_dir: str
+    vector_store_dir: str
+    vscode_events_file: str
+
+    DEFAULTS: dict[str, Any] = {
+        "book_name": "Untitled Paper",
+        "authors": [],
+        "primary_language": "en",
+        "alternate_languages": [],
+        "default_author": "Unknown Author",
+        "genre": "research",
+        "license": "CC BY",
+        "reference_author": "",
+        "keywords": "",
+        "cli_name": "papercraftr",
+        "multiple_answer": True,
+        "llm_provider": "openai",
+        "llm_model": "",
+        "llm_endpoint": "",
+        "llm_api_key_env": "",
+        "temperature": 0.7,
+        "request_timeout": 120,
+        "max_tokens": 8192,
+        "embed_model": "BAAI/bge-large-en-v1.5",
+        "embed_device": "auto",
+        "embed_cache_dir": "",
+        "internal_state_dir": "",
+        "subagents_dir": "",
+        "subagent_logs_dir": "",
+        "sessions_dir": "",
+        "vector_store_dir": "",
+        "vscode_events_file": "",
+    }
+
+    @classmethod
+    def from_mapping(
+        cls,
+        *,
+        book_path: str,
+        config_data: dict[str, Any],
+        model_override: str | None = None,
+    ) -> "BookConfig":
+        normalized: dict[str, Any] = dict(cls.DEFAULTS)
+        normalized.update(config_data)
+        normalized["book_path"] = book_path
+
+        provider = _coerce_str(normalized.get("llm_provider"), "openai").strip().lower()
+        normalized["llm_provider"] = provider
+
+        if "llm_model" not in config_data:
+            normalized["llm_model"] = _default_model_for_provider(provider)
+
+        if model_override is not None:
+            normalized["llm_model"] = str(model_override).strip()
+
+        normalized["book_name"] = _coerce_str(
+            normalized.get("book_name"), cls.DEFAULTS["book_name"]
+        )
+        normalized["primary_language"] = _coerce_str(
+            normalized.get("primary_language"), cls.DEFAULTS["primary_language"]
+        )
+        normalized["alternate_languages"] = _coerce_str_list(
+            normalized.get("alternate_languages"), cls.DEFAULTS["alternate_languages"]
+        )
+        normalized["authors"] = _coerce_str_list(
+            normalized.get("authors"), cls.DEFAULTS["authors"]
+        )
+        normalized["default_author"] = _coerce_str(
+            normalized.get("default_author"), cls.DEFAULTS["default_author"]
+        )
+        normalized["genre"] = _coerce_str(
+            normalized.get("genre"), cls.DEFAULTS["genre"]
+        )
+        normalized["license"] = _coerce_str(
+            normalized.get("license"), cls.DEFAULTS["license"]
+        )
+        normalized["reference_author"] = _coerce_str(
+            normalized.get("reference_author"), cls.DEFAULTS["reference_author"]
+        )
+        normalized["keywords"] = _coerce_str(
+            normalized.get("keywords"), cls.DEFAULTS["keywords"]
+        )
+        normalized["cli_name"] = _coerce_str(
+            normalized.get("cli_name"), cls.DEFAULTS["cli_name"]
+        )
+        normalized["multiple_answer"] = _coerce_bool(
+            normalized.get("multiple_answer"), cls.DEFAULTS["multiple_answer"]
+        )
+        normalized["llm_model"] = _coerce_str(
+            normalized.get("llm_model"), cls.DEFAULTS["llm_model"]
+        ).strip()
+        normalized["llm_endpoint"] = _coerce_str(
+            normalized.get("llm_endpoint"), cls.DEFAULTS["llm_endpoint"]
+        )
+        normalized["llm_api_key_env"] = _coerce_str(
+            normalized.get("llm_api_key_env"), cls.DEFAULTS["llm_api_key_env"]
+        )
+        normalized["temperature"] = _coerce_float(
+            normalized.get("temperature"), cls.DEFAULTS["temperature"]
+        )
+        normalized["request_timeout"] = max(
+            1,
+            _coerce_int(
+                normalized.get("request_timeout"), cls.DEFAULTS["request_timeout"]
+            ),
+        )
+        normalized["max_tokens"] = max(
+            1,
+            _coerce_int(normalized.get("max_tokens"), cls.DEFAULTS["max_tokens"]),
+        )
+        normalized["embed_model"] = _coerce_str(
+            normalized.get("embed_model"), cls.DEFAULTS["embed_model"]
+        )
+        normalized["embed_device"] = _coerce_str(
+            normalized.get("embed_device"), cls.DEFAULTS["embed_device"]
+        )
+        normalized["embed_cache_dir"] = _coerce_str(
+            normalized.get("embed_cache_dir"), cls.DEFAULTS["embed_cache_dir"]
+        )
+        normalized["internal_state_dir"] = _coerce_str(
+            normalized.get("internal_state_dir"), cls.DEFAULTS["internal_state_dir"]
+        )
+        normalized["subagents_dir"] = _coerce_str(
+            normalized.get("subagents_dir"), cls.DEFAULTS["subagents_dir"]
+        )
+        normalized["subagent_logs_dir"] = _coerce_str(
+            normalized.get("subagent_logs_dir"), cls.DEFAULTS["subagent_logs_dir"]
+        )
+        normalized["sessions_dir"] = _coerce_str(
+            normalized.get("sessions_dir"), cls.DEFAULTS["sessions_dir"]
+        )
+        normalized["vector_store_dir"] = _coerce_str(
+            normalized.get("vector_store_dir"), cls.DEFAULTS["vector_store_dir"]
+        )
+        normalized["vscode_events_file"] = _coerce_str(
+            normalized.get("vscode_events_file"), cls.DEFAULTS["vscode_events_file"]
+        )
+
+        return cls(**normalized)
 
 
-def load_book_config(book_path: str, model_override: str | None = None):
+def load_book_config(
+    book_path: str, model_override: str | None = None
+) -> BookConfig | None:
     """
     Load configuration from the book path.
     """
@@ -147,47 +339,14 @@ def load_book_config(book_path: str, model_override: str | None = None):
 
         config_data = json.loads(config_path.read_text(encoding="utf-8"))
 
-        # Ensure required fields exist with default values
-        default_config = {
-            "book_path": resolved_book_path,
-            "book_name": "Untitled Paper",
-            "authors": [],
-            "primary_language": "en",
-            "alternate_languages": [],
-            "default_author": "Unknown Author",
-            "genre": "research",
-            "license": "CC BY",
-            "reference_author": "",
-            "keywords": "",
-            "cli_name": "papercraftr",
-            "multiple_answer": True,
-            "llm_provider": "openai",
-            "llm_model": "",
-            "llm_endpoint": "",
-            "llm_api_key_env": "",
-            "temperature": 0.7,
-            "request_timeout": 120,
-            "max_tokens": 8192,
-            "embed_model": "BAAI/bge-large-en-v1.5",
-            "embed_device": "auto",
-            "embed_cache_dir": "",
-        }
+        if not isinstance(config_data, dict):
+            raise ValueError("Configuration payload must be a JSON object.")
 
-        # Update default config with actual config data
-        for key, value in config_data.items():
-            default_config[key] = value
-
-        # Always keep runtime project root canonical for path resolution.
-        default_config["book_path"] = resolved_book_path
-
-        provider = str(default_config.get("llm_provider", "openai")).strip().lower()
-        if "llm_model" not in config_data:
-            default_config["llm_model"] = _default_model_for_provider(provider)
-
-        if model_override is not None:
-            default_config["llm_model"] = str(model_override).strip()
-
-        return SimpleNamespace(**default_config)
+        return BookConfig.from_mapping(
+            book_path=resolved_book_path,
+            config_data=config_data,
+            model_override=model_override,
+        )
 
     except Exception as e:
         console.print(f"[red]Error loading configuration: {str(e)}[/red]")
@@ -201,23 +360,19 @@ def llm_settings_from_config(
     Map the persisted configuration to normalized LLM settings.
     """
 
-    provider = getattr(config, "llm_provider", "openai")
-    model = (
-        model_override
-        if model_override is not None
-        else getattr(config, "llm_model", None)
-    )
+    provider = config.llm_provider
+    model = model_override if model_override is not None else config.llm_model
     if model is None:
         model = _default_model_for_provider(provider)
 
     return LLMSettings(
         provider=provider,
         model=model,
-        endpoint=getattr(config, "llm_endpoint", ""),
-        api_key_env=getattr(config, "llm_api_key_env", ""),
-        temperature=getattr(config, "temperature", 0.7),
-        request_timeout=getattr(config, "request_timeout", 120),
-        max_tokens=getattr(config, "max_tokens", 8192),
+        endpoint=config.llm_endpoint,
+        api_key_env=config.llm_api_key_env,
+        temperature=config.temperature,
+        request_timeout=config.request_timeout,
+        max_tokens=config.max_tokens,
     )
 
 
@@ -227,9 +382,9 @@ def embedding_settings_from_config(config: BookConfig) -> EmbeddingSettings:
     """
 
     return EmbeddingSettings(
-        model_name=getattr(config, "embed_model", "BAAI/bge-large-en-v1.5"),
-        device=getattr(config, "embed_device", "auto"),
-        cache_dir=getattr(config, "embed_cache_dir", "") or None,
+        model_name=config.embed_model,
+        device=config.embed_device,
+        cache_dir=config.embed_cache_dir or None,
     )
 
 

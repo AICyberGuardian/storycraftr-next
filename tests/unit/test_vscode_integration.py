@@ -1,5 +1,6 @@
 import io
 import json
+from contextlib import contextmanager
 
 from storycraftr.integrations.vscode import (
     VSCodeEventEmitter,
@@ -35,6 +36,24 @@ def test_vscode_event_emitter_writes_jsonl(tmp_path, monkeypatch):
     entry = json.loads(data[0])
     assert entry["event"] == "session.started"
     assert entry["payload"] == {"foo": "bar"}
+
+
+def test_vscode_event_emitter_uses_project_write_lock(tmp_path, monkeypatch):
+    calls: list[str] = []
+
+    @contextmanager
+    def fake_lock(book_path: str, *, config=None, **_kwargs):
+        calls.append(book_path)
+        yield tmp_path / ".storycraftr" / "project.lock"
+
+    monkeypatch.setattr("storycraftr.integrations.vscode.project_write_lock", fake_lock)
+
+    book_path = tmp_path / "novel"
+    book_path.mkdir()
+    emitter = VSCodeEventEmitter(str(book_path))
+    emitter.emit("session.started", {"ok": True})
+
+    assert calls == [str(book_path)]
 
 
 def test_create_vscode_event_emitter_respects_environment(monkeypatch, tmp_path):

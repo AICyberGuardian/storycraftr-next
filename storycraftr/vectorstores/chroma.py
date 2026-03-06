@@ -9,6 +9,7 @@ from chromadb import PersistentClient
 from chromadb.config import Settings
 
 from storycraftr.utils.paths import resolve_project_paths
+from storycraftr.utils.project_lock import project_write_lock
 
 
 def build_chroma_store(
@@ -32,22 +33,22 @@ def build_chroma_store(
     else:
         store_path = project_paths.vector_store_root
 
-    store_path.mkdir(parents=True, exist_ok=True)
-
     settings = Settings(anonymized_telemetry=False, allow_reset=True)
 
-    try:
-        client = PersistentClient(path=str(store_path), settings=settings)
-        store = Chroma(
-            client=client,
-            collection_name=collection_name,
-            embedding_function=embedding_function,
-            collection_metadata=metadata,
-        )
-        setattr(store, "_persist_directory", str(store_path))
-        return store
-    except Exception as exc:
-        shutil.rmtree(store_path, ignore_errors=True)
-        raise RuntimeError(
-            f"Failed to initialise Chroma vector store at {store_path}: {exc}"
-        ) from exc
+    with project_write_lock(project_path, config=config):
+        store_path.mkdir(parents=True, exist_ok=True)
+        try:
+            client = PersistentClient(path=str(store_path), settings=settings)
+            store = Chroma(
+                client=client,
+                collection_name=collection_name,
+                embedding_function=embedding_function,
+                collection_metadata=metadata,
+            )
+            setattr(store, "_persist_directory", str(store_path))
+            return store
+        except Exception as exc:
+            shutil.rmtree(store_path, ignore_errors=True)
+            raise RuntimeError(
+                f"Failed to initialise Chroma vector store at {store_path}: {exc}"
+            ) from exc

@@ -12,6 +12,7 @@ from rich.console import Console
 
 from storycraftr.utils.core import load_book_config
 from storycraftr.utils.paths import resolve_project_paths
+from storycraftr.utils.project_lock import project_write_lock
 
 
 _VS_CODE_SENTINELS = {
@@ -46,9 +47,9 @@ class VSCodeEventEmitter:
 
     def __init__(self, book_path: str):
         self._book_path = Path(book_path)
-        config = _load_config_if_present(book_path)
+        self._config = _load_config_if_present(book_path)
         self._events_path = resolve_project_paths(
-            book_path, config=config
+            book_path, config=self._config
         ).vscode_events_file
         self._events_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
@@ -64,8 +65,9 @@ class VSCodeEventEmitter:
         }
         data = json.dumps(entry, ensure_ascii=False)
         with self._lock:
-            with self._events_path.open("a", encoding="utf-8") as handle:
-                handle.write(data + "\n")
+            with project_write_lock(str(self._book_path), config=self._config):
+                with self._events_path.open("a", encoding="utf-8") as handle:
+                    handle.write(data + "\n")
 
 
 def create_vscode_event_emitter(

@@ -8,6 +8,7 @@ from storycraftr.agent.agents import (
     create_message,
 )
 from storycraftr.utils.core import load_book_config
+from storycraftr.utils.project_lock import project_write_lock
 from rich.console import Console
 from rich.progress import Progress
 
@@ -31,28 +32,30 @@ def save_to_markdown(
     Returns:
         str: The path to the saved markdown file.
     """
+    config = load_book_config(book_path)
     file_path = Path(book_path) / file_name
     backup_path = file_path.with_suffix(file_path.suffix + ".back")
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Create a backup if the file exists
-    if file_path.exists():
+    with project_write_lock(book_path, config=config):
+        # Create a backup if the file exists
+        if file_path.exists():
+            if progress and task:
+                progress.update(task, description=f"Backing up {file_name}")
+            else:
+                console.print(
+                    f"[bold yellow]Backing up {file_path} to {backup_path}...[/bold yellow]"
+                )
+            shutil.copyfile(file_path, backup_path)
+
+        # Save the new content to the markdown file
         if progress and task:
-            progress.update(task, description=f"Backing up {file_name}")
+            progress.update(task, description=f"Saving content to {file_name}")
         else:
-            console.print(
-                f"[bold yellow]Backing up {file_path} to {backup_path}...[/bold yellow]"
-            )
-        shutil.copyfile(file_path, backup_path)
+            console.print(f"[bold blue]Saving content to {file_path}...[/bold blue]")
 
-    # Save the new content to the markdown file
-    if progress and task:
-        progress.update(task, description=f"Saving content to {file_name}")
-    else:
-        console.print(f"[bold blue]Saving content to {file_path}...[/bold blue]")
-
-    with file_path.open("w", encoding="utf-8") as f:
-        f.write(f"# {header}\n\n{content}")
+        with file_path.open("w", encoding="utf-8") as f:
+            f.write(f"# {header}\n\n{content}")
 
     if progress and task:
         progress.update(task, description=f"Content saved successfully to {file_name}")
@@ -78,13 +81,15 @@ def append_to_markdown(book_path, folder_name, file_name, content):
         FileNotFoundError: If the file does not exist.
     """
     file_path = Path(book_path) / folder_name / file_name
+    config = load_book_config(book_path)
 
-    if file_path.exists():
-        with file_path.open("a", encoding="utf-8") as f:
-            f.write(f"\n\n{content}")
-        console.print(f"Appended content to {file_path}")
-    else:
-        raise FileNotFoundError(f"File {file_path} does not exist.")
+    with project_write_lock(book_path, config=config):
+        if file_path.exists():
+            with file_path.open("a", encoding="utf-8") as f:
+                f.write(f"\n\n{content}")
+            console.print(f"Appended content to {file_path}")
+        else:
+            raise FileNotFoundError(f"File {file_path} does not exist.")
 
 
 def read_from_markdown(book_path, folder_name, file_name) -> str:
@@ -196,35 +201,37 @@ def consolidate_book_md(
         )
         task_llm = progress.add_task("[green]Calling language model...", total=1)
 
-        with output_file_path.open("w", encoding="utf-8") as consolidated_md:
-            for chapter_file in files_to_process:
-                progress.update(
-                    task_chapters, description=f"Processing {chapter_file.name}..."
-                )
-                with chapter_file.open("r", encoding="utf-8") as chapter_md:
-                    content = chapter_md.read()
+        config = load_book_config(book_path)
+        with project_write_lock(book_path, config=config):
+            with output_file_path.open("w", encoding="utf-8") as consolidated_md:
+                for chapter_file in files_to_process:
+                    progress.update(
+                        task_chapters, description=f"Processing {chapter_file.name}..."
+                    )
+                    with chapter_file.open("r", encoding="utf-8") as chapter_md:
+                        content = chapter_md.read()
 
-                    # Translate content if translation is requested
-                    if translate:
-                        progress.update(
-                            task_translation,
-                            description=f"Translating {chapter_file.name}...",
-                        )
-                        content = create_message(
-                            book_path,
-                            thread_id=thread.id,
-                            content=content,
-                            assistant=assistant,
-                            progress=progress,
-                            task_id=task_llm,
-                        )
+                        # Translate content if translation is requested
+                        if translate:
+                            progress.update(
+                                task_translation,
+                                description=f"Translating {chapter_file.name}...",
+                            )
+                            content = create_message(
+                                book_path,
+                                thread_id=thread.id,
+                                content=content,
+                                assistant=assistant,
+                                progress=progress,
+                                task_id=task_llm,
+                            )
 
-                    # Write (translated or original) content to consolidated file
-                    consolidated_md.write(content)
-                    consolidated_md.write("\n\\newpage\n")
+                        # Write (translated or original) content to consolidated file
+                        consolidated_md.write(content)
+                        consolidated_md.write("\n\\newpage\n")
 
-                # Update progress for chapters
-                progress.update(task_chapters, advance=1)
+                    # Update progress for chapters
+                    progress.update(task_chapters, advance=1)
 
     # Log completion of consolidation
     progress.update(
@@ -289,10 +296,9 @@ def consolidate_paper_md(
     # Add title and metadata from config
     config = load_book_config(book_path)
     if config:
-        # Access attributes using getattr to handle SimpleNamespace objects safely
-        book_name = getattr(config, "book_name", "Untitled Paper")
-        authors = getattr(config, "authors", [])
-        keywords = getattr(config, "keywords", [])
+        book_name = config.book_name
+        authors = config.authors
+        keywords = config.keywords
 
         consolidated_content.append(f"# {book_name}\n\n")
         if authors:

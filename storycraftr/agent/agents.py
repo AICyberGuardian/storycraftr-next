@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import glob
 import os
 import shutil
 from dataclasses import dataclass, field
@@ -20,7 +19,22 @@ from rich.progress import Progress
 from storycraftr.llm import build_chat_model, build_embedding_model
 from storycraftr.prompts.story.core import FORMAT_OUTPUT
 from storycraftr.graph import build_assistant_graph
+from storycraftr.agent.assistant_cache import (
+    _ASSISTANT_CACHE,
+    _ASSISTANT_CACHE_LOCK,
+    assistant_cache_key,
+    get_cached_assistant,
+    store_assistant_if_absent,
+)
+from storycraftr.agent.vector_hydration import (
+    dedupe_documents,
+    force_rebuild_vector_store,
+    load_markdown_documents as _load_markdown_documents,
+    populate_vector_store_if_needed,
+    resolve_persist_dir,
+)
 from storycraftr.utils.core import (
+    BookConfig,
     generate_prompt_with_hash,
     load_book_config,
     llm_settings_from_config,
@@ -43,7 +57,7 @@ class ConversationThread:
 class LangChainAssistant:
     id: str
     book_path: str
-    config: object
+    config: BookConfig
     llm: BaseChatModel
     embeddings: object
     vector_store: Optional[Chroma]
@@ -64,63 +78,39 @@ class LangChainAssistant:
             )
 
         project_paths = resolve_project_paths(self.book_path, config=self.config)
-        persist_dir_str = getattr(
-            self.vector_store,
-            "_persist_directory",
-            str(project_paths.vector_store_root),
+        persist_dir = resolve_persist_dir(
+            self.vector_store, project_paths.vector_store_root
         )
-        persist_dir = Path(persist_dir_str)
         if force:
-            reset_succeeded = False
-            try:
-                client = getattr(self.vector_store, "_client", None)
-                if client is not None and hasattr(client, "reset"):
-                    client.reset()
-                    reset_succeeded = True
-            except Exception:
-                reset_succeeded = False
-
-            if not reset_succeeded:
-                shutil.rmtree(persist_dir, ignore_errors=True)
-
-            self.vector_store = build_chroma_store(
-                self.book_path, self.embeddings, config=self.config
+            self.vector_store, persist_dir = force_rebuild_vector_store(
+                book_path=self.book_path,
+                config=self.config,
+                embeddings=self.embeddings,
+                vector_store=self.vector_store,
+                fallback_dir=project_paths.vector_store_root,
+                build_store=lambda p, e, c: build_chroma_store(p, e, config=c),
+                remove_tree=lambda path, ignore_errors: shutil.rmtree(
+                    path, ignore_errors=ignore_errors
+                ),
             )
-            persist_dir_str = getattr(
-                self.vector_store,
-                "_persist_directory",
-                str(project_paths.vector_store_root),
-            )
-            persist_dir = Path(persist_dir_str)
 
-        try:
-            needs_refresh = (
-                force or not persist_dir.exists() or not any(persist_dir.iterdir())
-            )
-        except OSError:
-            needs_refresh = True
-
-        if needs_refresh:
-            documents = load_markdown_documents(self.book_path, config=self.config)
-            if not documents:
-                raise RuntimeError(
-                    f"No Markdown documents available to index for project {self.book_path}."
-                )
-            else:
-                splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=1000, chunk_overlap=150
-                )
-                chunks = splitter.split_documents(documents)
-                try:
-                    self.vector_store.add_documents(chunks)
-                except Exception as exc:
-                    raise RuntimeError(
-                        f"Failed to populate vector store: {exc}"
-                    ) from exc
+        populate_vector_store_if_needed(
+            book_path=self.book_path,
+            config=self.config,
+            vector_store=self.vector_store,
+            persist_dir=persist_dir,
+            force=force,
+            load_documents=load_markdown_documents,
+            splitter_cls=RecursiveCharacterTextSplitter,
+        )
 
         try:
             self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 6})
         except Exception as exc:
+            if not force:
+                # Recover from corrupted persisted indexes by forcing a full rebuild once.
+                self.ensure_vector_store(force=True)
+                return
             raise RuntimeError(
                 f"Unable to construct retriever from vector store: {exc}"
             ) from exc
@@ -131,73 +121,31 @@ class LangChainAssistant:
     @property
     def system_prompt(self) -> str:
         format_prompt = FORMAT_OUTPUT.format(
-            reference_author=getattr(self.config, "reference_author", ""),
-            language=getattr(self.config, "primary_language", "en"),
+            reference_author=self.config.reference_author,
+            language=self.config.primary_language,
         )
         meta = (
             f"Project: {Path(self.book_path).name}\n"
-            f"Primary language: {getattr(self.config, 'primary_language', 'en')}\n"
+            f"Primary language: {self.config.primary_language}\n"
         )
         return f"{self.behavior.strip()}\n\n{meta}{format_prompt}"
 
 
-_ASSISTANT_CACHE: Dict[str, LangChainAssistant] = {}
 _THREADS: Dict[str, ConversationThread] = {}
 
 
 def _assistant_cache_key(book_path: str, model_override: str | None = None) -> str:
-    override_key = model_override if model_override is not None else "<default>"
-    return f"{book_path}:{override_key}"
+    return assistant_cache_key(book_path, model_override)
 
 
 def load_markdown_documents(
-    book_path: str, config: object | None = None
+    book_path: str, config: BookConfig | None = None
 ) -> List[Document]:
-    """
-    Load Markdown files from the project for indexing.
-    """
+    return _load_markdown_documents(book_path, config)
 
-    patterns = [
-        os.path.join(book_path, "**", "*.md"),
-    ]
-    book_path_obj = Path(book_path)
-    vector_store_dir = resolve_project_paths(book_path, config=config).vector_store_root
-    vector_store_dir_resolved = vector_store_dir.resolve()
-    documents: List[Document] = []
 
-    for pattern in patterns:
-        # Use iglob for an iterator-based approach to avoid loading all paths into memory at once.
-        for file_path_str in glob.iglob(pattern, recursive=True):
-            file_path = Path(file_path_str)
-            if not file_path.is_file():
-                continue
-            try:
-                resolved_file = file_path.resolve()
-                if vector_store_dir_resolved in resolved_file.parents:
-                    continue
-            except OSError:
-                if str(vector_store_dir) in file_path.as_posix():
-                    continue
-            try:
-                content = file_path.read_text(encoding="utf-8")
-                # Files with 3 or fewer lines are skipped.
-                # count('\n') is more efficient than len(content.splitlines()) or readlines().
-                if content.count("\n") < 3:
-                    continue
-
-                relative = str(file_path.relative_to(book_path_obj))
-                documents.append(
-                    Document(
-                        page_content=content,
-                        metadata={"source": relative},
-                    )
-                )
-            except (UnicodeDecodeError, FileNotFoundError):
-                console.print(
-                    f"[yellow]Skipping unreadable file for embeddings: {file_path}[/yellow]"
-                )
-
-    return documents
+def _dedupe_documents(documents: List[Document]) -> List[Document]:
+    return dedupe_documents(documents)
 
 
 def create_or_get_assistant(
@@ -211,11 +159,13 @@ def create_or_get_assistant(
         raise ValueError("book_path is required to create an assistant.")
 
     book_path = str(Path(book_path).resolve())
-    cache_key = _assistant_cache_key(book_path, model_override)
-    if cache_key in _ASSISTANT_CACHE:
-        return _ASSISTANT_CACHE[cache_key]
+    normalized_override = model_override.strip() if model_override is not None else None
+    cache_key = _assistant_cache_key(book_path, normalized_override)
+    cached = get_cached_assistant(cache_key)
+    if cached is not None:
+        return cached
 
-    config = load_book_config(book_path, model_override=model_override)
+    config = load_book_config(book_path, model_override=normalized_override)
     if not config:
         raise RuntimeError("Unable to load project configuration.")
 
@@ -228,7 +178,7 @@ def create_or_get_assistant(
             "Respond in markdown, keep outputs structured, and respect the requested tone."
         )
 
-    llm_settings = llm_settings_from_config(config, model_override=model_override)
+    llm_settings = llm_settings_from_config(config, model_override=normalized_override)
     embedding_settings = embedding_settings_from_config(config)
 
     llm = build_chat_model(llm_settings)
@@ -246,8 +196,7 @@ def create_or_get_assistant(
     )
     assistant.ensure_vector_store()
 
-    _ASSISTANT_CACHE[cache_key] = assistant
-    return assistant
+    return store_assistant_if_absent(cache_key, assistant)
 
 
 def get_thread(book_path: str) -> ConversationThread:
@@ -274,7 +223,7 @@ def _resolve_thread(thread_id: str, book_path: str) -> ConversationThread:
 def _build_message_content(
     content: str,
     *,
-    config: object,
+    config: BookConfig,
     file_path: Optional[str],
     force_single_answer: bool,
 ) -> str:
@@ -290,7 +239,7 @@ def _build_message_content(
             f"Here is the existing content to adjust:\n{file_text}"
         )
 
-    if getattr(config, "multiple_answer", False) and not force_single_answer:
+    if config.multiple_answer and not force_single_answer:
         composed_content = (
             "Divide the answer into three titled sections (Part 1, Part 2, Part 3). "
             "Conclude the final section with the token END_OF_RESPONSE. "
@@ -300,14 +249,16 @@ def _build_message_content(
     return composed_content
 
 
-def _build_prompt_with_metadata(book_path: str, config: object, content: str) -> str:
+def _build_prompt_with_metadata(
+    book_path: str, config: BookConfig, content: str
+) -> str:
     """
     Build the final prompt and persist prompt metadata for traceability.
     """
 
     prompt_body = FORMAT_OUTPUT.format(
-        reference_author=getattr(config, "reference_author", ""),
-        language=getattr(config, "primary_language", "en"),
+        reference_author=config.reference_author,
+        language=config.primary_language,
     )
     prompt_text = f"{prompt_body}\n\n{content}"
     return generate_prompt_with_hash(

@@ -21,6 +21,7 @@ from rich.console import Console
 from storycraftr.chat.module_runner import ModuleCommandError, run_module_command
 from storycraftr.utils.core import load_book_config
 from storycraftr.utils.paths import resolve_project_paths
+from storycraftr.utils.project_lock import project_write_lock
 
 from .models import SubAgentRole
 from .storage import ensure_storage_dirs, load_roles, seed_default_roles
@@ -107,9 +108,7 @@ class SubAgentJobManager:
         roles = load_roles(str(self.book_path), config=self.config)
         if roles:
             return roles
-        language = "en"
-        if self.config and getattr(self.config, "primary_language", None):
-            language = self.config.primary_language
+        language = self.config.primary_language if self.config else "en"
         seed_default_roles(
             str(self.book_path),
             language=language,
@@ -246,8 +245,7 @@ class SubAgentJobManager:
             with self.lock:
                 job.status = "failed"
                 persist_error = (
-                    "Failed to persist sub-agent job logs: "
-                    f"{type(exc).__name__}: {exc}"
+                    f"Failed to persist sub-agent job logs: {type(exc).__name__}: {exc}"
                 )
                 job.error = self._merge_errors(job.error, persist_error)
             try:
@@ -323,31 +321,34 @@ class SubAgentJobManager:
         self._emit_event("failed", job)
 
     def _persist_job(self, job: SubAgentJob) -> None:
-        log_dir = self.logs_root / job.role.slug
-        log_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = (job.finished_at or _utcnow()).strftime("%Y%m%d-%H%M%S")
-        log_base = f"{timestamp}-{job.job_id}"
-        md_path = log_dir / f"{log_base}.md"
-        metadata_path = log_dir / f"{log_base}.json"
+        with project_write_lock(str(self.book_path), config=self.config):
+            log_dir = self.logs_root / job.role.slug
+            log_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = (job.finished_at or _utcnow()).strftime("%Y%m%d-%H%M%S")
+            log_base = f"{timestamp}-{job.job_id}"
+            md_path = log_dir / f"{log_base}.md"
+            metadata_path = log_dir / f"{log_base}.json"
 
-        if job.output or job.error:
-            md_body = [
-                f"# Sub-Agent Run · {job.role.name}",
-                f"- Role: {job.role.slug}",
-                f"- Command: {job.command_text}",
-                f"- Status: {job.status}",
-                f"- Started: {job.started_at or job.created_at}",
-                f"- Finished: {job.finished_at or ''}",
-                "",
-                "## Output",
-                job.output or "_No output recorded._",
-            ]
-            if job.error:
-                md_body.extend(["", "## Error", job.error])
-            md_path.write_text("\n".join(md_body), encoding="utf-8")
-            job.log_path = md_path
+            if job.output or job.error:
+                md_body = [
+                    f"# Sub-Agent Run · {job.role.name}",
+                    f"- Role: {job.role.slug}",
+                    f"- Command: {job.command_text}",
+                    f"- Status: {job.status}",
+                    f"- Started: {job.started_at or job.created_at}",
+                    f"- Finished: {job.finished_at or ''}",
+                    "",
+                    "## Output",
+                    job.output or "_No output recorded._",
+                ]
+                if job.error:
+                    md_body.extend(["", "## Error", job.error])
+                md_path.write_text("\n".join(md_body), encoding="utf-8")
+                job.log_path = md_path
 
-        metadata_path.write_text(json.dumps(job.to_dict(), indent=2), encoding="utf-8")
+            metadata_path.write_text(
+                json.dumps(job.to_dict(), indent=2), encoding="utf-8"
+            )
 
     # Logs ----------------------------------------------------------------------------
 

@@ -16,26 +16,20 @@ def _read_optional_markdown(path: Path) -> str:
 
 
 def _format_cover(config, cover_md: str) -> str:
-    authors = getattr(config, "authors", None) or []
-    if not authors and getattr(config, "default_author", None):
+    authors = config.authors
+    if not authors and config.default_author:
         authors = [config.default_author]
     author_line = ", ".join(authors) if authors else "Anonymous"
 
     page_break = '\n\n<div style="page-break-after: always;"></div>\n'
-    content = (
-        f"# {config.book_name}\n\n"
-        f"### {author_line}\n\n"
-        f"_{getattr(config, 'genre', '').title()}_\n"
-    )
+    content = f"# {config.book_name}\n\n### {author_line}\n\n_{config.genre.title()}_\n"
     if cover_md:
         content += f"\n{cover_md.strip()}\n"
     return content.strip() + page_break
 
 
 def _format_license(config, book_path: Path) -> str:
-    license_text = (
-        getattr(config, "license", "All rights reserved.") or "All rights reserved."
-    )
+    license_text = config.license or "All rights reserved."
     license_file = book_path / "LICENSE"
     if license_file.exists():
         license_text += "\n\n" + license_file.read_text(encoding="utf-8").strip()

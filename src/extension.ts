@@ -3,14 +3,11 @@ import * as path from "path";
 import { TextDecoder } from "util";
 import * as vscode from "vscode";
 
+import { parseEventLine } from "./event-contract";
+
 const decoder = new TextDecoder();
 const TRANSCRIPT_SCHEME = "storycraftr-transcript";
 const DEFAULT_EVENTS_GLOB = "**/.storycraftr/vscode-events.jsonl";
-
-interface StoryCraftrEvent {
-  event: string;
-  payload: Record<string, any>;
-}
 
 interface JobSummary {
   pending: number;
@@ -50,7 +47,7 @@ class EventStreamWatcher {
       payload: Record<string, any>,
       raw: string,
     ) => void,
-  ) {}
+  ) { }
 
   async initialise(processExisting: boolean) {
     await this.refresh(processExisting);
@@ -77,8 +74,11 @@ class EventStreamWatcher {
         .filter(Boolean)
         .forEach((line) => {
           try {
-            const parsed = JSON.parse(line) as StoryCraftrEvent;
-            this.onEvent(parsed.event, parsed.payload ?? {}, line);
+            const parsed = parseEventLine(line);
+            if (!parsed) {
+              throw new Error("Invalid StoryCraftr event payload");
+            }
+            this.onEvent(parsed.event, parsed.payload, line);
           } catch (err) {
             console.warn(
               `Failed to parse StoryCraftr event line (${this.uri.fsPath}):`,

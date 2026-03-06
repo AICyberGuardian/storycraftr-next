@@ -1,5 +1,4 @@
 from unittest import mock
-from types import SimpleNamespace
 
 import pytest
 
@@ -11,6 +10,7 @@ from storycraftr.llm.factory import (
     build_chat_model,
 )
 from storycraftr.utils.core import llm_settings_from_config
+from storycraftr.utils.core import BookConfig
 
 
 @pytest.fixture(autouse=True)
@@ -87,7 +87,8 @@ def test_openrouter_builds_chatopenai_with_default_endpoint_and_headers(monkeypa
 
 def test_openai_builds_chatopenai_with_explicit_max_tokens(monkeypatch):
     monkeypatch.setenv(
-        "OPENAI_API_KEY", "sk-test"  # nosec B105  # pragma: allowlist secret
+        "OPENAI_API_KEY",
+        "sk-test",  # nosec B105  # pragma: allowlist secret
     )
 
     with mock.patch("storycraftr.llm.factory.ChatOpenAI") as mock_chat_openai:
@@ -119,9 +120,14 @@ def test_openrouter_invalid_max_tokens_fails_before_client_init(monkeypatch):
         )
 
 
-def test_openrouter_does_not_silently_fallback_to_openai_default(monkeypatch):
+def test_openrouter_does_not_silently_fallback_to_openai_default(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
-    settings = llm_settings_from_config(SimpleNamespace(llm_provider="openrouter"))
+    settings = llm_settings_from_config(
+        BookConfig.from_mapping(
+            book_path=str(tmp_path / "test_book"),
+            config_data={"llm_provider": "openrouter"},
+        )
+    )
 
     assert settings.model == ""
     with pytest.raises(LLMConfigurationError, match="Missing 'llm_model'"):

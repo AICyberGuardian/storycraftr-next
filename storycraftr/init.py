@@ -1,11 +1,14 @@
 import json
-from rich.console import Console
 from pathlib import Path
+
+from rich.console import Console
+
 from storycraftr.templates import folder_story, folder_paper
 from storycraftr.agent.agents import create_or_get_assistant
 from storycraftr.subagents import seed_default_roles
 from storycraftr.templates.tex import TEMPLATE_TEX
 from storycraftr.templates.ieee_tex import TEMPLATE_IEEE_TEX
+from storycraftr.utils.project_lock import project_write_lock
 
 console = Console()
 
@@ -74,58 +77,60 @@ def init_structure_story(
         f"[blue]Initializing StoryCraftr project structure: {book_name}[/blue]"
     )
 
-    # Create project structure based on StoryCraftr templates
-    for file in folder_story.files_to_create:
-        file_path = Path(book_path) / file["folder"] / file["filename"]
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(file["content"], encoding="utf-8")
-        console.print(f"[green]File created: {file_path}[/green]")
+    with project_write_lock(book_path):
+        # Create project structure based on StoryCraftr templates
+        for file in folder_story.files_to_create:
+            file_path = Path(book_path) / file["folder"] / file["filename"]
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(file["content"], encoding="utf-8")
+            console.print(f"[green]File created: {file_path}[/green]")
 
-    # Create configuration file
-    config_data = {
-        "book_path": book_path,
-        "book_name": book_name,
-        "primary_language": primary_language,
-        "alternate_languages": alternate_languages,
-        "default_author": default_author,
-        "genre": genre,
-        "license": license,
-        "reference_author": reference_author,
-        "cli_name": cli_name,
-        "multiple_answer": True,
-        "llm_provider": llm_provider,
-        "llm_model": llm_model,
-        "llm_endpoint": llm_endpoint,
-        "llm_api_key_env": llm_api_key_env,
-        "temperature": temperature,
-        "request_timeout": request_timeout,
-        "max_tokens": 8192,
-        "embed_model": embed_model,
-        "embed_device": embed_device,
-        "embed_cache_dir": embed_cache_dir,
-    }
-    config_file = Path(book_path) / "storycraftr.json"
-    config_file.write_text(json.dumps(config_data, indent=4), encoding="utf-8")
-    console.print(f"[green]Configuration file created: {config_file}[/green]")
+        # Create configuration file
+        config_data = {
+            "book_path": book_path,
+            "book_name": book_name,
+            "primary_language": primary_language,
+            "alternate_languages": alternate_languages,
+            "default_author": default_author,
+            "genre": genre,
+            "license": license,
+            "reference_author": reference_author,
+            "cli_name": cli_name,
+            "multiple_answer": True,
+            "llm_provider": llm_provider,
+            "llm_model": llm_model,
+            "llm_endpoint": llm_endpoint,
+            "llm_api_key_env": llm_api_key_env,
+            "temperature": temperature,
+            "request_timeout": request_timeout,
+            "max_tokens": 8192,
+            "embed_model": embed_model,
+            "embed_device": embed_device,
+            "embed_cache_dir": embed_cache_dir,
+        }
+        config_file = Path(book_path) / "storycraftr.json"
+        config_file.write_text(json.dumps(config_data, indent=4), encoding="utf-8")
+        console.print(f"[green]Configuration file created: {config_file}[/green]")
 
-    # Create behavior file
-    behaviors_dir = Path(book_path) / "behaviors"
-    behaviors_dir.mkdir(exist_ok=True)
-    behavior_file = behaviors_dir / "default.txt"
-    behavior_file.write_text(behavior_content, encoding="utf-8")
-    console.print(f"[green]Behavior file created: {behavior_file}[/green]")
+        # Create behavior file
+        behaviors_dir = Path(book_path) / "behaviors"
+        behaviors_dir.mkdir(exist_ok=True)
+        behavior_file = behaviors_dir / "default.txt"
+        behavior_file.write_text(behavior_content, encoding="utf-8")
+        console.print(f"[green]Behavior file created: {behavior_file}[/green]")
 
-    # Create LaTeX template
-    template_dir = Path(book_path) / "templates"
-    template_dir.mkdir(exist_ok=True)
-    template_file = template_dir / "template.tex"
-    template_file.write_text(TEMPLATE_TEX, encoding="utf-8")
-    console.print(f"[green]LaTeX template created: {template_file}[/green]")
+        # Create LaTeX template
+        template_dir = Path(book_path) / "templates"
+        template_dir.mkdir(exist_ok=True)
+        template_file = template_dir / "template.tex"
+        template_file.write_text(TEMPLATE_TEX, encoding="utf-8")
+        console.print(f"[green]LaTeX template created: {template_file}[/green]")
 
-    # Ship core documentation alongside the project so the RAG can ingest it without network access
-    filenames = ["getting_started.md", "iterate.md", "chat.md"]
-    ensure_local_docs(book_path, filenames)
+        # Ship core documentation alongside the project so the RAG can ingest it without network access
+        filenames = ["getting_started.md", "iterate.md", "chat.md"]
+        ensure_local_docs(book_path, filenames)
 
+    # Role seeding and assistant bootstrap have their own mutation guards.
     seed_default_roles(book_path, language=primary_language, force=False)
     create_or_get_assistant(book_path)
 
@@ -156,53 +161,58 @@ def init_structure_paper(
         f"[blue]Initializing PaperCraftr project structure: {paper_name}[/blue]"
     )
 
-    # Create project structure based on PaperCraftr templates
-    for file in folder_paper.files_to_create:
-        file_path = Path(paper_path) / file["folder"] / file["filename"]
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(file["content"], encoding="utf-8")
-        console.print(f"[green]File created: {file_path}[/green]")
+    with project_write_lock(paper_path):
+        # Create project structure based on PaperCraftr templates
+        for file in folder_paper.files_to_create:
+            file_path = Path(paper_path) / file["folder"] / file["filename"]
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(file["content"], encoding="utf-8")
+            console.print(f"[green]File created: {file_path}[/green]")
 
-    # Create configuration file with default values if not provided
-    config_data = {
-        "book_path": paper_path,
-        "book_name": paper_name,
-        "primary_language": primary_language,
-        "default_author": author,
-        "keywords": keywords,
-        "cli_name": cli_name,
-        "multiple_answer": True,
-        "reference_author": "Leading experts in the field",  # Valor por defecto para papers
-        "llm_provider": llm_provider,
-        "llm_model": llm_model,
-        "llm_endpoint": llm_endpoint,
-        "llm_api_key_env": llm_api_key_env,
-        "temperature": temperature,
-        "request_timeout": request_timeout,
-        "max_tokens": 8192,
-        "embed_model": embed_model,
-        "embed_device": embed_device,
-        "embed_cache_dir": embed_cache_dir,
-    }
+        # Create configuration file with default values if not provided
+        config_data = {
+            "book_path": paper_path,
+            "book_name": paper_name,
+            "primary_language": primary_language,
+            "default_author": author,
+            "keywords": keywords,
+            "cli_name": cli_name,
+            "multiple_answer": True,
+            "reference_author": "Leading experts in the field",  # Valor por defecto para papers
+            "llm_provider": llm_provider,
+            "llm_model": llm_model,
+            "llm_endpoint": llm_endpoint,
+            "llm_api_key_env": llm_api_key_env,
+            "temperature": temperature,
+            "request_timeout": request_timeout,
+            "max_tokens": 8192,
+            "embed_model": embed_model,
+            "embed_device": embed_device,
+            "embed_cache_dir": embed_cache_dir,
+        }
 
-    # Guardar configuración solo en el directorio del proyecto
-    project_config_file = Path(paper_path) / "papercraftr.json"
-    project_config_file.write_text(json.dumps(config_data, indent=4), encoding="utf-8")
-    console.print(f"[green]Configuration file created: {project_config_file}[/green]")
+        # Guardar configuración solo en el directorio del proyecto
+        project_config_file = Path(paper_path) / "papercraftr.json"
+        project_config_file.write_text(
+            json.dumps(config_data, indent=4), encoding="utf-8"
+        )
+        console.print(
+            f"[green]Configuration file created: {project_config_file}[/green]"
+        )
 
-    # Create behavior file in the project directory
-    behaviors_dir = Path(paper_path) / "behaviors"
-    behaviors_dir.mkdir(exist_ok=True)
-    behavior_file = behaviors_dir / "default.txt"
-    behavior_file.write_text(behavior_content, encoding="utf-8")
-    console.print(f"[green]Behavior file created: {behavior_file}[/green]")
+        # Create behavior file in the project directory
+        behaviors_dir = Path(paper_path) / "behaviors"
+        behaviors_dir.mkdir(exist_ok=True)
+        behavior_file = behaviors_dir / "default.txt"
+        behavior_file.write_text(behavior_content, encoding="utf-8")
+        console.print(f"[green]Behavior file created: {behavior_file}[/green]")
 
-    # Create IEEE template
-    template_dir = Path(paper_path) / "templates"
-    template_dir.mkdir(exist_ok=True)
-    ieee_template_file = template_dir / "ieee.tex"
-    ieee_template_file.write_text(TEMPLATE_IEEE_TEX, encoding="utf-8")
-    console.print(f"[green]IEEE template created: {ieee_template_file}[/green]")
+        # Create IEEE template
+        template_dir = Path(paper_path) / "templates"
+        template_dir.mkdir(exist_ok=True)
+        ieee_template_file = template_dir / "ieee.tex"
+        ieee_template_file.write_text(TEMPLATE_IEEE_TEX, encoding="utf-8")
+        console.print(f"[green]IEEE template created: {ieee_template_file}[/green]")
 
-    # Initialize the assistant
+    # Assistant bootstrap has its own mutation guards.
     create_or_get_assistant(paper_path)

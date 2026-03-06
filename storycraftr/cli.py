@@ -1,6 +1,7 @@
 import click
 import os
 import sys
+import threading
 from rich.console import Console
 from pathlib import Path
 from storycraftr.utils.cleanup import cleanup_vector_stores
@@ -9,7 +10,23 @@ from storycraftr.llm.credentials import load_local_credentials
 console = Console()
 
 
-load_local_credentials()
+_CREDENTIALS_LOADED = False
+_CREDENTIALS_LOCK = threading.Lock()
+
+
+def _ensure_local_credentials_loaded() -> None:
+    """Load provider credentials once to avoid import-time side effects."""
+
+    global _CREDENTIALS_LOADED
+    if _CREDENTIALS_LOADED:
+        return
+
+    with _CREDENTIALS_LOCK:
+        if _CREDENTIALS_LOADED:
+            return
+        load_local_credentials()
+        _CREDENTIALS_LOADED = True
+
 
 # Import statements grouped together for clarity
 from storycraftr.state import debug_state
@@ -112,6 +129,7 @@ def cli(debug):
     """
     StoryCraftr CLI - A tool to assist in writing books using AI tools.
     """
+    _ensure_local_credentials_loaded()
     debug_state.set_debug(debug)
     if debug:
         console.print("[yellow]Debug mode is ON[/yellow]")

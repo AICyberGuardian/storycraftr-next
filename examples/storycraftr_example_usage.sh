@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Example script target: v0.16
+# Canonical repository: https://github.com/AICyberGuardian/storycraftr-next
+
 # Colores para output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -8,7 +11,13 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Definir el comando base
-COMMAND="poetry run storycraftr"
+if [[ "$*" == *"--use-poetry"* ]]; then
+    COMMAND="poetry run storycraftr"
+elif [[ "$*" == *"--use-uv"* ]]; then
+    COMMAND="uv run storycraftr"
+else
+    COMMAND="storycraftr"
+fi
 
 # Allow overriding provider/model for offline runs
 LLM_PROVIDER="${STORYCRAFTR_EXAMPLE_PROVIDER:-openrouter}"
@@ -20,10 +29,9 @@ else
     EMBED_MODEL="${STORYCRAFTR_EXAMPLE_EMBED_MODEL:-BAAI/bge-large-en-v1.5}"
 fi
 
-# Permitir cambiar el comando con flags opcionales
-if [[ "$*" == *"--use-poetry"* ]]; then
-    COMMAND="poetry run storycraftr"
-fi
+# Flags soportados:
+# --use-poetry: ejecuta usando Poetry
+# --use-uv: ejecuta usando uv
 
 # Archivo de checkpoint
 CHECKPOINT_FILE=".storycraftr_checkpoint"

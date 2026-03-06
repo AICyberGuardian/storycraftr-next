@@ -1,15 +1,20 @@
 #!/bin/bash
 set -e
 
+# Example script target: v0.16
+# Canonical repository: https://github.com/AICyberGuardian/storycraftr-next
+
 # Colores para output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Verificar si se pasó --use-poetry como argumento
+# Verificar flags de ejecución
 if [[ "$*" == *"--use-poetry"* ]]; then
     COMMAND="poetry run papercraftr"
+elif [[ "$*" == *"--use-uv"* ]]; then
+    COMMAND="uv run papercraftr"
 else
     COMMAND="papercraftr"
 fi

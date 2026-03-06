@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 from storycraftr.chat.session import SessionManager
@@ -75,3 +76,50 @@ def test_runtime_paths_resolve_inside_custom_internal_state_dir(monkeypatch, tmp
         Path(getattr(store, "_persist_directory")).resolve() == paths.vector_store_root
     )
     assert state_root in paths.vector_store_root.parents
+
+
+def test_session_manager_save_uses_project_write_lock(monkeypatch, tmp_path):
+    _write_config(tmp_path)
+
+    calls: list[tuple[str, object | None]] = []
+
+    @contextmanager
+    def fake_lock(book_path: str, *, config=None, **_kwargs):
+        calls.append((book_path, config))
+        yield tmp_path / ".custom-state" / "project.lock"
+
+    monkeypatch.setattr("storycraftr.chat.session.project_write_lock", fake_lock)
+
+    sessions = SessionManager(str(tmp_path))
+    sessions.save("lock-smoke", [{"role": "user", "content": "hello"}])
+
+    assert len(calls) == 1
+    assert calls[0][0] == str(tmp_path)
+    assert calls[0][1] is not None
+
+
+def test_build_chroma_store_uses_project_write_lock(monkeypatch, tmp_path):
+    _write_config(tmp_path)
+    calls: list[str] = []
+
+    @contextmanager
+    def fake_lock(book_path: str, *, config=None, **_kwargs):
+        calls.append(book_path)
+        yield tmp_path / ".custom-state" / "project.lock"
+
+    class FakeChroma:
+        def __init__(
+            self, client, collection_name, embedding_function, collection_metadata
+        ):
+            self._client = client
+
+    monkeypatch.setattr("storycraftr.vectorstores.chroma.project_write_lock", fake_lock)
+    monkeypatch.setattr("storycraftr.vectorstores.chroma.Chroma", FakeChroma)
+    monkeypatch.setattr(
+        "storycraftr.vectorstores.chroma.PersistentClient",
+        lambda path, settings: object(),
+    )
+
+    build_chroma_store(str(tmp_path), embedding_function=object())
+
+    assert calls == [str(tmp_path)]

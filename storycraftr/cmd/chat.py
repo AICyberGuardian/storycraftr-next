@@ -175,11 +175,11 @@ def chat(book_path=None, prompt=None, session_name=None, llm_model=None):
     thread = get_thread(book_path)
 
     footer_meta = {
-        "book_name": getattr(config, "book_name", Path(book_path).name),
-        "language": getattr(config, "primary_language", "en"),
-        "llm_provider": getattr(config, "llm_provider", "unknown"),
-        "llm_model": getattr(config, "llm_model", "unknown"),
-        "embed_model": getattr(config, "embed_model", "unknown"),
+        "book_name": config.book_name,
+        "language": config.primary_language,
+        "llm_provider": config.llm_provider,
+        "llm_model": config.llm_model,
+        "embed_model": config.embed_model,
     }
 
     subagent_events: Queue = Queue()
@@ -236,6 +236,14 @@ def chat(book_path=None, prompt=None, session_name=None, llm_model=None):
         _drain_subagent_events(subagent_events, job_manager, footer_meta)
         _render_session_footer(job_manager, footer_meta)
         job_manager.shutdown()
+        if vscode_emitter:
+            vscode_emitter.emit(
+                "session.ended",
+                {
+                    "book_path": str(book_path),
+                    "session": session_name,
+                },
+            )
         return
 
     console.print(

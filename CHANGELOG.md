@@ -4,6 +4,35 @@
 
 ### Changed
 
+- Phase 0 runtime-safety hardening:
+  - Performed a small architectural extraction by moving assistant cache management from `storycraftr/agent/agents.py` into `storycraftr/agent/assistant_cache.py` (cache key normalization, lock-guarded lookup/store, shared cache state).
+  - Performed a second small architectural extraction by moving vector-store refresh/hydration helpers from `storycraftr/agent/agents.py` into `storycraftr/agent/vector_hydration.py` and wiring `LangChainAssistant.ensure_vector_store` through the extracted helper functions.
+  - Preserved backward compatibility for existing tests/internals by keeping `agents.load_markdown_documents(...)` and `agents._dedupe_documents(...)` as compatibility wrappers that delegate to `vector_hydration`.
+  - Synced canonical architecture docs (`.github/copilot-instructions.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`) to match current typed-config semantics and extracted module boundaries.
+  - Preserved backward compatibility for existing tests/internals by keeping `agents._ASSISTANT_CACHE`, `agents._ASSISTANT_CACHE_LOCK`, and `_assistant_cache_key(...)` as compatibility aliases/wrapper.
+  - Updated cache-focused unit fixtures in `tests/unit/test_agents_create_message.py` to use typed `BookConfig` inputs.
+  - Completed a project write-lock coverage audit for runtime mutation paths and closed remaining gaps:
+    - `init_structure_story` and `init_structure_paper` now wrap project scaffolding/config/template writes under `project_write_lock`.
+    - `VSCodeEventEmitter.emit` now appends JSONL events under `project_write_lock` to prevent cross-process append races.
+    - `cleanup_vector_stores` now removes persisted vector-store directories under `project_write_lock`.
+    - `build_chroma_store` now performs store-directory creation and failure cleanup under `project_write_lock`.
+  - Fixed nested lock deadlock risk by making `project_write_lock` reentrant within the same thread for a lock path while preserving cross-process `flock` behavior.
+  - Added lock regression tests in `tests/unit/test_init_locks.py`, `tests/unit/test_project_lock.py`, `tests/unit/test_cleanup.py`, `tests/unit/test_core_paths.py`, and `tests/unit/test_vscode_integration.py`.
+  - Added an explicit lock-scope decision matrix in `docs/CHANGE_IMPACT_CHECKLIST.md` to classify remaining mutation paths as must-lock, safe single-writer, non-shared runtime state, or deferred with rationale.
+  - Completed typed-config migration for runtime config consumers by replacing `getattr(config, ...)` fallbacks with explicit `BookConfig` attributes across core mapping, assistant prompt composition, chat footer metadata, markdown/pdf rendering metadata, project-path resolution, and sub-agent role seeding.
+  - Added typed path-override fields to `BookConfig` (`internal_state_dir`, `subagents_dir`, `subagent_logs_dir`, `sessions_dir`, `vector_store_dir`, `vscode_events_file`) so internal-path configuration remains explicit and testable.
+  - Added extension-side event-contract fixtures in TypeScript (`src/event-contract.ts`, `src/event-contract.test.ts`) for representative JSONL events: `session.started`, `chat.turn`, `session.ended`, `sub_agent.roles`, `sub_agent.status`, `sub_agent.queued`, and `sub_agent.error`.
+  - Expanded vector-store edge-case hardening in `LangChainAssistant.ensure_vector_store` and regressions in `tests/unit/test_agents_vectorstore_integrity.py` covering retriever-corruption recovery via forced rebuild, reset-failure fallback cleanup path, unreadable/short markdown handling, duplicate document deduplication, force rebuild idempotency, and empty-corpus force rebuild safety.
+  - Assistant cache key handling in `storycraftr/agent/agents.py` now normalizes `model_override` and protects cache reads/writes with a re-entrant lock to reduce override bleed and race conditions.
+  - Added project-scoped mutation locking via `storycraftr/utils/project_lock.py`; Chroma reset/rebuild and document ingestion writes are now guarded by a file lock under internal state (`project.lock`).
+  - Expanded project lock coverage to additional mutating paths: prompt metadata log writes, session transcript saves, markdown save/append/consolidation outputs, sub-agent role seeding, and sub-agent run log persistence.
+  - `load_book_config` now returns a typed `BookConfig` model with normalization/coercion for core config fields while preserving attribute-style compatibility expected by existing call sites.
+  - Sub-agent role loading is hardened: malformed YAML and invalid role payloads are skipped safely instead of crashing role discovery (`storycraftr/subagents/storage.py`, `storycraftr/subagents/models.py`).
+  - Added targeted regression tests for assistant cache keying/normalization, typed config output, and invalid sub-agent role handling.
+  - Fixed `chat --prompt` VS Code event lifecycle symmetry by emitting `session.ended` before command return in non-interactive mode; added a CLI regression test asserting prompt-mode event sequence and required payload fields.
+  - Added dedicated sub-agent command event-contract tests (`tests/unit/test_chat_commands.py`) to lock event names and payload schemas for `sub_agent.roles`, `sub_agent.status`, `sub_agent.queued`, and `sub_agent.error`.
+  - Added vector-store integrity regressions (`tests/unit/test_agents_vectorstore_integrity.py`) for empty-corpus failure handling, deterministic `force=True` rebuild behavior, and non-empty-store reindex bypass in `LangChainAssistant.ensure_vector_store`.
+  - Removed import-time credential loading side effect in `storycraftr/cli.py` by introducing lazy one-time bootstrap (`_ensure_local_credentials_loaded`) executed from the Click group callback; added startup regressions in `tests/unit/test_cli_startup.py`.
 - Current development target set to `v0.16.x` (`0.16.0-dev`).
 - CI dependency installation modernized for speed and determinism:
   - `.github/workflows/pytest.yml` now uses `astral-sh/setup-uv@v5` native cache, validates `poetry export` availability, exports requirements from `poetry.lock`, installs with `uv pip`, and runs `npm ci` before extension compile.
@@ -31,6 +60,11 @@
   - Regenerated `poetry.lock` via `make sync-deps` to record updated content-hash; resolved package versions are unchanged.
   - Updated `uv venv` creation in CI to explicitly target Python 3.13 (`--python 3.13`).
   - Regenerated `poetry.lock` for the new baseline.
+
+### Fixed
+
+- Made `project_write_lock` tolerant of mocked file handles by falling back to process-local locking when `fileno()` is missing or non-integer, preserving real-file `flock` behavior.
+- Stabilized `tests/unit/test_subagents.py::test_job_manager_persist_job_uses_project_write_lock` by waiting for worker future completion before asserting lock usage, removing async persistence race flakes.
 
 ## [0.15.1] - 2026-03-04
 

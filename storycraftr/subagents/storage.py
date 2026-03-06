@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Dict, List
 
 import yaml
 
 from storycraftr.utils.paths import resolve_project_paths
+from storycraftr.utils.project_lock import project_write_lock
 
 from .defaults import get_default_roles_for_language
 from .models import SubAgentRole
 
 LOGS_DIRNAME = "logs"
+logger = logging.getLogger(__name__)
 
 
 def subagent_root(book_path: str, config: object | None = None) -> Path:
@@ -33,9 +36,19 @@ def load_roles(book_path: str, config: object | None = None) -> Dict[str, SubAge
     root = ensure_storage_dirs(book_path, config=config)
     roles: Dict[str, SubAgentRole] = {}
     for file_path in root.glob("*.yaml"):
-        data = yaml.safe_load(file_path.read_text(encoding="utf-8")) or {}
-        slug = data.get("slug", file_path.stem).lower()
-        role = SubAgentRole.from_dict(slug, data)
+        try:
+            raw_text = file_path.read_text(encoding="utf-8")
+            data = yaml.safe_load(raw_text) or {}
+            if not isinstance(data, dict):
+                raise ValueError("Role document must be a YAML mapping.")
+            slug = str(data.get("slug", file_path.stem)).strip().lower()
+            role = SubAgentRole.from_dict(slug, data)
+        except Exception as exc:
+            logger.warning(
+                "Skipping invalid sub-agent role file %s: %s", file_path, exc
+            )
+            continue
+
         roles[role.slug] = role
     return roles
 
@@ -61,13 +74,14 @@ def seed_default_roles(
     roles = get_default_roles_for_language(language)
     written: List[Path] = []
 
-    for role in roles:
-        file_path = role_file_path(root, role.slug)
-        if file_path.exists() and not force:
-            continue
-        file_path.write_text(
-            yaml.safe_dump(role.to_dict(), sort_keys=False), encoding="utf-8"
-        )
-        written.append(file_path)
+    with project_write_lock(book_path, config=config):
+        for role in roles:
+            file_path = role_file_path(root, role.slug)
+            if file_path.exists() and not force:
+                continue
+            file_path.write_text(
+                yaml.safe_dump(role.to_dict(), sort_keys=False), encoding="utf-8"
+            )
+            written.append(file_path)
 
     return written

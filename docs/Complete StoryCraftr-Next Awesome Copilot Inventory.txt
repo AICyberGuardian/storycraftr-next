@@ -1,0 +1,119 @@
+# Complete StoryCraftr-Next Awesome Copilot Inventory
+
+This is the canonical inventory of Copilot customization assets currently present in this repository.
+
+Last Updated: March 6, 2026
+
+## Summary
+
+- Agents: 21
+- Skills: 13
+- Instructions: 6
+- Hooks: 1
+- Workflows: 3
+
+Source of truth paths:
+- `.github/agents/`
+- `.github/skills/`
+- `.github/instructions/`
+- `.github/hooks/`
+- `.github/workflows/`
+
+## Agents (21)
+
+| Agent file | What it does | Use when |
+|---|---|---|
+| `agent-governance-reviewer.agent.md` | Reviews agent/tooling code for safety, policy controls, trust scoring, auditability | Building or reviewing tool-calling agents and multi-agent orchestration |
+| `blueprint-mode-codex.agent.md` | Executes structured workflows with strict correctness and fact-checking discipline | Complex implementation/debugging where reproducibility matters |
+| `code-tour.agent.md` | Creates and maintains VS Code CodeTour walkthroughs | You want guided onboarding tours inside VS Code |
+| `context-architect.agent.md` | Plans multi-file changes by mapping dependencies and required context | Refactors or features touching several modules |
+| `context7.agent.md` | Provides latest library/framework guidance from current docs | You need up-to-date API usage and best practices |
+| `documentation-writer.agent.md` | Diataxis-focused technical writing agent | Writing tutorials, how-tos, references, explanations |
+| `dynatrace-expert.agent.md` | Uses Dynatrace observability/security signals for diagnosis | Incident triage, release validation, performance/security regression checks |
+| `elasticsearch-observability.agent.md` | Uses Elastic data for debugging, RAG tuning, and threat remediation | You have Elastic telemetry and need code/runtime insights |
+| `gem-documentation-writer.agent.md` | Generates docs/diagrams and maintains code-doc parity | Architecture docs and implementation documentation refreshes |
+| `gem-orchestrator.agent.md` | Coordinates multi-agent workflows and synthesizes outputs | Large multi-phase tasks needing delegation across agents |
+| `gem-planner.agent.md` | DAG-based planning with pre-mortem/risk framing | Complex work requiring dependency-aware plans |
+| `gem-reviewer.agent.md` | Security gatekeeper for OWASP/secrets/compliance reviews | Security-focused reviews before merge |
+| `implementation-plan.agent.md` | Produces implementation plans for new/refactor work | You need a formal execution plan without coding yet |
+| `janitor.agent.md` | Cleans tech debt and simplifies code safely | Dead code cleanup, simplification, hygiene tasks |
+| `openapi-to-application.agent.md` | Generates apps from OpenAPI specs | Bootstrapping services/apps from API contracts |
+| `planner.agent.md` | General planning mode for new features/refactors | Early scoping and task decomposition |
+| `python-mcp-expert.agent.md` | Expert for Python MCP server development | Designing/implementing MCP servers in Python |
+| `se-system-architecture-reviewer.agent.md` | Architecture review specialist (scalability/design validation) | Architecture decisions and design reviews |
+| `storycraftr-engineering.agent.md` | StoryCraftr-specific maintainer for modernization and safe refactors | Repo-specific improvements, fixes, and technical debt work |
+| `typescript-mcp-expert.agent.md` | Expert for TypeScript MCP server development | Designing/implementing MCP servers in TypeScript |
+| `wg-code-alchemist.agent.md` | Clean Code and SOLID-oriented refactoring specialist | Improving maintainability and design quality |
+
+## Skills (13)
+
+| Skill folder | What it does | Use when |
+|---|---|---|
+| `agent-governance/` | Governance patterns for safe agent operation (policy, controls, audit) | Building tool-enabled agents and guardrails |
+| `agentic-eval/` | Iterative evaluation/refinement patterns (LLM-as-judge, rubric loops) | Improving quality of AI outputs |
+| `architecture-blueprint-generator/` | Generates architecture blueprints and documentation artifacts | Creating architecture docs from an existing codebase |
+| `create-implementation-plan/` | Creates deterministic implementation plan files | Starting major feature/refactor tracks |
+| `create-readme/` | Produces full README structure/content | New projects or README overhauls |
+| `polyglot-test-agent/` | Multi-language unit test generation workflow | Adding tests across Python/TS/JS/etc. |
+| `pytest-coverage/` | Coverage-driven pytest workflow and gap closure | Increasing Python test coverage |
+| `readme-blueprint-generator/` | README generation from repo docs/config context | Keeping README aligned to architecture/workflows |
+| `refactor/` | Surgical maintainability refactors without behavior change | Reducing complexity and code smells safely |
+| `refactor-plan/` | Sequenced refactor plan with rollback thinking | Multi-file refactors needing careful ordering |
+| `update-implementation-plan/` | Updates existing implementation plans with new requirements | Scope shifts after planning started |
+| `vscode-ext-commands/` | VS Code command contribution guidelines | Adding extension commands with proper conventions |
+| `vscode-ext-localization/` | VS Code extension localization best practices | Internationalizing extension UX strings |
+
+## Instructions (6)
+
+| Instruction file | Applies to | What it enforces | Use when |
+|---|---|---|---|
+| `agent-safety.instructions.md` | `**` | Agent governance, fail-closed behavior, least privilege, audit expectations | Writing/maintaining agentic code |
+| `context-engineering.instructions.md` | `**` | Structure and naming guidance to improve Copilot context quality | Any repo-wide implementation work |
+| `performance-optimization.instructions.md` | `*` | Performance measurement and optimization best practices | Performance-sensitive changes and reviews |
+| `python.instructions.md` | `**/*.py` | Python coding style and quality expectations | Editing Python modules/tests |
+| `typescript-5-es2022.instructions.md` | `**/*.ts` | TypeScript 5 + ES2022 patterns and conventions | Editing extension TS code |
+| `update-docs-on-code-change.instructions.md` | `**/*.{md,js,mjs,cjs,ts,tsx,jsx,py,java,cs,go,rb,php,rs,cpp,c,h,hpp}` | Doc parity expectations for code changes | Any code change affecting user/developer docs |
+
+## Hooks (1)
+
+| Hook folder | Event | What it does | Use when |
+|---|---|---|---|
+| `session-auto-commit/` | `sessionEnd` | Configures a command hook to run `.github/hooks/session-auto-commit/auto-commit.sh` with a 30s timeout | You want automated post-session commit behavior |
+
+Note: The hook config exists in `hooks.json`. Verify the referenced script path exists and is executable in environments where this hook is enabled.
+
+## Workflows (3)
+
+| Workflow file | Trigger | What it does | Use when |
+|---|---|---|---|
+| `pytest.yml` | Push/PR on all branches | Runs Python 3.13 tests and smoke checks using uv + Poetry export install pattern; compiles extension | Validating functional correctness and baseline runtime behavior |
+| `pre-commit.yml` | Push/PR on all branches | Runs pre-commit quality/security checks and lock drift guard | Enforcing lint/security/tooling gates |
+| `ci-failure-fix.yml` | On failed completion of `pytest` workflow (non-main/non-release branches) | Invokes Jules to propose remediation for CI failures | Assisted failure triage on feature branches |
+
+## Recommended Usage Pattern
+
+1. Planning first:
+- Use `planner.agent.md` or `implementation-plan.agent.md`.
+- For architecture-level reviews, use `se-system-architecture-reviewer.agent.md`.
+
+2. Implementation:
+- Use `blueprint-mode-codex.agent.md` for strict execution.
+- Use `context-architect.agent.md` for multi-file dependency-aware changes.
+
+3. Quality and safety:
+- Use `gem-reviewer.agent.md` and `agent-governance-reviewer.agent.md` for security/governance checks.
+- Use `polyglot-test-agent/` and `pytest-coverage/` for tests and coverage hardening.
+
+4. Documentation:
+- Use `documentation-writer.agent.md`, `gem-documentation-writer.agent.md`, and `architecture-blueprint-generator/`.
+
+## What Changed From the Previous Version
+
+- Removed duplicated inventory blocks.
+- Removed conflicting totals (`14` vs `20`).
+- Corrected counts to match repository contents (`21` agents, `13` skills, `6` instructions, `1` hook, `3` workflows).
+- Removed stale/nonexistent entries and standardized naming to actual file/folder names.
+
+## Maintenance Rule
+
+When adding/removing any agent, skill, instruction, hook, or workflow, update this file in the same change set.

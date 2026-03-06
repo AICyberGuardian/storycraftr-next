@@ -1,6 +1,6 @@
 # Copilot Coding Agent Instructions
 
-Current development target: v0.16.x.
+Current development target: v0.16.
 
 ## Repository Invariants
 
@@ -21,7 +21,9 @@ StoryCraftr is a dual-mode Python CLI plus a lightweight VS Code companion exten
 ```
 storycraftr/          # Python package (all core logic)
   agent/              # LangChain assistant, vector-store logic, story & paper agent modules
-    agents.py         # LangChainAssistant dataclass, create_or_get_assistant(), create_message()
+    agents.py         # LangChainAssistant runtime + orchestration entrypoints
+    assistant_cache.py # Assistant cache keying/locking helpers
+    vector_hydration.py # Vector-store refresh/hydration helpers
     retrieval.py      # Document retrieval helpers
     story/            # Story-specific generation: chapters, outline, worldbuilding, iterate
     paper/            # Paper-specific generation: abstract, generate_section, etc.
@@ -65,7 +67,7 @@ tsconfig.json
 poetry install                          # Install all dependencies
 poetry install --extras embeddings      # Include sentence-transformers + torch
 make sync-deps                          # Rebuild Python/Node lock files together
-make bump-version VERSION=0.16.0-dev    # Bump versions + refresh locks + changelog target line
+make bump-version VERSION=0.16.0        # Bump versions + refresh locks + changelog target line
 poetry run storycraftr --help           # Verify CLI loads
 poetry run pytest                       # Run all tests
 poetry run pre-commit run --all-files   # Lint + security scan (run before every push)
@@ -115,7 +117,7 @@ When investigating CI failures, always use GitHub MCP tools to retrieve actual j
 
 ### Project Configuration Files
 
-Each project workspace contains either `storycraftr.json` or `papercraftr.json`. These are loaded via `load_book_config(book_path)` which returns a `SimpleNamespace` (not the `BookConfig` NamedTuple — the NamedTuple is for documentation only). Both files share the same JSON schema. The helper `load_book_config` tries `papercraftr.json` first, then falls back to `storycraftr.json`.
+Each project workspace contains either `storycraftr.json` or `papercraftr.json`. These are loaded via `load_book_config(book_path)` which returns a typed `BookConfig`. Both files share the same JSON schema. The helper `load_book_config` tries `papercraftr.json` first, then falls back to `storycraftr.json`.
 
 Key config fields:
 
@@ -157,10 +159,15 @@ Uses `HuggingFaceEmbeddings` from `langchain_huggingface`. BGE models automatica
 
 `LangChainAssistant` is the central runtime object:
 - Holds `llm`, `embeddings`, `vector_store`, `retriever`, and the LangChain `graph`
-- `ensure_vector_store(force=False)` populates Chroma with `.md` files from the project
+- `ensure_vector_store(force=False)` delegates vector-store refresh/hydration mechanics to `storycraftr/agent/vector_hydration.py`
 - `create_message(...)` runs inference through the LCEL graph and appends to a `ConversationThread`
-- Assistants are cached globally in `_ASSISTANT_CACHE` keyed by resolved `book_path`
+- Assistants are cached via `storycraftr/agent/assistant_cache.py` with normalized cache keys containing resolved `book_path` plus `model_override`
 - `behavior` text is loaded from `<book_path>/behaviors/default.txt`
+
+### Assistant Cache (`storycraftr/agent/assistant_cache.py`)
+
+- Centralizes assistant cache key generation, lock-guarded cache lookup/store, and cache clear helpers.
+- Key contract: `assistant_cache_key(book_path, model_override)` strips model override whitespace and uses `<default>` when override is absent.
 
 ### LCEL Graph (`storycraftr/graph/assistant_graph.py`)
 
@@ -225,12 +232,14 @@ The graph uses a `RunnableParallel` that retrieves documents from Chroma and the
 ## Known Pitfalls & Workarounds
 
 1. **`storycraftr/utils/paths.py` exists and is the canonical path resolver.** It exposes `resolve_project_paths(book_path, config)` which returns a `ProjectPaths` dataclass with all normalized internal-state paths (subagents, sessions, vector store, VS Code events). Always use this helper instead of constructing paths manually; never hardcode `.storycraftr/` directory literals.
-2. **`BookConfig` NamedTuple vs `SimpleNamespace`**: `load_book_config()` returns a `SimpleNamespace`, not the `BookConfig` NamedTuple. Always use `getattr(config, "field", default)` when accessing config fields to avoid `AttributeError` on older project files missing newer keys.
+2. **Typed config contract**: `load_book_config()` returns `BookConfig`. Runtime call sites should use explicit typed attributes (no `getattr(config, ...)` fallbacks for standard config fields).
 3. **Dual graph field on `LangChainAssistant`**: The dataclass declares `graph` twice (a known duplicate); do not add a third declaration.
 4. **Chroma telemetry**: `anonymized_telemetry=False` must always be passed to `chromadb.config.Settings` to prevent outbound telemetry calls in tests/CI.
 5. **Embedding model download in CI**: Tests that instantiate a real `HuggingFaceEmbeddings` model will attempt to download multi-GB artifacts. Always mock or use `llm_provider=fake` in unit tests.
 6. **`uv` + Poetry export in CI**: CI installs `poetry` + `poetry-plugin-export` inside the uv virtual environment, exports requirements from `poetry.lock`, and installs via `uv pip`. Local development should continue to use `poetry install`.
 7. **Pre-commit large-file limit**: 500 KB. Do not commit model weights, lock file diffs, or large test fixtures directly.
+8. **Lock scope policy**: The lock-coverage decision matrix lives in `docs/CHANGE_IMPACT_CHECKLIST.md` under "Lock Coverage Decision Matrix (Phase 0.5)" and is the source of truth for must-lock vs intentional single-writer/deferred paths.
+9. **VS Code event contract tests**: Keep `src/event-contract.ts` and `src/event-contract.test.ts` aligned with Python JSONL emitter payloads (`session.*`, `chat.*`, `sub_agent.*`) to prevent producer/consumer drift.
 
 ## Repository Change Impact Checklist — Agent Contract
 

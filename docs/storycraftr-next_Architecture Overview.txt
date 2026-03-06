@@ -15,7 +15,7 @@
 
 **3. Core Technologies:**
 
-* **Language:** Python 3.10-3.13, TypeScript (Extension).
+* **Language:** Python 3.13, TypeScript (Extension).
 * **Frameworks:** LangChain (LLM Orchestration), ChromaDB (Vector Store), Click (CLI), Pytest (Testing).
 * **Inter-Process Communication (IPC):** JSONL event streams.
 

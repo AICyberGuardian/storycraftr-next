@@ -27,10 +27,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.13"
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
@@ -71,3 +71,57 @@ jobs:
         run: |
           source .venv/bin/activate
           poetry run pytest
+
+      - name: CLI smoke checks
+        run: |
+          source .venv/bin/activate
+          poetry run storycraftr --help
+          poetry run storycraftr chat --help
+          poetry run papercraftr --help
+
+      - name: Build VS Code extension
+        run: npm run compile
+
+  embeddings-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | bash
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Create venv
+        run: |
+          uv venv .venv
+
+      - name: Install Poetry (inside venv)
+        run: |
+          source .venv/bin/activate
+          uv pip install poetry
+
+      - name: Verify poetry.lock is in sync
+        run: |
+          source .venv/bin/activate
+          poetry check --lock
+
+      - name: Install dependencies with embeddings extras
+        run: |
+          source .venv/bin/activate
+          poetry install --with embeddings --no-interaction
+
+      - name: Ensure lock files are unchanged
+        run: git diff --exit-code poetry.lock package-lock.json
+
+      - name: Embeddings import smoke test
+        run: |
+          source .venv/bin/activate
+          poetry run python -c "import sentence_transformers, torch; print('sentence_transformers', sentence_transformers.__version__); print('torch', torch.__version__)"

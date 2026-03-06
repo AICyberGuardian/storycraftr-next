@@ -52,3 +52,29 @@
 - [ ] Core architecture changes touching LLM factory, sub-agents, or IPC must update `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`.
 - [ ] Every feature or fix commit must have a corresponding `CHANGELOG.md` entry.
 - [ ] Any behavior-affecting CLI change must be reflected in user-facing docs where relevant.
+
+## Checklist Review Notes
+
+- 2026-03-06: `pyproject.toml` tooling-config cleanup only.
+- Impact: Removed invalid pytest options (`line-length`, `target-version`) and added equivalent `[tool.black]` settings.
+- No impact: Runtime behavior, dependencies, lockfiles, CLI/LLM/subagent/IPC flows, and user-facing docs.
+- 2026-03-06: CI test coverage expanded in `.github/workflows/pytest.yml`.
+- Impact: Added matrix testing for Python `3.11` and `3.13` via `actions/setup-python`.
+- No impact: Application runtime logic, dependency metadata, lockfiles, and user-facing CLI/docs behavior.
+- 2026-03-06: Python 3.13 modernization follow-ups.
+- Impact: Migrated core metadata/scripts to PEP 621 (`[project]`, `[project.scripts]`), switched CI dependency install to `uv pip` with `poetry export`, and added a Python 3.13 README badge.
+- Impact: Regenerated lock metadata through `make sync-deps` after `pyproject.toml` change.
+- No impact: Story/Paper runtime command behavior, LLM routing, sub-agent execution semantics, and IPC payload contracts.
+- 2026-03-06: Python 3.13 support policy finalized and validated.
+- Impact: CI `pytest.yml` now enforces Python `3.13` only, restores `poetry install` flow, and adds CLI + VS Code extension build smoke steps.
+- Impact: Updated Black target runtime from `py39` to `py313`, aligned architecture overview language statement, and documented runtime requirement in `README.md`.
+- No impact: Runtime command semantics, vector store schema, sub-agent event payload contract, and credential resolution precedence.
+- 2026-03-06: Optional embeddings CI lane added.
+- Impact: Added `embeddings-smoke` workflow job in `.github/workflows/pytest.yml` to install `--with embeddings` on Python `3.13` and run import-level smoke validation for `sentence_transformers` and `torch`.
+- No impact: Core CLI behavior, base dependency set, LLM provider routing, and extension event payload schema.
+- 2026-03-06: pre-commit workflow install path optimized with uv.
+- Impact: `.github/workflows/pre-commit.yml` now uses Python `3.13`, installs `uv`, creates `.venv`, and installs `pre-commit`/`poetry` via `uv pip install` for faster CI dependency setup.
+- No impact: Hook set, pre-commit behavior, lockfile policies, and application runtime semantics.
+- 2026-03-06: Full-stack dependency upgrade matrix added.
+- Impact: Added `docs/python-3.13-full-stack-upgrade-matrix.md` with staged upgrade waves, version targets, risk tiers, validation gates, and rollback strategy for Python 3.13-compatible modernization.
+- No impact: Runtime behavior, dependency specifications, lockfiles, CI execution logic, and extension IPC contract.

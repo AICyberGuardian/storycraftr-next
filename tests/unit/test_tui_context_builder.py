@@ -34,7 +34,7 @@ def test_build_scoped_context_block_includes_plan_constraints_and_retrieval() ->
 
     assert "[Scene Plan]" in block
     assert "Goal: Escalate the standoff." in block
-    assert "[Active Constraints]" in block
+    assert "[Canon Constraints]" in block
     assert "Mira is the ship navigator." in block
     assert "[Relevant Context]" in block
     assert "Bridge logs confirm sabotage." in block
@@ -99,7 +99,7 @@ def test_compose_budgeted_prompt_uses_model_aware_budget(monkeypatch) -> None:
     assert budget.output_reserve_tokens == 4096
     assert budget.input_budget_tokens == 28672
     assert "[Scene Plan]" in prompt
-    assert "[User Prompt]" in prompt
+    assert "[User Instruction]" in prompt
 
 
 def test_compose_budgeted_prompt_prunes_in_priority_order() -> None:
@@ -144,9 +144,9 @@ def test_compose_budgeted_prompt_prunes_in_priority_order() -> None:
     )
 
     # Lower-priority sections should disappear before high-priority constraints.
-    if "[Recent Turns]" not in prompt:
+    if "[Recent Dialogue]" not in prompt:
         assert "[Relevant Context]" not in prompt
-    assert "[Active Constraints]" in prompt
+    assert "[Canon Constraints]" in prompt
     assert "Canon fact one" in prompt
 
 

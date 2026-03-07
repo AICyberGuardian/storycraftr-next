@@ -65,14 +65,20 @@ assistant/backend flow.
 - `/autopilot <steps> <prompt>` — Run bounded autonomous turns when execution mode is `autopilot`.
 - `/state` — Show active narrative state and injected prompt block.
 - `/summary` and `/summary clear` — Inspect or reset rolling compacted session summary state.
-- `/context` — Show prompt-context diagnostics (provider/model, compacted turns, summary/tail usage).
+- `/context` — Show a compact runtime diagnostics dashboard (summary, budget, model cache).
+- `/context summary` — Show full rolling summary state (status, compacted turns, summary text).
+- `/context budget` — Show latest prompt budget and deterministic pruning/truncation diagnostics.
+- `/context models` — Show OpenRouter cache metadata and resolved active-model limits/source.
+- `/context conflicts` — Show the latest canon conflict diagnostics (candidate counts, grouped reasons, details).
+- `/context clear-summary` — Clear compacted summary while retaining recent transcript tail.
+- `/context refresh-models` — Force-refresh OpenRouter model discovery cache and report status.
 - `/progress` — Show canonical writing-pipeline checkpoint completion.
 - `/wizard` and `/wizard next` — Guided pipeline view and next-step recommendation.
 - `/pipeline` and `/pipeline next` — Alias for wizard-guided pipeline flow.
 - `/wizard set <field> <value>`, `/wizard show`, `/wizard plan`, `/wizard reset`
   — Build and revise a guided command plan from writer inputs.
 - `/canon`, `/canon show [chapter]`, `/canon add <fact>`,
-  `/canon add <chapter> :: <fact>`, `/canon pending`, `/canon accept <n[,m,...]>`,
+  `/canon add <chapter> :: <fact>`, `/canon check-last`, `/canon pending`, `/canon accept <n[,m,...]>`,
   `/canon reject [n[,m,...]]`, `/canon clear [confirm]`
   — Manage writer-approved chapter canon facts and hybrid extraction candidate approvals.
 - `/clear` — Clear the output pane while keeping current session context.
@@ -92,8 +98,17 @@ Slash commands also emit inline status markers (`[Running]`, `[Done]`, `[Failed]
 
 The TUI help menu is grouped by intent (`Writing`, `Planning`, `World`, `Project`), and `/help <topic>` shows only one group.
 
-For normal prompts, the TUI prepends a compact scene-scoped block (`[Scene Plan]`
-and `[Scoped Context]`) before calling the existing assistant pipeline.
+For normal prompts, the TUI prepends structured sections before calling the
+existing assistant pipeline: `[Canon Constraints]`, `[Scene Plan]`,
+`[Scoped Context]`, optional `[Structured Narrative State]`, optional
+`[Session Summary]` and `[Recent Dialogue]`, then `[User Instruction]`.
+
+After generation, the TUI runs a lightweight, warn-only canon conflict check
+against accepted chapter facts and surfaces likely duplicates/contradictions as
+`Potential Canon Conflicts` in the output pane for writer review.
+
+Writers can rerun the same continuity scan at any time with `/canon check-last`,
+and inspect grouped diagnostics with `/context conflicts`.
 
 Prompt assembly is now model-aware: the TUI computes an input budget from the
 active model context window, reserves output tokens (`max_tokens` from config
@@ -109,7 +124,8 @@ upstream API is temporarily unavailable.
 `/model-change` validates requested OpenRouter models against the current
 free-only discovery catalog; paid, unknown, or unavailable models are rejected.
 Long-running sessions now apply rolling transcript compaction: older turns are
-collapsed into a bounded `Session Summary` that is persisted in
+collapsed into a bounded `Session Summary` with adaptive retention of
+scene/canon/reveal anchor turns, and persisted in
 `sessions/session.json`, while the most recent turns remain verbatim in prompt
 context.
 

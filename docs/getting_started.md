@@ -414,7 +414,8 @@ Useful slash commands:
 - `/autopilot <steps> <prompt>` runs bounded autonomous turns when mode is `autopilot`.
 - `/state` shows active narrative state plus the exact injected prompt block, including `[Active Constraints]` when canon facts exist.
 - `/summary` and `/summary clear` inspect or reset rolling compacted session summary state.
-- `/context` shows prompt-context diagnostics (provider/model, compacted turns, summary/tail usage).
+- `/context` shows a compact runtime dashboard for summary, prompt budget, pruning, and model-cache status.
+- `/context summary`, `/context budget`, `/context models`, `/context clear-summary`, and `/context refresh-models` expose detailed diagnostics and maintenance actions.
 - `/progress` shows canonical writing-pipeline checkpoint completion.
 - `/wizard` and `/wizard next` provide guided next-step workflow recommendations.
 - `/pipeline` and `/pipeline next` are aliases for wizard-guided flow.
@@ -442,6 +443,9 @@ deterministic priority order when needed.
 
 Long-running sessions automatically compact older turns into a rolling summary
 stored in `sessions/session.json` while preserving recent turns verbatim.
+`/context budget` shows which sections were included, pruned, or truncated under
+the active model budget, and `/context models` shows OpenRouter cache status
+plus resolved active-model limits.
 
 In `autopilot` mode, extracted canon candidates are conflict-verified against
 accepted chapter facts before commit; duplicate or contradiction-like

@@ -257,7 +257,9 @@ Current TUI slash commands include:
 - `/autopilot <steps> <prompt>` to run bounded autonomous turns when mode is `autopilot`
 - `/state` to inspect current narrative context and exact injected prompt block
 - `/summary` and `/summary clear` to inspect or reset rolling compacted session context
-- `/context` to inspect prompt-context diagnostics (summary/tail composition)
+- `/context` for an overview dashboard of summary/budget/model-cache diagnostics
+- `/context summary`, `/context budget`, `/context models` for focused runtime diagnostics
+- `/context clear-summary` and `/context refresh-models` for summary reset and forced OpenRouter cache refresh
 - `/progress` to show canonical generation checkpoint status
 - `/wizard` and `/wizard next` for guided pipeline recommendations
 - `/pipeline` and `/pipeline next` as aliases for the wizard flow

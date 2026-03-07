@@ -30,6 +30,8 @@ from storycraftr.agent.agents import (
 from storycraftr.chat.commands import CommandContext, handle_command
 from storycraftr.chat.module_runner import ModuleCommandError, run_module_command
 from storycraftr.chat.session import SessionManager
+from storycraftr.llm.model_context import resolve_model_context
+from storycraftr.llm.openrouter_discovery import get_cache_metadata
 from storycraftr.subagents import SubAgentJobManager
 from storycraftr.tui.openrouter_models import (
     OpenRouterModel,
@@ -102,6 +104,7 @@ class TuiApp(App[None]):
     _FREE_MODEL_CACHE_TTL_SECONDS = 300
     _SUMMARY_TRIGGER_TURNS = 8
     _SUMMARY_KEEP_RECENT_TURNS = 3
+    _SUMMARY_KEEP_PRIORITY_TURNS = 3
     _SUMMARY_MAX_LENGTH = 1200
 
     def __init__(self, *, book_path: str | None = None) -> None:
@@ -127,6 +130,12 @@ class TuiApp(App[None]):
         self.execution_mode = ExecutionMode.MANUAL
         self._session_summary = ""
         self._session_compacted_turns = 0
+        self._last_prompt_budget: Any | None = None
+        self._last_prompt_diagnostics: Any | None = None
+        self._last_prompt_provider = "<unknown>"
+        self._last_prompt_model = "<unknown>"
+        self._last_assistant_response = ""
+        self._last_canon_conflict_report: dict[str, Any] | None = None
         self._load_execution_mode()
         self._load_session_summary_state()
 
@@ -209,19 +218,28 @@ class TuiApp(App[None]):
                 log.write(f"[green][Done][/green] {escape(text)}")
                 log.write(f"[bold magenta]CLI:[/bold magenta] {escape(command_result)}")
             else:
-                prompt = await asyncio.to_thread(
-                    self.state_engine.compose_prompt,
+                provider = self._active_provider()
+                model_id = self._active_model()
+                recent_turns = self._recent_turns_for_prompt()
+                prompt, budget, diagnostics = await asyncio.to_thread(
+                    self.state_engine.compose_prompt_with_diagnostics,
                     text,
-                    provider=self._active_provider(),
-                    model_id=self._active_model(),
+                    provider=provider,
+                    model_id=model_id,
                     output_reserve_tokens=(
                         self.config.max_tokens if self.config is not None else None
                     ),
-                    recent_turns=self._recent_turns_for_prompt(),
+                    recent_turns=recent_turns,
                 )
+                self._last_prompt_budget = budget
+                self._last_prompt_diagnostics = diagnostics
+                self._last_prompt_provider = provider
+                self._last_prompt_model = model_id
                 response, streamed = await self._run_assistant_turn(prompt)
                 if not streamed:
                     log.write(f"[bold green]Assistant:[/bold green] {escape(response)}")
+                self._last_assistant_response = response
+                await self._warn_about_canon_conflicts(response)
                 self.transcript.append({"user": text, "answer": response})
                 self._roll_session_summary_if_needed()
                 await self._maybe_queue_hybrid_canon_candidates(response)
@@ -306,13 +324,13 @@ class TuiApp(App[None]):
             return self._handle_summary_command(args)
 
         if command == "context":
-            return await self._build_context_text()
+            return await self._handle_context_command(args)
 
         if command == "mode":
             return self._handle_mode_command(args)
 
         if command == "canon":
-            return self._handle_canon_command(args)
+            return await self._handle_canon_command(args)
 
         if command == "progress":
             return await asyncio.to_thread(self._build_progress_text)
@@ -416,7 +434,7 @@ class TuiApp(App[None]):
             return
 
         fresh_slice = self.transcript[self._session_compacted_turns : compact_until]
-        fresh_summary = self._summarize_turn_slice(fresh_slice)
+        fresh_summary = self._summarize_turn_slice_adaptive(fresh_slice)
         if not fresh_summary:
             self._session_compacted_turns = compact_until
             return
@@ -429,6 +447,104 @@ class TuiApp(App[None]):
         self._session_summary = self._truncate_summary(combined)
         self._session_compacted_turns = compact_until
         self._persist_runtime_state_patch({"session_summary": self._session_summary})
+
+    def _summarize_turn_slice_adaptive(self, turns: list[dict[str, Any]]) -> str:
+        """Summarize turns while preserving high-signal narrative anchors."""
+
+        if not turns:
+            return ""
+
+        priority_indices = self._select_priority_turn_indices(turns)
+        priority_lines: list[str] = []
+        summarized_turns: list[dict[str, Any]] = []
+
+        for idx, turn in enumerate(turns):
+            if idx in priority_indices:
+                user_text = self._compact_summary_text(str(turn.get("user", "")), 70)
+                answer_text = self._compact_summary_text(
+                    str(turn.get("answer", "")), 70
+                )
+                if user_text:
+                    priority_lines.append(f"P-U:{user_text}")
+                if answer_text:
+                    priority_lines.append(f"P-A:{answer_text}")
+            else:
+                summarized_turns.append(turn)
+
+        summary_core = self._summarize_turn_slice(summarized_turns)
+        parts = [part for part in [summary_core, "; ".join(priority_lines)] if part]
+        return " | ".join(parts)
+
+    def _select_priority_turn_indices(self, turns: list[dict[str, Any]]) -> set[int]:
+        """Select a bounded set of turns to preserve verbatim in summary output."""
+
+        scored: list[tuple[int, int]] = []
+        for idx, turn in enumerate(turns):
+            merged = f"{turn.get('user', '')} {turn.get('answer', '')}".strip()
+            score = 0
+            if self._looks_scene_boundary(merged):
+                score += 4
+            if self._looks_canon_relevant(merged):
+                score += 3
+            if self._looks_major_reveal(merged):
+                score += 2
+            if self._looks_new_entity_intro(merged):
+                score += 1
+            if score > 0:
+                scored.append((idx, score))
+
+        scored.sort(key=lambda item: (-item[1], -item[0]))
+        return {idx for idx, _ in scored[: self._SUMMARY_KEEP_PRIORITY_TURNS]}
+
+    def _looks_scene_boundary(self, text: str) -> bool:
+        lower = text.lower()
+        markers = (
+            "scene",
+            "cut to",
+            "meanwhile",
+            "later",
+            "next morning",
+            "chapter",
+        )
+        return any(marker in lower for marker in markers)
+
+    def _looks_canon_relevant(self, text: str) -> bool:
+        lower = text.lower()
+        markers = (
+            "canon",
+            "constraint",
+            "continuity",
+            "must",
+            "never",
+            "always",
+            "fact",
+        )
+        return any(marker in lower for marker in markers)
+
+    def _looks_major_reveal(self, text: str) -> bool:
+        lower = text.lower()
+        markers = (
+            "reveals",
+            "truth",
+            "betray",
+            "secret",
+            "dies",
+            "death",
+            "twist",
+        )
+        return any(marker in lower for marker in markers)
+
+    def _looks_new_entity_intro(self, text: str) -> bool:
+        lower = text.lower()
+        markers = (
+            "introduces",
+            "new character",
+            "arrives",
+            "enters",
+            "location",
+            "artifact",
+        )
+        return any(marker in lower for marker in markers)
 
     def _summarize_turn_slice(self, turns: list[dict[str, Any]]) -> str:
         """Build a deterministic compact summary for a transcript slice."""
@@ -508,6 +624,7 @@ class TuiApp(App[None]):
                 "/canon pending",
                 "/canon add <fact>",
                 "/canon add <chapter> :: <fact>",
+                "/canon check-last",
                 "/canon accept <n[,m,...]>",
                 "/canon reject [n[,m,...]]",
                 "/canon clear [confirm]",
@@ -525,7 +642,7 @@ class TuiApp(App[None]):
                 "/status",
                 "/state",
                 "/summary [clear]",
-                "/context",
+                "/context [summary|budget|models|conflicts|clear-summary|refresh-models]",
                 "/mode <manual|hybrid|autopilot>",
                 "/clear",
                 "/toggle-tree",
@@ -606,30 +723,296 @@ class TuiApp(App[None]):
         ]
         return "\n".join(lines)
 
-    async def _build_context_text(self) -> str:
-        """Render prompt-context diagnostics for summary and tail context."""
+    async def _handle_context_command(self, args: list[str]) -> str:
+        """Dispatch /context diagnostics subcommands."""
 
-        recent = self._recent_turns_for_prompt()
-        summary_text = self._session_summary
+        if not args:
+            return await self._build_context_overview_text()
+
+        subcommand = args[0].lower()
+        if subcommand == "summary":
+            return self._build_context_summary_text()
+        if subcommand == "budget":
+            return self._build_context_budget_text()
+        if subcommand == "models":
+            return await asyncio.to_thread(self._build_context_models_text, False)
+        if subcommand == "conflicts":
+            return self._build_context_conflicts_text()
+        if subcommand == "clear-summary":
+            return self._handle_summary_command(["clear"])
+        if subcommand == "refresh-models":
+            return await asyncio.to_thread(self._build_context_models_text, True)
+        return "Usage: /context [summary|budget|models|conflicts|clear-summary|refresh-models]"
+
+    async def _build_context_overview_text(self) -> str:
+        """Render compact cross-system diagnostics in one dashboard view."""
+
+        summary_status = (
+            f"active ({len(self._session_summary)} chars)"
+            if self._session_summary
+            else "empty"
+        )
+
+        if self._last_prompt_budget is None:
+            budget_status = "unavailable (no prompt composed yet)"
+            pruning_status = "n/a"
+        else:
+            budget_status = (
+                f"{self._last_prompt_budget.input_budget_tokens} input / "
+                f"{self._last_prompt_budget.output_reserve_tokens} reserve"
+            )
+            pruned = list(self._last_prompt_diagnostics.pruned_sections)
+            truncated = list(self._last_prompt_diagnostics.truncated_sections)
+            details = []
+            if pruned:
+                details.append(f"pruned={','.join(pruned)}")
+            if truncated:
+                details.append(f"truncated={','.join(truncated)}")
+            pruning_status = "; ".join(details) if details else "none"
+
+        cache = get_cache_metadata()
+        age = self._format_age_seconds(cache.age_seconds)
+        model_cache_status = (
+            f"{cache.cache_status} ({cache.free_model_count} free models, {age})"
+        )
+
         lines = [
-            "Prompt Context Diagnostics",
-            f"- Provider: {self._active_provider()}",
-            f"- Model: {self._active_model()}",
-            f"- Transcript turns: {len(self.transcript)}",
-            f"- Compacted turns: {self._session_compacted_turns}",
-            f"- Summary present: {'yes' if summary_text else 'no'}",
-            f"- Summary chars: {len(summary_text)}",
-            f"- Recent prompt lines: {len(recent)}",
+            "Runtime Context Snapshot",
+            f"- Active Model: {self._active_model()}",
+            f"- Session Summary: {summary_status}",
+            f"- Prompt Budget: {budget_status}",
+            f"- Pruning: {pruning_status}",
+            f"- Model Cache: {model_cache_status}",
+            f"- Canon Conflicts: {self._format_conflict_summary_line()}",
         ]
-        if summary_text:
+
+        if (
+            self._last_prompt_budget is not None
+            and self._last_prompt_diagnostics is not None
+        ):
             lines.extend(
                 [
                     "",
-                    "Session Summary Preview",
-                    self._compact_summary_text(summary_text, 220),
+                    "Prompt Composition Breakdown",
+                    *self._build_budget_section_lines(
+                        self._last_prompt_diagnostics,
+                        include_estimates=True,
+                    ),
                 ]
             )
+
+        lines.extend(
+            [
+                "",
+                "Current Session Summary",
+                self._session_summary or "No summary generated yet.",
+                "",
+                "Use /context summary, /context budget, /context models, /context conflicts for details.",
+            ]
+        )
         return "\n".join(lines)
+
+    def _build_context_summary_text(self) -> str:
+        """Render detailed session-summary diagnostics."""
+
+        lines = [
+            "Session Summary",
+            f"- Status: {'active' if self._session_summary else 'empty'}",
+            f"- Compacted turns: {self._session_compacted_turns}",
+            f"- Summary chars: {len(self._session_summary)}",
+        ]
+        if self._session_summary:
+            lines.extend(["", self._session_summary])
+        return "\n".join(lines)
+
+    def _build_context_budget_text(self) -> str:
+        """Render detailed prompt budget and pruning diagnostics."""
+
+        if self._last_prompt_budget is None or self._last_prompt_diagnostics is None:
+            return (
+                "Prompt Budget\n"
+                "- Status: unavailable\n"
+                "- Compose a prompt first (send a normal message) to inspect budget and pruning details."
+            )
+
+        diagnostics = self._last_prompt_diagnostics
+        budget = self._last_prompt_budget
+
+        lines = [
+            "Prompt Budget",
+            f"- Provider: {self._last_prompt_provider}",
+            f"- Model: {self._last_prompt_model}",
+            f"- Context Window: {budget.context_window_tokens}",
+            f"- Output Reserve: {budget.output_reserve_tokens}",
+            f"- Input Budget: {budget.input_budget_tokens}",
+            f"- Model Source: {budget.model_source}",
+            "",
+            "Sections",
+        ]
+
+        lines.extend(
+            self._build_budget_section_lines(diagnostics, include_estimates=False)
+        )
+
+        token_map = diagnostics.estimated_tokens
+        lines.extend(
+            [
+                "",
+                "Estimated Usage",
+                f"- Canon: {token_map.get('canon', 0)}",
+                f"- Scene Plan: {token_map.get('scene_plan', 0)}",
+                f"- Scoped Context: {token_map.get('scoped_context', 0)}",
+                f"- Narrative State: {token_map.get('narrative_state', 0)}",
+                f"- Recent Dialogue: {token_map.get('recent_dialogue', 0)}",
+                f"- Retrieved Context: {token_map.get('retrieved_context', 0)}",
+                f"- User Instruction: {token_map.get('user_instruction', 0)}",
+                f"- Summary: {token_map.get('summary', 0)}",
+                f"- Full Prompt: {token_map.get('full_prompt', 0)}",
+            ]
+        )
+        return "\n".join(lines)
+
+    def _build_budget_section_lines(
+        self,
+        diagnostics: Any,
+        *,
+        include_estimates: bool,
+    ) -> list[str]:
+        """Render standardized section status markers for diagnostics views."""
+
+        included = set(diagnostics.included_sections)
+        truncated = set(diagnostics.truncated_sections)
+        pruned = set(diagnostics.pruned_sections)
+        token_map = diagnostics.estimated_tokens
+
+        section_order = [
+            ("canon_constraints", "Canon Constraints", "canon"),
+            ("scene_plan", "Scene Plan", "scene_plan"),
+            ("scoped_context", "Scoped Context", "scoped_context"),
+            ("narrative_state", "Structured Narrative State", "narrative_state"),
+            ("recent_dialogue", "Recent Dialogue", "recent_dialogue"),
+            ("retrieved_context", "Retrieved Context", "retrieved_context"),
+            ("user_instruction", "User Instruction", "user_instruction"),
+            ("summary", "Session Summary", "summary"),
+        ]
+
+        lines: list[str] = []
+        for key, label, token_key in section_order:
+            if key == "summary":
+                marker = "[x]" if self._session_summary else "[ ]"
+            elif key in truncated:
+                marker = "[~]"
+            elif key in included:
+                marker = "[x]"
+            elif key in pruned:
+                marker = "[ ]"
+            else:
+                marker = "[-]"
+            if include_estimates:
+                lines.append(f"{marker} {label}: ~{token_map.get(token_key, 0)} tokens")
+            else:
+                lines.append(f"{marker} {label}")
+        return lines
+
+    def _build_context_models_text(self, force_refresh: bool) -> str:
+        """Render OpenRouter discovery/cache diagnostics and current model limits."""
+
+        refresh_note = ""
+        if force_refresh:
+            try:
+                refreshed = self._get_free_models(force_refresh=True)
+                refresh_note = (
+                    f"Model catalog refresh complete ({len(refreshed)} free models)."
+                )
+            except Exception as exc:
+                refresh_note = f"Model catalog refresh failed: {exc}"
+
+        cache = get_cache_metadata()
+        age = self._format_age_seconds(cache.age_seconds)
+        lines = [
+            "OpenRouter Model Cache",
+            f"- Cache Status: {cache.cache_status}",
+            f"- Last Refresh: {self._format_timestamp(cache.fetched_at)}",
+            f"- Age: {age}",
+            f"- Cached Free Models: {cache.free_model_count}",
+            f"- Cache Path: {cache.cache_path}",
+        ]
+        if refresh_note:
+            lines.extend(["", refresh_note])
+
+        provider = self._active_provider()
+        model_id = self._active_model()
+        spec = resolve_model_context(provider, model_id)
+        lines.extend(
+            [
+                "",
+                "Current Model",
+                f"- Provider: {provider}",
+                f"- ID: {model_id}",
+                f"- Context Length: {spec.context_window_tokens}",
+                f"- Max Completion: {spec.max_completion_tokens or 'unknown'}",
+                f"- Source: {spec.source}",
+            ]
+        )
+        return "\n".join(lines)
+
+    def _build_context_conflicts_text(self) -> str:
+        """Render diagnostics for latest canon conflict analysis."""
+
+        report = self._last_canon_conflict_report
+        if report is None:
+            return (
+                "Canon Conflict Diagnostics\n"
+                "- Status: unavailable\n"
+                "- Generate output or run /canon check-last to populate diagnostics."
+            )
+
+        lines = [
+            "Canon Conflict Diagnostics",
+            f"- Chapter: {report.get('chapter', 'n/a')}",
+            f"- Checked candidates: {report.get('checked_candidates', 0)}",
+            f"- Conflicts: {len(report.get('conflicts', []))}",
+            f"- Duplicates: {report.get('duplicate_count', 0)}",
+            f"- Negation conflicts: {report.get('negation_conflict_count', 0)}",
+        ]
+
+        for entry in report.get("conflicts", []):
+            reason = str(entry.get("reason", "unknown"))
+            candidate = str(entry.get("candidate", "")).strip()
+            conflicting = str(entry.get("conflicting_fact", "")).strip()
+            detail = f"- {reason}: {candidate}" if candidate else f"- {reason}"
+            if conflicting:
+                detail += f" (conflicts with: {conflicting})"
+            lines.append(detail)
+
+        return "\n".join(lines)
+
+    def _format_conflict_summary_line(self) -> str:
+        report = self._last_canon_conflict_report
+        if report is None:
+            return "unavailable"
+        return (
+            f"{len(report.get('conflicts', []))} conflict(s), "
+            f"dup={report.get('duplicate_count', 0)}, "
+            f"neg={report.get('negation_conflict_count', 0)}"
+        )
+
+    def _format_timestamp(self, timestamp: float | None) -> str:
+        if timestamp is None:
+            return "n/a"
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
+
+    def _format_age_seconds(self, seconds: float | None) -> str:
+        if seconds is None:
+            return "n/a"
+        total = max(0, int(seconds))
+        hours, rem = divmod(total, 3600)
+        minutes, secs = divmod(rem, 60)
+        if hours:
+            return f"{hours}h {minutes}m"
+        if minutes:
+            return f"{minutes}m {secs}s"
+        return f"{secs}s"
 
     def _handle_summary_command(self, args: list[str]) -> str:
         """Inspect or clear the rolling session summary used for prompt continuity."""
@@ -708,19 +1091,27 @@ class TuiApp(App[None]):
         user_prompt = seed_prompt
 
         for idx in range(1, steps + 1):
-            scoped_prompt = await asyncio.to_thread(
-                self.state_engine.compose_prompt,
+            provider = self._active_provider()
+            model_id = self._active_model()
+            recent_turns = self._recent_turns_for_prompt()
+            scoped_prompt, budget, diagnostics = await asyncio.to_thread(
+                self.state_engine.compose_prompt_with_diagnostics,
                 user_prompt,
-                provider=self._active_provider(),
-                model_id=self._active_model(),
+                provider=provider,
+                model_id=model_id,
                 output_reserve_tokens=(
                     self.config.max_tokens if self.config is not None else None
                 ),
-                recent_turns=self._recent_turns_for_prompt(),
+                recent_turns=recent_turns,
             )
+            self._last_prompt_budget = budget
+            self._last_prompt_diagnostics = diagnostics
+            self._last_prompt_provider = provider
+            self._last_prompt_model = model_id
             response = await asyncio.to_thread(
                 self._invoke_assistant_sync, scoped_prompt
             )
+            self._last_assistant_response = response
             self.transcript.append(
                 {
                     "user": f"[autopilot:{idx}] {user_prompt}",
@@ -886,6 +1277,86 @@ class TuiApp(App[None]):
             "Review with /canon pending and accept via /canon accept <indexes>."
         )
 
+    async def _warn_about_canon_conflicts(self, response: str) -> None:
+        """Surface likely canon contradictions as non-blocking writer warnings."""
+
+        chapter = self._active_chapter_for_canon()
+        report = await self._analyze_canon_conflicts(response=response, chapter=chapter)
+        self._last_canon_conflict_report = report
+
+        conflicts = report["conflicts"]
+        if not conflicts:
+            return
+
+        lines = [
+            "[yellow]Potential Canon Conflicts[/yellow]",
+            f"- Chapter: {chapter}",
+        ]
+        for entry in conflicts:
+            reason = str(entry.get("reason", "unknown"))
+            candidate = str(entry.get("candidate", "")).strip()
+            conflicting = str(entry.get("conflicting_fact", "")).strip()
+            text = f"{reason}: {candidate}" if candidate else reason
+            if conflicting:
+                text += f" (conflicts with: {conflicting})"
+            lines.append(f"- {escape(text)}")
+        lines.append(
+            "- Review canon with /canon show and adjust before accepting output."
+        )
+
+        self.query_one("#output", RichLog).write("\n".join(lines))
+
+    async def _analyze_canon_conflicts(
+        self,
+        *,
+        response: str,
+        chapter: int,
+    ) -> dict[str, Any]:
+        """Analyze response against canon and return structured conflict report."""
+
+        candidates = await asyncio.to_thread(
+            extract_canon_candidates,
+            response,
+            chapter=chapter,
+            max_candidates=5,
+        )
+        conflicts: list[dict[str, str]] = []
+        duplicate_count = 0
+        negation_count = 0
+        for candidate in candidates:
+            result = await asyncio.to_thread(
+                verify_candidate_against_canon,
+                book_path=str(self.book_path),
+                chapter=chapter,
+                candidate_text=candidate.text,
+            )
+            if result.reason == "negation-conflict":
+                negation_count += 1
+                conflicts.append(
+                    {
+                        "reason": "negation conflict",
+                        "candidate": candidate.text,
+                        "conflicting_fact": result.conflicting_fact or "",
+                    }
+                )
+            elif result.reason == "duplicate":
+                duplicate_count += 1
+                conflicts.append(
+                    {
+                        "reason": "duplicate canon fact",
+                        "candidate": candidate.text,
+                        "conflicting_fact": "",
+                    }
+                )
+
+        return {
+            "chapter": chapter,
+            "checked_candidates": len(candidates),
+            "duplicate_count": duplicate_count,
+            "negation_conflict_count": negation_count,
+            "conflicts": conflicts,
+        }
+
     async def _extract_candidates_with_hybrid_worker(
         self, *, response: str, chapter: int
     ) -> list[CanonCandidate]:
@@ -920,7 +1391,7 @@ class TuiApp(App[None]):
             self._hybrid_extract_manager = None
         return self._hybrid_extract_manager
 
-    def _handle_canon_command(self, args: list[str]) -> str:
+    async def _handle_canon_command(self, args: list[str]) -> str:
         """Handle chapter-scoped canon ledger commands."""
 
         active_chapter = self._active_chapter_for_canon()
@@ -945,6 +1416,9 @@ class TuiApp(App[None]):
             if mode == "add":
                 return self._canon_add_fact(args[1:], active_chapter)
 
+            if mode in {"check-last", "check_latest", "checklatest"}:
+                return await self._canon_check_last_response(active_chapter)
+
             if mode == "accept":
                 return self._canon_accept_candidates(args[1:])
 
@@ -964,9 +1438,47 @@ class TuiApp(App[None]):
 
         return (
             "Usage: /canon [show [chapter]|pending] | /canon add <fact> | "
-            "/canon add <chapter> :: <fact> | /canon accept <n[,m,...]> | "
+            "/canon add <chapter> :: <fact> | /canon check-last | "
+            "/canon accept <n[,m,...]> | "
             "/canon reject [n[,m,...]] | /canon clear [confirm]"
         )
+
+    async def _canon_check_last_response(self, chapter: int) -> str:
+        """Rerun canon conflict checks on the last assistant response."""
+
+        if not self._last_assistant_response.strip():
+            return "No assistant response available. Generate output first."
+
+        report = await self._analyze_canon_conflicts(
+            response=self._last_assistant_response,
+            chapter=chapter,
+        )
+        self._last_canon_conflict_report = report
+
+        conflicts = report.get("conflicts", [])
+        if not conflicts:
+            return (
+                "Canon check complete\n"
+                f"- Chapter: {chapter}\n"
+                f"- Checked candidates: {report.get('checked_candidates', 0)}\n"
+                "- Conflicts: none"
+            )
+
+        lines = [
+            "Canon check complete",
+            f"- Chapter: {chapter}",
+            f"- Checked candidates: {report.get('checked_candidates', 0)}",
+            f"- Conflicts: {len(conflicts)}",
+        ]
+        for entry in conflicts:
+            reason = str(entry.get("reason", "unknown"))
+            candidate = str(entry.get("candidate", "")).strip()
+            conflicting = str(entry.get("conflicting_fact", "")).strip()
+            text = f"- {reason}: {candidate}" if candidate else f"- {reason}"
+            if conflicting:
+                text += f" (conflicts with: {conflicting})"
+            lines.append(text)
+        return "\n".join(lines)
 
     def _canon_accept_candidates(self, args: list[str]) -> str:
         """Accept pending extraction candidates into the canon ledger."""

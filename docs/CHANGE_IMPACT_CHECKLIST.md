@@ -2,6 +2,58 @@
 
 ## Change History
 
+### 2026-03-07 — Adaptive compaction + canon diagnostics + structured narrative-state prompts
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/agent/narrative_state.py` with JSON-backed `NarrativeStateStore` for deterministic character/world state (`outline/narrative_state.json`) and prompt-safe JSON rendering.
+	- Updated `storycraftr/tui/state_engine.py` and `storycraftr/tui/context_builder.py` to inject optional `[Structured Narrative State]` blocks and expose section-level diagnostics (`narrative_state`) in budget reports.
+	- Updated `storycraftr/tui/app.py` with `/context conflicts` diagnostics, `/canon check-last` rerun checks, reusable conflict analysis reporting, and conflict summary surfacing in bare `/context`.
+	- Updated rolling summary compaction in `storycraftr/tui/app.py` to adaptive heuristics that preserve high-signal narrative anchors while compacting lower-signal turns.
+	- Added/updated tests in `tests/unit/test_narrative_state.py`, `tests/unit/test_tui_state_engine.py`, and `tests/unit/test_tui_app.py`.
+	- Synced docs in `docs/chat.md` and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no sub-agent lifecycle contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Minimal post-generation canon conflict warnings in TUI
+- **Sections reviewed:** 4 (Sub-Agents & Background Jobs), 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/app.py` normal chat-turn flow to run a warn-only post-generation canon check using existing extraction (`extract_canon_candidates`) and verification (`verify_candidate_against_canon`) primitives.
+	- Added `_warn_about_canon_conflicts(...)` to surface `Potential Canon Conflicts` in the output pane for likely duplicate facts and negation contradictions against chapter canon.
+	- Preserved fail-closed commit behavior and autopilot verification semantics; this change only adds visibility warnings and does not block generation or mutate canon state.
+	- Added regression coverage in `tests/unit/test_tui_app.py` for conflict warning emission during normal prompt submission.
+	- Synced docs in `docs/chat.md` and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider/model routing contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Structured prompt sections in TUI prompt composer
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/context_builder.py` prompt assembly to use explicit structured sections: `[Canon Constraints]`, `[Scene Plan]`, `[Scoped Context]`, `[Session Summary]`, `[Recent Dialogue]`, and `[User Instruction]`.
+	- Preserved model-aware deterministic pruning while splitting compacted summary from dialogue turns so summary can be observed and pruned independently.
+	- Updated diagnostics section keys/labels consumed by `storycraftr/tui/app.py` budget views (`canon_constraints`, `recent_dialogue`, `user_instruction`) and aligned estimated-token reporting.
+	- Updated regression coverage in `tests/unit/test_tui_context_builder.py`, `tests/unit/test_tui_state_engine.py`, and `tests/unit/test_tui_app.py` to assert new section names and diagnostics keys.
+	- Synced user-facing docs in `docs/chat.md` and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no sub-agent lifecycle contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — `/context` snapshot hardening (full summary + section breakdown + persisted budget metadata)
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/state_engine.py` to persist `last_budget_metadata` and `last_prompt_diagnostics` on each `compose_prompt_with_diagnostics(...)` call so diagnostics can be retrieved without recomposition.
+	- Updated `storycraftr/tui/context_builder.py` to emit more granular section token estimates (`scene_plan`, `scoped_context`, `user_instruction`) used by diagnostics surfaces.
+	- Updated `storycraftr/tui/app.py` bare `/context` output to render a full runtime snapshot including active model, budget summary, pruning status, per-section status/estimate breakdown, and full current session summary text.
+	- Updated tests in `tests/unit/test_tui_app.py` and `tests/unit/test_tui_state_engine.py` for the enriched `/context` contract and state-engine metadata persistence.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no sub-agent lifecycle contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — TUI runtime context diagnostics expansion (`/context` subcommands)
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/app.py` to add structured `/context` diagnostics commands: bare overview plus `summary`, `budget`, `models`, `clear-summary`, and `refresh-models` subcommands.
+	- Added read-only observability state capture for latest prompt budgeting/pruning decisions (including section inclusion/pruning/truncation markers and estimated usage) during normal and autopilot prompt composition.
+	- Updated `storycraftr/tui/context_builder.py` with `PromptDiagnostics` and a non-breaking `compose_budgeted_prompt_with_diagnostics(...)` helper while preserving existing prompt generation behavior.
+	- Updated `storycraftr/tui/state_engine.py` with `compose_prompt_with_diagnostics(...)` and preserved `compose_prompt(...)` compatibility as a prompt-only wrapper.
+	- Added `storycraftr/llm/openrouter_discovery.py::get_cache_metadata()` and `refresh_free_models()` helper to expose cache freshness/age/model counts for diagnostics surfaces.
+	- Added/updated tests in `tests/unit/test_tui_app.py` and `tests/unit/test_openrouter_discovery.py`.
+	- Synced docs in `README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `docs/contributor-reference.md`, `release_notes.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile updates, no Story/Paper config schema changes, no sub-agent lifecycle contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Contributor-reference execution: release-note parity sync for dynamic OpenRouter discovery
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

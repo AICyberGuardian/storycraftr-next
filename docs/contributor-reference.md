@@ -56,6 +56,20 @@ configuration examples, or public workflow descriptions.
 | `docs/pdf-generation-plan.md` | informational | Planning/history doc for PDF-related work. | Only if that plan itself is being maintained. |
 | `docs/subagents-plan.md` | informational | Planning/history doc for sub-agent work. | Only if that plan itself is being maintained. |
 
+## High-Value Runtime Contract Files
+
+| File | Summary | Update When |
+| --- | --- | --- |
+| `storycraftr/llm/factory.py` | Provider validation plus OpenRouter retry, backoff, and fallback behavior. | Provider startup, model validation, retry logic, or fallback chain behavior changes. |
+| `storycraftr/llm/openrouter_discovery.py` | Dynamic OpenRouter free-model discovery, user-local cache, cache metadata, and forced refresh helpers. | OpenRouter catalog fetch, cache TTL/fallback, or model discovery diagnostics change. |
+| `storycraftr/llm/model_context.py` | Model context-window and completion-limit resolution used by prompt budgeting. | Budget computation, registry defaults, or discovery-driven context resolution changes. |
+| `storycraftr/tui/context_builder.py` | Budgeted prompt composition, deterministic pruning, and prompt diagnostics metadata. | Prompt section priority, truncation strategy, or diagnostics fields change. |
+| `storycraftr/tui/state_engine.py` | Read-only narrative state extraction plus prompt composition with diagnostics. | Narrative state parsing or prompt assembly/orchestration changes. |
+| `storycraftr/tui/app.py` | Slash-command router and writer-visible diagnostics for summary, budget, model cache, and autopilot. | TUI commands, diagnostics UX, execution modes, or session compaction behavior changes. |
+| `storycraftr/subagents/jobs.py` | Background sub-agent lifecycle including cooldown and retry for model exhaustion. | Job lifecycle, retry checkpoints, or cooldown metadata changes. |
+| `tests/unit/test_openrouter_discovery.py` | Regression coverage for discovery cache, metadata, and free-model parsing behavior. | `storycraftr/llm/openrouter_discovery.py` behavior changes. |
+| `tests/unit/test_tui_app.py` | Regression coverage for TUI slash commands and diagnostics surfaces. | `storycraftr/tui/app.py` behavior changes. |
+
 ## Update Rules By Change Type
 
 ### Always
@@ -138,5 +152,5 @@ configuration examples, or public workflow descriptions.
 - Treat `docs/CHANGE_IMPACT_CHECKLIST.md` as mandatory on every change.
 - Treat `AGENTS.md` and `.github/copilot-instructions.md` as canonical contracts.
 - Use the deep reference only when subsystem depth is actually needed.
-- `AGENTS.md` still references `behavior.txt`, but behavior defaults now live
-  under `behaviors/` (for example `behaviors/default.txt`).
+- `AGENTS.md` still references `behavior.txt`, but the runtime and project
+  templates use project-local behavior files under `behaviors/default.txt`.

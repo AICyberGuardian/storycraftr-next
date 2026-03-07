@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from storycraftr.llm.openrouter_discovery import (
     OPENROUTER_DISCOVERY_CACHE_TTL_SECONDS,
+    OpenRouterCacheMetadata,
     OpenRouterCatalog,
     OpenRouterModelLimits,
     OpenRouterModelRecord,
     build_dynamic_model_registry,
     fetch_openrouter_models,
+    get_cache_metadata,
     get_free_models,
     get_model_limits,
     is_model_free,
@@ -234,3 +237,75 @@ def test_dynamic_registry_and_limit_lookup(monkeypatch) -> None:
         context_length=32768,
         max_completion_tokens=4096,
     )
+
+
+def test_get_cache_metadata_reports_missing_cache(monkeypatch, tmp_path) -> None:
+    cache_file = tmp_path / "openrouter-cache.json"
+    monkeypatch.setattr(
+        "storycraftr.llm.openrouter_discovery._cache_path", lambda: cache_file
+    )
+    monkeypatch.setattr(
+        "storycraftr.llm.openrouter_discovery._load_cache", lambda: None
+    )
+
+    metadata = get_cache_metadata()
+
+    assert metadata == OpenRouterCacheMetadata(
+        cache_path=str(cache_file),
+        cache_exists=False,
+        cache_status="missing",
+        fetched_at=None,
+        age_seconds=None,
+        ttl_seconds=OPENROUTER_DISCOVERY_CACHE_TTL_SECONDS,
+        free_model_count=0,
+        total_model_count=0,
+    )
+
+
+def test_get_cache_metadata_reports_fresh_or_stale(monkeypatch) -> None:
+    catalog = OpenRouterCatalog(
+        fetched_at=1000.0,
+        models=(
+            OpenRouterModelRecord(
+                model_id="openrouter/free",
+                label="OpenRouter Free",
+                pricing_prompt=0.0,
+                pricing_completion=0.0,
+                context_length=32768,
+                max_completion_tokens=4096,
+                supported_parameters=(),
+            ),
+            OpenRouterModelRecord(
+                model_id="paid/model",
+                label="Paid",
+                pricing_prompt=0.001,
+                pricing_completion=0.001,
+                context_length=32768,
+                max_completion_tokens=4096,
+                supported_parameters=(),
+            ),
+        ),
+    )
+
+    monkeypatch.setattr(
+        "storycraftr.llm.openrouter_discovery._cache_path",
+        lambda: Path("/tmp/test-cache.json"),  # nosec B108
+    )
+    monkeypatch.setattr(
+        "storycraftr.llm.openrouter_discovery._load_cache", lambda: catalog
+    )
+
+    monkeypatch.setattr(
+        "storycraftr.llm.openrouter_discovery.time.time", lambda: 1005.0
+    )
+    fresh = get_cache_metadata()
+    assert fresh.cache_status == "fresh"
+    assert fresh.free_model_count == 1
+    assert fresh.total_model_count == 2
+
+    monkeypatch.setattr(
+        "storycraftr.llm.openrouter_discovery.time.time",
+        lambda: 1000.0 + OPENROUTER_DISCOVERY_CACHE_TTL_SECONDS + 10,
+    )
+    stale = get_cache_metadata()
+    assert stale.cache_status == "stale"

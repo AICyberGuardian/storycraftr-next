@@ -46,6 +46,20 @@ class OpenRouterCatalog:
     models: tuple[OpenRouterModelRecord, ...]
 
 
+@dataclass(frozen=True)
+class OpenRouterCacheMetadata:
+    """User-local cache metadata exposed for diagnostics views."""
+
+    cache_path: str
+    cache_exists: bool
+    cache_status: str
+    fetched_at: float | None
+    age_seconds: float | None
+    ttl_seconds: int
+    free_model_count: int
+    total_model_count: int
+
+
 def _cache_path() -> Path:
     cache_dir = Path.home() / ".storycraftr"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -245,6 +259,45 @@ def _load_or_fetch_catalog(force_refresh: bool = False) -> OpenRouterCatalog:
         except OSError:
             pass
         return fallback
+
+
+def get_cache_metadata() -> OpenRouterCacheMetadata:
+    """Return cache metadata without forcing network discovery calls."""
+
+    cache_file = _cache_path()
+    cached = _load_cache()
+    if cached is None:
+        return OpenRouterCacheMetadata(
+            cache_path=str(cache_file),
+            cache_exists=cache_file.exists(),
+            cache_status="missing",
+            fetched_at=None,
+            age_seconds=None,
+            ttl_seconds=OPENROUTER_DISCOVERY_CACHE_TTL_SECONDS,
+            free_model_count=0,
+            total_model_count=0,
+        )
+
+    now = time.time()
+    age_seconds = max(0.0, now - cached.fetched_at)
+    status = "fresh" if _is_fresh(cached) else "stale"
+    free_model_count = sum(1 for model in cached.models if model.is_free)
+    return OpenRouterCacheMetadata(
+        cache_path=str(cache_file),
+        cache_exists=True,
+        cache_status=status,
+        fetched_at=cached.fetched_at,
+        age_seconds=age_seconds,
+        ttl_seconds=OPENROUTER_DISCOVERY_CACHE_TTL_SECONDS,
+        free_model_count=free_model_count,
+        total_model_count=len(cached.models),
+    )
+
+
+def refresh_free_models() -> list[OpenRouterModelRecord]:
+    """Force-refresh and return the current free-model catalog."""
+
+    return get_free_models(force_refresh=True)
 
 
 def get_free_models(force_refresh: bool = False) -> list[OpenRouterModelRecord]:

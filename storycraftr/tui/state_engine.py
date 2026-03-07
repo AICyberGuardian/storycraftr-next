@@ -9,11 +9,14 @@ from typing import Any
 import yaml
 from yaml import YAMLError
 
+from storycraftr.agent.narrative_state import NarrativeStateStore
 from storycraftr.agent.story.scene_planner import plan_next_scene
 from storycraftr.tui.canon import list_facts
 from storycraftr.tui.context_builder import (
     build_scoped_context_block,
-    compose_budgeted_prompt,
+    compose_budgeted_prompt_with_diagnostics,
+    PromptBudget,
+    PromptDiagnostics,
 )
 
 _CHAPTER_FILE_PATTERN = re.compile(r"^chapter-(\d+)\.md$", re.IGNORECASE)
@@ -52,6 +55,9 @@ class NarrativeStateEngine:
         self._cached_at = 0.0
         self._active_chapter_override: int | None = None
         self._active_scene_override: str | None = None
+        self.last_budget_metadata: PromptBudget | None = None
+        self.last_prompt_diagnostics: PromptDiagnostics | None = None
+        self.narrative_state_store = NarrativeStateStore(str(self.book_path))
 
     def set_active_chapter(self, chapter_number: int) -> None:
         """Update in-memory active chapter focus for strips and prompt context."""
@@ -115,6 +121,28 @@ class NarrativeStateEngine:
     ) -> str:
         """Compose a model-budgeted prompt with deterministic context pruning."""
 
+        prompt, _budget, _diagnostics = self.compose_prompt_with_diagnostics(
+            user_prompt,
+            provider=provider,
+            model_id=model_id,
+            output_reserve_tokens=output_reserve_tokens,
+            retrieved_context=retrieved_context,
+            recent_turns=recent_turns,
+        )
+        return prompt
+
+    def compose_prompt_with_diagnostics(
+        self,
+        user_prompt: str,
+        *,
+        provider: str = "openrouter",
+        model_id: str = "openrouter/free",
+        output_reserve_tokens: int | None = None,
+        retrieved_context: list[str] | None = None,
+        recent_turns: list[str] | None = None,
+    ) -> tuple[str, PromptBudget, PromptDiagnostics]:
+        """Compose prompt and return diagnostics for TUI observability commands."""
+
         state = self.get_state()
         canon_facts = self.get_active_canon_facts(state=state)
         scene_plan = plan_next_scene(
@@ -122,7 +150,7 @@ class NarrativeStateEngine:
             active_arc=state.active_arc,
             user_prompt=user_prompt,
         )
-        prompt, _ = compose_budgeted_prompt(
+        prompt, budget, diagnostics = compose_budgeted_prompt_with_diagnostics(
             state=state,
             scene_plan=scene_plan,
             canon_facts=canon_facts,
@@ -132,8 +160,11 @@ class NarrativeStateEngine:
             output_reserve_tokens=output_reserve_tokens,
             retrieved_context=retrieved_context,
             recent_turns=recent_turns,
+            narrative_state_json=self.narrative_state_store.render_prompt_block(),
         )
-        return prompt
+        self.last_budget_metadata = budget
+        self.last_prompt_diagnostics = diagnostics
+        return prompt, budget, diagnostics
 
     def build_scoped_context(
         self,
@@ -155,6 +186,7 @@ class NarrativeStateEngine:
             scene_plan=scene_plan,
             canon_facts=canon_facts,
             retrieved_context=retrieved_context,
+            narrative_state_json=self.narrative_state_store.render_prompt_block(),
         )
 
     def get_active_canon_facts(

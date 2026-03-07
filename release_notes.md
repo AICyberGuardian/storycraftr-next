@@ -10,7 +10,7 @@ Current development target: `v0.16` (`0.16.0-dev`).
 - Added native OpenRouter resilience in `storycraftr/llm/factory.py` with bounded retry/backoff and configurable fallback traversal (`STORYCRAFTR_OPENROUTER_FALLBACK_MODELS`).
 - Added model discovery visibility commands: `storycraftr model-list` (`--refresh`) and TUI `/model-list refresh`, with model limit output (`context_length`, `max_completion_tokens`).
 - Added rolling TUI session compaction that preserves recent turns verbatim while collapsing older turns into a persisted summary in `sessions/session.json`.
-- Added TUI diagnostics commands `/summary` (`/summary clear`) and `/context` for writer-visible prompt-context introspection.
+- Added TUI diagnostics commands `/summary` (`/summary clear`) and `/context` (`summary`, `budget`, `models`, `clear-summary`, `refresh-models`) for writer-visible prompt-budget, pruning, summary, and OpenRouter cache introspection.
 - Added sub-agent `model_exhausted` lifecycle checkpoint handling in `storycraftr/subagents/jobs.py`: transient rate-limit/capacity failures now checkpoint, cooldown, and retry once before terminal failure.
 - Added job metadata persistence for retry diagnostics (`attempts`, `cooldown_until`) and surfaced `model_exhausted` counts in chat footer status rendering.
 - Synchronized canonical and user-facing docs (`README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `.github/copilot-instructions.md`, and `docs/CHANGE_IMPACT_CHECKLIST.md`).

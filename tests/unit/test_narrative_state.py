@@ -20,8 +20,12 @@ def test_narrative_state_store_upsert_and_load(tmp_path) -> None:
 
     snapshot = store.load()
 
-    assert snapshot.characters["Mira"]["status"] == "injured"
-    assert snapshot.characters["Mira"]["location"] == "Bridge"
+    # Characters are now Pydantic models, access via dot notation
+    assert "Mira" in snapshot.characters
+    assert snapshot.characters["Mira"].status == "injured"
+    assert snapshot.characters["Mira"].location == "Bridge"
+    assert snapshot.characters["Mira"].inventory == ["key", "medkit"]
+    # World is still a legacy dict
     assert snapshot.world["Bridge"]["integrity"] == "critical"
 
 
@@ -32,7 +36,12 @@ def test_narrative_state_store_render_prompt_block(tmp_path) -> None:
     path.write_text(
         json.dumps(
             {
-                "characters": {"Mira": {"status": "focused"}},
+                "characters": {
+                    "Mira": {
+                        "name": "Mira",  # Required field
+                        "status": "alive",  # Use valid status
+                    }
+                },
                 "world": {"Hangar": {"status": "sealed"}},
             }
         ),
@@ -44,6 +53,7 @@ def test_narrative_state_store_render_prompt_block(tmp_path) -> None:
     assert '"characters"' in block
     assert '"Mira"' in block
     assert '"Hangar"' in block
+    assert '"alive"' in block  # Verify it loaded the character status
 
 
 def test_narrative_state_store_handles_invalid_json(tmp_path) -> None:

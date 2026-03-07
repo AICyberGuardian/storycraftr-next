@@ -256,19 +256,28 @@ class NarrativeStateEngine:
         """Build short narrative-memory strip text for the TUI."""
 
         chapter = _find_chapter(chapters, active_chapter)
-        chapter_label = "none"
-        if chapter is not None:
-            chapter_label = f"{chapter.number}: {chapter.title}"
-        return f"Narrative: Arc={active_arc} | Chapter={chapter_label}"
+        if chapter is None:
+            return "Narrative: Chapter context unavailable"
+
+        base = f"Narrative: Chapter {chapter.number} - {chapter.title}"
+        if active_arc == "Unknown":
+            return f"{base} | Arc unknown"
+        return f"{base} | Arc: {active_arc}"
 
     def _build_timeline_strip(self, chapters: list[ChapterState]) -> str:
         """Build condensed scene timeline strip from most recent chapters."""
 
         if not chapters:
-            return "Timeline: no chapter timeline data"
+            return "Timeline: No scene map yet"
 
         tail = chapters[-3:]
-        events = [f"Ch{item.number} {item.scene}" for item in tail]
+        events = [
+            f"Ch{item.number} {item.scene}"
+            for item in tail
+            if item.scene and item.scene != "Unknown"
+        ]
+        if not events:
+            return "Timeline: Chapter metadata incomplete"
         return "Timeline: " + " -> ".join(events)
 
 

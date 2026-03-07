@@ -63,8 +63,8 @@ class TuiApp(App[None]):
         color: $text-muted;
     }
     #body { height: 1fr; }
-    .sidebar { width: 25%; border: round $surface; padding: 0 1; }
-    .main { width: 75%; border: round $surface; padding: 0 1; }
+    #sidebar { width: 25%; border: round $surface; padding: 0 1; }
+    #main-pane { width: 1fr; border: round $surface; padding: 0 1; }
     .pane-title { padding: 0 0 1 0; text-style: bold; }
     #project-tree, #output { height: 1fr; }
     #command-input { dock: bottom; margin: 1 0 0 0; }
@@ -97,10 +97,10 @@ class TuiApp(App[None]):
             yield Static("Narrative: loading...", id="narrative-strip")
             yield Static("Timeline: loading...", id="timeline-strip")
         with Horizontal(id="body"):
-            with Vertical(classes="sidebar"):
+            with Vertical(id="sidebar"):
                 yield Label("Project", classes="pane-title")
                 yield DirectoryTree(str(self.book_path), id="project-tree")
-            with Vertical(classes="main"):
+            with Vertical(id="main-pane"):
                 yield Label("Chat / Output", classes="pane-title")
                 yield RichLog(id="output", wrap=True, markup=True)
         yield Input(
@@ -132,9 +132,9 @@ class TuiApp(App[None]):
             user_input.disabled = True
             return
         output.write(
-            "[green]Ready. Enter prompts or slash commands (e.g. /agents, /outline ...).[/green]"
+            "[green]Ready. Enter prompts or slash commands (e.g. /help, /outline ...).[/green]"
         )
-        self.query_one(DirectoryTree).display = False
+        self.query_one("#sidebar", Vertical).display = False
         await self._refresh_state_strips(force_refresh=True)
 
     @on(Input.Submitted)
@@ -466,12 +466,12 @@ class TuiApp(App[None]):
         """Toggle project tree visibility for focused writing mode."""
 
         try:
-            tree = self.query_one(DirectoryTree)
+            sidebar = self.query_one("#sidebar", Vertical)
         except Exception:
             return "Project tree is not available in the current view."
 
-        tree.display = not tree.display
-        return "Project tree shown." if tree.display else "Project tree hidden."
+        sidebar.display = not sidebar.display
+        return "Project tree shown." if sidebar.display else "Project tree hidden."
 
     def _run_chat_command_capture(self, command_text: str) -> str:
         stream = io.StringIO()

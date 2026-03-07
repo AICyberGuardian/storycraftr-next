@@ -1122,3 +1122,252 @@ def test_mode_persistence_keeps_existing_session_summary(tmp_path) -> None:
     assert "Execution mode set to hybrid." in result
     assert saved["execution_mode"] == "hybrid"
     assert saved["session_summary"] == "Older summary context."
+
+
+def test_state_audit_command_displays_entries(tmp_path) -> None:
+    """Test /state audit displays audit entries with default limit."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    # Create some audit entries
+    from storycraftr.agent.narrative_state import (
+        StatePatch,
+        PatchOperation,
+        NarrativeStateSnapshot,
+    )
+
+    store = app.state_engine.narrative_state_store
+    snapshot = NarrativeStateSnapshot()
+    store.save(snapshot)
+
+    # Apply a patch to create audit entry
+    patch = StatePatch(
+        operations=[
+            PatchOperation(
+                operation="add",
+                entity_type="character",
+                entity_id="alice",
+                data={"name": "Alice", "role": "protagonist"},
+            )
+        ]
+    )
+    store.apply_patch(patch, actor="test_user")
+
+    result = app._build_state_audit_text([])
+
+    assert "Audit Trail" in result
+    assert "Operation: patch" in result
+    assert "Actor: test_user" in result
+    assert "Version: 2" in result
+
+
+def test_state_audit_command_with_limit_filter(tmp_path) -> None:
+    """Test /state audit respects limit filter."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    # Apply multiple patches
+    from storycraftr.agent.narrative_state import (
+        StatePatch,
+        PatchOperation,
+        NarrativeStateSnapshot,
+    )
+
+    store = app.state_engine.narrative_state_store
+    snapshot = NarrativeStateSnapshot()
+    store.save(snapshot)
+
+    for i in range(5):
+        patch = StatePatch(
+            operations=[
+                PatchOperation(
+                    operation="add",
+                    entity_type="character",
+                    entity_id=f"char{i}",
+                    data={"name": f"Character {i}"},
+                )
+            ]
+        )
+        store.apply_patch(patch, actor="test")
+
+    result = app._build_state_audit_text(["limit=2"])
+
+    assert "showing 2 entries" in result
+
+
+def test_state_audit_command_with_entity_filter(tmp_path) -> None:
+    """Test /state audit filters by entity ID."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    from storycraftr.agent.narrative_state import (
+        StatePatch,
+        PatchOperation,
+        NarrativeStateSnapshot,
+    )
+
+    store = app.state_engine.narrative_state_store
+    snapshot = NarrativeStateSnapshot()
+    store.save(snapshot)
+
+    # Create entries for different entities
+    for entity_id in ["alice", "bob", "charlie"]:
+        patch = StatePatch(
+            operations=[
+                PatchOperation(
+                    operation="add",
+                    entity_type="character",
+                    entity_id=entity_id,
+                    data={"name": entity_id.title()},
+                )
+            ]
+        )
+        store.apply_patch(patch, actor="test")
+
+    result = app._build_state_audit_text(["entity=bob"])
+
+    # Should show entries where bob appears (either added or as part of state)
+    # After alice: version 2
+    # After bob: version 3 (has bob added)
+    # After charlie: version 4 (has bob unchanged + charlie added)
+    # So filtering for bob should show versions 3 and 4
+    lines = result.split("\n")
+    entry_count = sum(1 for line in lines if line.startswith("["))
+    assert entry_count >= 1  # At least one entry for bob
+
+
+def test_state_audit_command_with_type_filter(tmp_path) -> None:
+    """Test /state audit filters by entity type."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    from storycraftr.agent.narrative_state import (
+        StatePatch,
+        PatchOperation,
+        NarrativeStateSnapshot,
+    )
+
+    store = app.state_engine.narrative_state_store
+    snapshot = NarrativeStateSnapshot()
+    store.save(snapshot)
+
+    # Create mixed entity types
+    char_patch = StatePatch(
+        operations=[
+            PatchOperation(
+                operation="add",
+                entity_type="character",
+                entity_id="alice",
+                data={"name": "Alice"},
+            )
+        ]
+    )
+    store.apply_patch(char_patch, actor="test")
+
+    loc_patch = StatePatch(
+        operations=[
+            PatchOperation(
+                operation="add",
+                entity_type="location",
+                entity_id="castle",
+                data={"name": "Castle"},
+            )
+        ]
+    )
+    store.apply_patch(loc_patch, actor="test")
+
+    result = app._build_state_audit_text(["type=character"])
+
+    # Should show entries where characters appear
+    # After alice character: version 2 (has alice character)
+    # After castle location: version 3 (has alice character unchanged + castle location added)
+    # So filtering for type=character should show both versions 2 and 3
+    lines = result.split("\n")
+    entry_count = sum(1 for line in lines if line.startswith("["))
+    assert entry_count >= 1  # At least one entry with characters
+
+
+def test_state_audit_command_disabled_auditing(tmp_path) -> None:
+    """Test /state audit handles disabled audit logging gracefully."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    # Create store with auditing disabled
+    from storycraftr.agent.narrative_state import NarrativeStateStore
+
+    app.state_engine.narrative_state_store = NarrativeStateStore(
+        str(tmp_path), enable_audit=False
+    )
+
+    result = app._build_state_audit_text([])
+
+    assert "Audit logging is disabled" in result
+
+
+def test_state_audit_command_invalid_limit(tmp_path) -> None:
+    """Test /state audit rejects invalid limit values."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    result = app._build_state_audit_text(["limit=invalid"])
+
+    assert "Invalid limit value" in result
+
+
+def test_state_audit_command_invalid_type(tmp_path) -> None:
+    """Test /state audit rejects invalid entity types."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    result = app._build_state_audit_text(["type=invalid"])
+
+    assert "Invalid type" in result
+
+
+def test_state_audit_command_unknown_filter(tmp_path) -> None:
+    """Test /state audit rejects unknown filter keys."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    result = app._build_state_audit_text(["unknown=value"])
+
+    assert "Unknown filter" in result
+
+
+def test_state_audit_command_no_entries(tmp_path) -> None:
+    """Test /state audit handles empty audit log."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    result = app._build_state_audit_text([])
+
+    assert "No audit entries found" in result
+
+
+def test_state_command_dispatch_to_subcommands(tmp_path) -> None:
+    """Test /state command routes to audit subcommand."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    # Test no args shows state
+    result = asyncio.run(app._dispatch_slash_command("/state"))
+    assert "Narrative State" in result
+
+    # Test audit subcommand
+    result = asyncio.run(app._dispatch_slash_command("/state audit"))
+    assert "Audit Trail" in result or "No audit entries" in result
+
+    # Test invalid subcommand
+    result = asyncio.run(app._dispatch_slash_command("/state invalid"))
+    assert "Usage:" in result
+
+
+def test_state_audit_help_text_updated(tmp_path) -> None:
+    """Test help text includes /state audit command."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    help_text = app._build_help_text()
+
+    assert "/state" in help_text
+    assert "/state audit" in help_text

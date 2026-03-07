@@ -1,3 +1,19 @@
+## Draft Update - 2026-03-07 (Prompt Budgeting, TUI Diagnostics, and Sub-Agent Cooldown)
+
+Current development target: `v0.16` (`0.16.0-dev`).
+
+### Highlights
+
+- Added model-aware prompt budgeting in the TUI prompt path with deterministic pruning under budget pressure, backed by an in-repo model context registry (`storycraftr/llm/model_context.py`).
+- Added native OpenRouter resilience in `storycraftr/llm/factory.py` with bounded retry/backoff and configurable fallback traversal (`STORYCRAFTR_OPENROUTER_FALLBACK_MODELS`).
+- Added rolling TUI session compaction that preserves recent turns verbatim while collapsing older turns into a persisted summary in `sessions/session.json`.
+- Added TUI diagnostics commands `/summary` (`/summary clear`) and `/context` for writer-visible prompt-context introspection.
+- Added sub-agent `model_exhausted` lifecycle checkpoint handling in `storycraftr/subagents/jobs.py`: transient rate-limit/capacity failures now checkpoint, cooldown, and retry once before terminal failure.
+- Added job metadata persistence for retry diagnostics (`attempts`, `cooldown_until`) and surfaced `model_exhausted` counts in chat footer status rendering.
+- Synchronized canonical and user-facing docs (`README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `.github/copilot-instructions.md`, and `docs/CHANGE_IMPACT_CHECKLIST.md`).
+
+For complete line-item history, see `CHANGELOG.md` and `docs/CHANGE_IMPACT_CHECKLIST.md`.
+
 ## Draft Update - 2026-03-06 (CI, TUI UX, and Documentation Sync)
 
 Current development target: `v0.16` (`0.16.0-dev`).

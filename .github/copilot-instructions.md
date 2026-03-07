@@ -148,6 +148,12 @@ Key config fields:
 
 API keys are resolved from environment variables. Default variable names: `OPENAI_API_KEY`, `OPENROUTER_API_KEY`. Ollama uses `OLLAMA_BASE_URL` (no key required). Credentials can also be stored as plain-text files in `~/.storycraftr/` (e.g., `openai_api_key.txt`), loaded by `storycraftr/llm/credentials.py`.
 
+OpenRouter runtime resilience is implemented natively in this layer through a wrapper that applies bounded exponential-backoff retries for transient errors and explicit fallback-model traversal (`STORYCRAFTR_OPENROUTER_FALLBACK_MODELS`).
+
+### Model Context Registry (`storycraftr/llm/model_context.py`)
+
+Contains a small in-repo registry for effective model context windows and default output reserves. TUI prompt composition uses this registry to compute input budgets and prune context deterministically under overflow pressure.
+
 ### Embedding Model (`storycraftr/llm/embeddings.py`)
 
 Uses `HuggingFaceEmbeddings` from `langchain_huggingface`. BGE models automatically set `normalize_embeddings=True`. Cache directory is configurable via `embed_cache_dir` in config or `STORYCRAFTR_EMBED_CACHE` environment variable.
@@ -179,12 +185,16 @@ The graph uses a `RunnableParallel` that retrieves documents from Chroma and the
 - `SubAgentRole` (models.py) — YAML-serialisable dataclass with `slug`, `name`, `command_whitelist`, `system_prompt`, `temperature`
 - `storage.py` — reads/writes role YAML files under `<book_path>/.storycraftr/subagents/`; `seed_default_roles()` materialises defaults
 - `defaults.py` — four built-in roles: `editor`, `continuity`, `worldbuilding`, `marketing`
-- `jobs.py` — `SubAgentJobManager`: thread-pool executor, job lifecycle (`pending` → `running` → `succeeded`/`failed`), persists run logs as Markdown + JSON under `.storycraftr/subagents/logs/<role_slug>/`
+- `jobs.py` — `SubAgentJobManager`: thread-pool executor with cooldown-aware lifecycle (`pending` → `running` → `model_exhausted` checkpoint → retry/terminal `succeeded` or `failed`), persists run logs as Markdown + JSON under `.storycraftr/subagents/logs/<role_slug>/`
 - Jobs are submitted via `!<module>` command tokens (e.g., `!outline`, `!chapters`) matched against each role's `command_whitelist`
 
 ### Prompt Hash Injection (`storycraftr/utils/core.py`)
 
 `generate_prompt_with_hash()` prepends a random date phrase to every LLM prompt and logs the entry to `<book_path>/prompts.yaml`. This is designed to reduce caching artifacts.
+
+### TUI Prompt Context Diagnostics (`storycraftr/tui/app.py`)
+
+TUI stores compact runtime metadata in `sessions/session.json`, including execution mode and rolling session summary. Use `/summary` (`/summary clear`) and `/context` to inspect prompt-compaction state and tail-context diagnostics.
 
 ---
 

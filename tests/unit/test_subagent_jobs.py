@@ -5,6 +5,7 @@ from io import StringIO
 
 from rich.console import Console
 
+from storycraftr.chat.module_runner import ModuleCommandError
 from storycraftr.subagents import SubAgentJobManager, seed_default_roles
 
 
@@ -111,3 +112,123 @@ def test_shutdown_wait_false_cancels_pending_job_deterministically(
     assert "cancel" in (jobs[second_job.job_id].error or "").lower()
     assert not second_executed.is_set()
     assert manager.futures == {}
+
+
+def test_model_exhausted_job_cools_down_and_retries(monkeypatch, tmp_path):
+    _minimal_config(tmp_path)
+    seed_default_roles(tmp_path, language="en", force=True)
+
+    attempts = {"count": 0}
+    exhausted_event = threading.Event()
+    succeeded_event = threading.Event()
+    target_job_id = {"value": ""}
+
+    def fake_run_module_command(command_text, console, book_path):
+        assert command_text.startswith("outline")
+        assert book_path == str(tmp_path)
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise ModuleCommandError("429 rate limit: model overloaded")
+        console.print("retry succeeded")
+
+    def on_event(event_type: str, job_payload: dict):
+        if job_payload.get("job_id") != target_job_id["value"]:
+            return
+        if event_type == "model_exhausted":
+            exhausted_event.set()
+        if event_type == "succeeded":
+            succeeded_event.set()
+
+    monkeypatch.setattr(
+        "storycraftr.subagents.jobs.run_module_command", fake_run_module_command
+    )
+    monkeypatch.setattr(
+        "storycraftr.subagents.jobs._MODEL_EXHAUSTED_COOLDOWN_SECONDS", 0.0
+    )
+
+    manager = SubAgentJobManager(
+        str(tmp_path),
+        Console(file=StringIO(), force_terminal=False),
+        event_callback=on_event,
+    )
+
+    job = manager.submit(
+        command_token="!outline",  # nosec B106
+        args=["retry-test"],
+        role_slug="editor",
+    )
+    target_job_id["value"] = job.job_id
+
+    assert exhausted_event.wait(timeout=3), "Expected model_exhausted checkpoint event."
+    assert succeeded_event.wait(timeout=3), "Expected retry attempt to succeed."
+
+    jobs = {item.job_id: item for item in manager.list_jobs()}
+    final_job = jobs[job.job_id]
+    assert final_job.status == "succeeded"
+    assert final_job.attempts == 2
+    assert "cooldown" in (final_job.error or "").lower()
+    assert attempts["count"] == 2
+
+    manager.shutdown(wait=True)
+
+
+def test_job_stats_include_model_exhausted_state_during_cooldown(monkeypatch, tmp_path):
+    _minimal_config(tmp_path)
+    seed_default_roles(tmp_path, language="en", force=True)
+
+    entered_sleep = threading.Event()
+    release_sleep = threading.Event()
+    failed_event = threading.Event()
+    target_job_id = {"value": ""}
+
+    def fake_run_module_command(command_text, console, book_path):
+        assert command_text.startswith("outline")
+        assert book_path == str(tmp_path)
+        raise ModuleCommandError("429 quota exceeded")
+
+    def fake_sleep(_seconds: float) -> None:
+        entered_sleep.set()
+        assert release_sleep.wait(timeout=5), "Timed out waiting to release cooldown."
+
+    def on_event(event_type: str, job_payload: dict):
+        if job_payload.get("job_id") != target_job_id["value"]:
+            return
+        if event_type == "failed":
+            failed_event.set()
+
+    monkeypatch.setattr(
+        "storycraftr.subagents.jobs.run_module_command", fake_run_module_command
+    )
+    monkeypatch.setattr("storycraftr.subagents.jobs.time.sleep", fake_sleep)
+    monkeypatch.setattr(
+        "storycraftr.subagents.jobs._MODEL_EXHAUSTED_COOLDOWN_SECONDS", 1.0
+    )
+
+    manager = SubAgentJobManager(
+        str(tmp_path),
+        Console(file=StringIO(), force_terminal=False),
+        event_callback=on_event,
+    )
+
+    job = manager.submit(
+        command_token="!outline",  # nosec B106
+        args=["cooldown-test"],
+        role_slug="editor",
+    )
+    target_job_id["value"] = job.job_id
+
+    assert entered_sleep.wait(timeout=3), "Job did not enter cooldown sleep."
+
+    stats_during_cooldown = manager.job_stats()
+    assert stats_during_cooldown["model_exhausted"] == 1
+
+    release_sleep.set()
+    assert failed_event.wait(timeout=3), "Expected terminal failed event after retries."
+
+    jobs = {item.job_id: item for item in manager.list_jobs()}
+    final_job = jobs[job.job_id]
+    assert final_job.status == "failed"
+    assert final_job.attempts == 2
+    assert "quota" in (final_job.error or "").lower()
+
+    manager.shutdown(wait=True)

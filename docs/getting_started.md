@@ -81,6 +81,8 @@ When you run `storycraftr init`, the generated `storycraftr.json` includes the n
 - `llm_provider=openrouter` requires an explicit `llm_model` in `provider/model` format (for example, `meta-llama/llama-3.3-70b-instruct`).
 - `llm_endpoint` lets you point at custom-compatible bases.
 - Provider/model/endpoint settings are validated before runtime model invocation, with provider-specific error messages for invalid config or missing keys.
+- OpenRouter requests now include native resilience in the model factory: bounded exponential-backoff retries for transient errors and an explicit fallback model chain.
+- Configure additional fallback models with `STORYCRAFTR_OPENROUTER_FALLBACK_MODELS` (comma-separated model IDs).
 - `max_tokens` limits completion size per request (default `8192`) to reduce truncated outputs.
 - `embed_model` defaults to `BAAI/bge-large-en-v1.5` for OpenAI-quality local embeddings; switch to a smaller model if resources are limited.
 
@@ -118,6 +120,7 @@ system_prompt: >
 
 - Re-run `storycraftr sub-agents seed --language en --force` at any time to regenerate the defaults (replace `en` with your locale).
 - Logs for each background run are written to `<subagent_logs_dir>/<role>/timestamp.md` (default: `.storycraftr/subagents/logs/<role>/timestamp.md`), making it easy to review results even when the CLI is installed through `pipx`.
+- On transient provider exhaustion/rate-limit failures (for example `429`), jobs enter a temporary `model_exhausted` checkpoint, wait through a bounded cooldown, and retry once before terminal failure.
 - When the CLI detects a VS Code terminal, it streams structured chat/job events to `vscode_events_file` (default: `.storycraftr/vscode-events.jsonl`) so the editor can mirror them without scraping terminal output.
 
 ## Step 2: Create the Behavior File
@@ -408,6 +411,8 @@ Useful slash commands:
 - `/mode <manual|hybrid|autopilot>` sets the execution mode control layer for TUI workflows.
 - `/autopilot <steps> <prompt>` runs bounded autonomous turns when mode is `autopilot`.
 - `/state` shows active narrative state plus the exact injected prompt block, including `[Active Constraints]` when canon facts exist.
+- `/summary` and `/summary clear` inspect or reset rolling compacted session summary state.
+- `/context` shows prompt-context diagnostics (provider/model, compacted turns, summary/tail usage).
 - `/progress` shows canonical writing-pipeline checkpoint completion.
 - `/wizard` and `/wizard next` provide guided next-step workflow recommendations.
 - `/pipeline` and `/pipeline next` are aliases for wizard-guided flow.
@@ -422,6 +427,13 @@ Useful slash commands:
 Regular prompts are prefixed with a scene-scoped context block (scene
 Goal/Conflict/Outcome + active chapter constraints + compact state summary)
 before dispatching to the existing assistant pipeline.
+
+Prompt assembly is model-aware: StoryCraftr computes an input budget from the
+active model context profile, reserves completion tokens, and prunes context in
+deterministic priority order when needed.
+
+Long-running sessions automatically compact older turns into a rolling summary
+stored in `sessions/session.json` while preserving recent turns verbatim.
 
 In `autopilot` mode, extracted canon candidates are conflict-verified against
 accepted chapter facts before commit; duplicate or contradiction-like

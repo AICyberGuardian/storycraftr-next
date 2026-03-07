@@ -19,6 +19,7 @@ def clean_llm_env(monkeypatch):
         "OPENAI_API_KEY",
         "OPENROUTER_API_KEY",
         "OPENROUTER_BASE_URL",
+        "STORYCRAFTR_OPENROUTER_FALLBACK_MODELS",
         "CUSTOM_OPENROUTER_KEY",
         "OLLAMA_BASE_URL",
         "STORYCRAFTR_HTTP_REFERER",
@@ -74,7 +75,7 @@ def test_openrouter_builds_chatopenai_with_default_endpoint_and_headers(monkeypa
         )
         result = build_chat_model(settings)
 
-    assert result is mock_chat_openai.return_value
+    assert result._llm_type == "openrouter-resilient"
     kwargs = mock_chat_openai.call_args.kwargs
     assert kwargs["api_key"] == "or-test"  # nosec B105  # pragma: allowlist secret
     assert kwargs["model"] == "openrouter/free"
@@ -159,7 +160,7 @@ def test_openrouter_uses_openrouter_base_url_env_when_endpoint_missing(monkeypat
             )
         )
 
-    assert result is mock_chat_openai.return_value
+    assert result._llm_type == "openrouter-resilient"
     assert mock_chat_openai.call_args.kwargs["base_url"] == "https://router.example/v1"
 
 
@@ -177,7 +178,7 @@ def test_openrouter_prefers_explicit_endpoint_over_env(monkeypatch):
             )
         )
 
-    assert result is mock_chat_openai.return_value
+    assert result._llm_type == "openrouter-resilient"
     assert (
         mock_chat_openai.call_args.kwargs["base_url"] == "https://explicit.example/v1"
     )
@@ -198,11 +199,141 @@ def test_openrouter_honors_custom_api_key_env_override(monkeypatch):
             )
         )
 
-    assert result is mock_chat_openai.return_value
+    assert result._llm_type == "openrouter-resilient"
     assert (
         mock_chat_openai.call_args.kwargs["api_key"]
         == "or-custom"  # nosec B105  # pragma: allowlist secret
     )
+
+
+def test_openrouter_wrapper_uses_env_fallback_chain(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    monkeypatch.setenv(
+        "STORYCRAFTR_OPENROUTER_FALLBACK_MODELS",
+        "meta-llama/llama-3.2-3b-instruct:free,openrouter/free",
+    )
+
+    first = object()
+    second = object()
+    third = object()
+    with mock.patch(
+        "storycraftr.llm.factory.ChatOpenAI",
+        side_effect=[first, second, third],
+    ) as mock_chat_openai:
+        result = build_chat_model(
+            LLMSettings(
+                provider="openrouter",
+                model="meta-llama/llama-3.3-70b-instruct",
+            )
+        )
+
+    assert result._llm_type == "openrouter-resilient"
+    assert result.model_sequence == [
+        "meta-llama/llama-3.3-70b-instruct",
+        "meta-llama/llama-3.2-3b-instruct:free",
+        "openrouter/free",
+    ]
+    assert mock_chat_openai.call_count == 3
+
+
+def test_openrouter_fallback_init_warning_redacts_api_key(monkeypatch):
+    secret = "or-super-secret"  # nosec B105  # pragma: allowlist secret
+    monkeypatch.setenv(
+        "OPENROUTER_API_KEY", secret
+    )  # nosec B105  # pragma: allowlist secret
+    monkeypatch.setenv(
+        "STORYCRAFTR_OPENROUTER_FALLBACK_MODELS",
+        "meta-llama/llama-3.2-3b-instruct:free",
+    )
+
+    primary = object()
+    with mock.patch(
+        "storycraftr.llm.factory.ChatOpenAI",
+        side_effect=[primary, RuntimeError(f"fallback failed for {secret}")],
+    ):
+        with mock.patch("storycraftr.llm.factory.console.print") as mock_print:
+            build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="meta-llama/llama-3.3-70b-instruct",
+                )
+            )
+
+    printed = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
+    assert "or-super-secret" not in printed
+
+
+def test_openrouter_success_on_primary_first_attempt_is_not_noisy(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+
+    mock_result = object()
+    primary = mock.Mock()
+    primary._generate.return_value = mock_result
+    with mock.patch("storycraftr.llm.factory.ChatOpenAI", return_value=primary):
+        with mock.patch("storycraftr.llm.factory.console.print") as mock_print:
+            model = build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="openrouter/free",
+                )
+            )
+            result = model._generate(messages=[], stop=None, run_manager=None)
+
+    assert result is mock_result
+    assert mock_print.call_count == 0
+
+
+def test_openrouter_wrapper_retries_then_succeeds(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+
+    mock_result = object()
+    primary = mock.Mock()
+    primary._generate.side_effect = [
+        TimeoutError("timed out"),
+        TimeoutError("timed out"),
+        mock_result,
+    ]
+    with mock.patch("storycraftr.llm.factory.ChatOpenAI", return_value=primary):
+        with mock.patch("storycraftr.llm.factory.time.sleep") as mock_sleep:
+            model = build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="openrouter/free",
+                )
+            )
+
+            result = model._generate(messages=[], stop=None, run_manager=None)
+
+    assert result is mock_result
+    assert primary._generate.call_count == 3
+    assert mock_sleep.call_count == 2
+
+
+def test_openrouter_wrapper_falls_back_after_retry_exhaustion(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+
+    primary = mock.Mock()
+    primary._generate.side_effect = TimeoutError("timed out")
+    fallback = mock.Mock()
+    fallback_result = object()
+    fallback._generate.return_value = fallback_result
+
+    with mock.patch(
+        "storycraftr.llm.factory.ChatOpenAI",
+        side_effect=[primary, fallback],
+    ):
+        with mock.patch("storycraftr.llm.factory.time.sleep"):
+            model = build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="meta-llama/llama-3.3-70b-instruct",
+                )
+            )
+            result = model._generate(messages=[], stop=None, run_manager=None)
+
+    assert result is fallback_result
+    assert primary._generate.call_count == 3
+    assert fallback._generate.call_count == 1
 
 
 def test_openrouter_rejects_invalid_model_identifier(monkeypatch):

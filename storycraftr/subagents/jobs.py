@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shlex
 import threading
+import time
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import CancelledError as FutureCancelledError
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from importlib import import_module
 from io import StringIO
 from pathlib import Path
@@ -28,6 +30,17 @@ from .storage import ensure_storage_dirs, load_roles, seed_default_roles
 
 
 logger = logging.getLogger(__name__)
+
+_MODEL_EXHAUSTED_COOLDOWN_SECONDS = 30.0
+_MODEL_EXHAUSTED_MAX_RETRIES = 1
+_MODEL_EXHAUSTED_PATTERNS = (
+    re.compile(r"\b429\b", re.IGNORECASE),
+    re.compile(r"rate\s*limit", re.IGNORECASE),
+    re.compile(r"quota", re.IGNORECASE),
+    re.compile(r"capacity", re.IGNORECASE),
+    re.compile(r"model\s+is\s+currently\s+overloaded", re.IGNORECASE),
+    re.compile(r"temporarily\s+unavailable", re.IGNORECASE),
+)
 
 # Serializes module-level console swaps across concurrent sub-agent workers.
 _CONSOLE_SWAP_LOCK = threading.Lock()
@@ -49,6 +62,8 @@ class SubAgentJob:
     output: str = ""
     error: Optional[str] = None
     log_path: Optional[Path] = None
+    attempts: int = 0
+    cooldown_until: Optional[datetime] = None
 
     def to_dict(self) -> dict:
         return {
@@ -63,6 +78,10 @@ class SubAgentJob:
             "output": self.output,
             "error": self.error,
             "log_path": str(self.log_path) if self.log_path else None,
+            "attempts": self.attempts,
+            "cooldown_until": (
+                self.cooldown_until.isoformat() if self.cooldown_until else None
+            ),
         }
 
 
@@ -175,7 +194,13 @@ class SubAgentJobManager:
 
     def job_stats(self) -> Dict[str, int]:
         with self.lock:
-            stats = {"pending": 0, "running": 0, "succeeded": 0, "failed": 0}
+            stats = {
+                "pending": 0,
+                "running": 0,
+                "model_exhausted": 0,
+                "succeeded": 0,
+                "failed": 0,
+            }
             for job in self.jobs.values():
                 if job.status in stats:
                     stats[job.status] += 1
@@ -195,10 +220,75 @@ class SubAgentJobManager:
         return None
 
     def _run_job(self, job: SubAgentJob) -> None:
+        max_attempts = 1 + max(_MODEL_EXHAUSTED_MAX_RETRIES, 0)
+        output_chunks: List[str] = []
+        status = "failed"
+        error_text: Optional[str] = None
+
+        for attempt in range(1, max_attempts + 1):
+            attempt_output, error_text, status = self._run_single_job_attempt(
+                job, attempt=attempt
+            )
+            if attempt_output:
+                output_chunks.append(attempt_output)
+
+            if status == "succeeded":
+                break
+
+            if (
+                status == "failed"
+                and error_text
+                and self._is_model_exhausted_error(error_text)
+                and attempt < max_attempts
+            ):
+                self._enter_model_exhausted_cooldown(
+                    job,
+                    error_text,
+                    cooldown_seconds=_MODEL_EXHAUSTED_COOLDOWN_SECONDS,
+                )
+                continue
+
+            break
+
         with self.lock:
-            job.started_at = _utcnow()
+            job.finished_at = _utcnow()
+            job.status = status
+            job.cooldown_until = None
+            job.output = "\n\n".join(output_chunks).strip()
+            if error_text:
+                job.error = self._merge_errors(job.error, error_text)
+
+        try:
+            self._persist_job(job)
+        except Exception as exc:  # pragma: no cover - filesystem safety net
+            logger.exception("Failed to persist sub-agent job %s", job.job_id)
+            with self.lock:
+                job.status = "failed"
+                persist_error = (
+                    f"Failed to persist sub-agent job logs: {type(exc).__name__}: {exc}"
+                )
+                job.error = self._merge_errors(job.error, persist_error)
+            try:
+                self._persist_job(job)
+            except Exception:  # pragma: no cover - terminal fallback
+                logger.exception(
+                    "Second persistence attempt failed for sub-agent job %s",
+                    job.job_id,
+                )
+
+        self._emit_event(job.status, job)
+
+    def _run_single_job_attempt(
+        self, job: SubAgentJob, *, attempt: int
+    ) -> tuple[str, Optional[str], str]:
+        with self.lock:
+            if job.started_at is None:
+                job.started_at = _utcnow()
+            job.attempts = attempt
             job.status = "running"
+            job.cooldown_until = None
         self._emit_event("running", job)
+
         buffer_out = StringIO()
         buffer_err = StringIO()
         job_console = Console(file=buffer_out, force_terminal=False, color_system=None)
@@ -229,34 +319,49 @@ class SubAgentJobManager:
         stderr_text = buffer_err.getvalue()
         if stderr_text:
             stdout_text = f"{stdout_text}\n\n[stderr]\n{stderr_text}".strip()
-        output_text = stdout_text.strip()
+        return stdout_text.strip(), error_text, status
+
+    def _enter_model_exhausted_cooldown(
+        self,
+        job: SubAgentJob,
+        error_text: str,
+        *,
+        cooldown_seconds: float,
+    ) -> None:
+        delay = max(float(cooldown_seconds), 0.0)
+        deadline = _utcnow() + timedelta(seconds=delay)
+        cooldown_msg = (
+            "Model exhausted or rate-limited; entering cooldown before retry."
+        )
 
         with self.lock:
-            job.finished_at = _utcnow()
-            job.status = status
-            job.output = output_text
-            if error_text:
-                job.error = self._merge_errors(job.error, error_text)
+            job.status = "model_exhausted"
+            job.cooldown_until = deadline
+            job.error = self._merge_errors(job.error, error_text)
+            job.error = self._merge_errors(job.error, cooldown_msg)
 
+        self._emit_event("model_exhausted", job)
         try:
             self._persist_job(job)
-        except Exception as exc:  # pragma: no cover - filesystem safety net
-            logger.exception("Failed to persist sub-agent job %s", job.job_id)
-            with self.lock:
-                job.status = "failed"
-                persist_error = (
-                    f"Failed to persist sub-agent job logs: {type(exc).__name__}: {exc}"
-                )
-                job.error = self._merge_errors(job.error, persist_error)
-            try:
-                self._persist_job(job)
-            except Exception:  # pragma: no cover - terminal fallback
-                logger.exception(
-                    "Second persistence attempt failed for sub-agent job %s",
-                    job.job_id,
-                )
+        except Exception:  # pragma: no cover - defensive
+            logger.exception(
+                "Failed to persist cooldown checkpoint for sub-agent job %s",
+                job.job_id,
+            )
 
-        self._emit_event(job.status, job)
+        time.sleep(delay)
+
+        with self.lock:
+            job.status = "pending"
+            job.cooldown_until = None
+        self._emit_event("pending", job)
+
+    @staticmethod
+    def _is_model_exhausted_error(error_text: str) -> bool:
+        for pattern in _MODEL_EXHAUSTED_PATTERNS:
+            if pattern.search(error_text):
+                return True
+        return False
 
     def _handle_future_completion(self, job_id: str, future: Future) -> None:
         with self.lock:

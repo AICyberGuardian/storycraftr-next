@@ -111,7 +111,11 @@ Each project stores its configuration in `storycraftr.json` or `papercraftr.json
 - For `llm_provider=openrouter`, set `llm_model` explicitly in `provider/model` format (for example `meta-llama/llama-3.3-70b-instruct`).
 - `llm_endpoint` lets you target custom bases (e.g., `https://openrouter.ai/api/v1`).
 - StoryCraftr now validates provider/model/endpoint settings before runtime model calls and raises provider-specific configuration/authentication errors early.
+- OpenRouter calls now include native resilience in the factory layer: bounded exponential-backoff retries for transient failures (`429`, timeout, connection), plus an explicit fallback chain ending with `openrouter/free`.
+- Configure additional fallback models with `STORYCRAFTR_OPENROUTER_FALLBACK_MODELS` (comma-separated model IDs, for example `meta-llama/llama-3.2-3b-instruct:free,openrouter/free`).
 - `max_tokens` caps completion length per LLM request (default `8192`) to reduce truncation risk on long generations.
+- TUI prompt assembly now applies a model-aware input budget gate: it resolves an effective context window per active model, reserves output tokens, and prunes context deterministically by priority (canon constraints -> scene/scoped context -> recent turns -> retrieval chunks -> lower-priority extras) to prevent prompt overflow.
+- TUI session context now uses a rolling compaction boundary: older turns are collapsed into a bounded `Session Summary` while the latest turns stay verbatim, reducing long-session prompt growth without losing continuity.
 - `embed_model` defaults to `BAAI/bge-large-en-v1.5` for OpenAI-quality local embeddings. Use a lighter model (e.g., `sentence-transformers/all-MiniLM-L6-v2`) on constrained hardware.
 
 ### Runtime Storage Paths (Optional)
@@ -250,6 +254,8 @@ Current TUI slash commands include:
 - `/mode <manual|hybrid|autopilot>` to control TUI execution autonomy level
 - `/autopilot <steps> <prompt>` to run bounded autonomous turns when mode is `autopilot`
 - `/state` to inspect current narrative context and exact injected prompt block
+- `/summary` and `/summary clear` to inspect or reset rolling compacted session context
+- `/context` to inspect prompt-context diagnostics (summary/tail composition)
 - `/progress` to show canonical generation checkpoint status
 - `/wizard` and `/wizard next` for guided pipeline recommendations
 - `/pipeline` and `/pipeline next` as aliases for the wizard flow
@@ -283,6 +289,10 @@ Command discovery:
 For regular prompts, the TUI prepends a compact scene-scoped block
 (`[Scene Plan]` + `[Scoped Context]`) before dispatching to the existing
 assistant pipeline.
+
+During long sessions, the TUI automatically rolls older transcript turns into a
+persisted summary (`sessions/session.json`) and injects that summary as
+budgeted context ahead of recent verbatim turns.
 
 For help with available commands during the session, simply type:
 
@@ -332,6 +342,10 @@ All tests are designed to run offline without live LLM network calls.
 ## Contributing
 
 We welcome contributions of all kinds! Whether you’re a developer, writer, or simply interested in improving the tool, you can help. Here’s how you can contribute:
+
+Before changing code, start with `docs/architecture-onboarding.md`. It is the
+consolidated contributor reading guide and points to the smaller set of docs
+that are actually mandatory for most changes.
 
 1. **Fork the repository** and create your branch:
 

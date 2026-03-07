@@ -53,6 +53,8 @@ def test_tui_help_includes_required_commands(tmp_path) -> None:
     assert "/session save <name>" in help_text
     assert "/session load <name>" in help_text
     assert "/mode <manual|hybrid|autopilot>" in help_text
+    assert "/summary [clear]" in help_text
+    assert "/context" in help_text
     assert "/model-list" in help_text
     assert "/model-change <model_id>" in help_text
     assert "Ctrl+L" in help_text
@@ -120,6 +122,56 @@ def test_dispatch_state_command_returns_state_block(tmp_path) -> None:
 
     assert "Narrative State" in result
     assert "Injected Prompt Block" in result
+
+
+def test_dispatch_summary_reports_compacted_context(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app._session_summary = "Earlier planning and constraints."
+    app._session_compacted_turns = 5
+    app.transcript = [{"user": "u", "answer": "a"}] * 8
+
+    result = asyncio.run(app._dispatch_slash_command("/summary"))
+
+    assert "Session Summary" in result
+    assert "Compacted turns: 5" in result
+    assert "Earlier planning and constraints." in result
+
+
+def test_dispatch_summary_clear_empties_summary_and_persists(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.transcript = [{"user": "u", "answer": "a"}] * 4
+    app._session_summary = "To be cleared"
+    app._session_compacted_turns = 2
+
+    result = asyncio.run(app._dispatch_slash_command("/summary clear"))
+    saved = app.session_manager.load_runtime_state()
+
+    assert result == "Session summary cleared."
+    assert app._session_summary == ""
+    assert app._session_compacted_turns == len(app.transcript)
+    assert saved.get("session_summary") == ""
+
+
+def test_dispatch_context_reports_summary_and_recent_line_counts(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.config = SimpleNamespace(llm_provider="openrouter", llm_model="openrouter/free")
+    app._session_summary = "Context snapshot"
+    app._session_compacted_turns = 3
+    app.transcript = [
+        {"user": "U1", "answer": "A1"},
+        {"user": "U2", "answer": "A2"},
+        {"user": "U3", "answer": "A3"},
+    ]
+
+    result = asyncio.run(app._dispatch_slash_command("/context"))
+
+    assert "Prompt Context Diagnostics" in result
+    assert "Summary present: yes" in result
+    assert "Compacted turns: 3" in result
+    assert "Recent prompt lines:" in result
 
 
 def test_dispatch_mode_sets_and_reports_execution_mode(tmp_path) -> None:
@@ -744,3 +796,43 @@ def test_error_output_is_markup_safe_when_exception_contains_brackets(
     combined = "\n".join(fake_log.rendered_plain)
     assert "Error:" in combined
     assert "bad [/Narrative State] [not-a-style]" in combined
+
+
+def test_recent_turns_include_session_summary_and_tail(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    for idx in range(10):
+        app.transcript.append(
+            {
+                "user": f"User turn {idx}",
+                "answer": f"Assistant response {idx}",
+            }
+        )
+
+    app._roll_session_summary_if_needed()
+    recent = app._recent_turns_for_prompt(max_turns=3)
+
+    assert app._session_summary
+    assert recent[0].startswith("Session Summary: ")
+    assert "User: User turn 9" in recent
+    assert "Assistant: Assistant response 9" in recent
+
+
+def test_mode_persistence_keeps_existing_session_summary(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    seeded = TuiApp(book_path=str(tmp_path))
+    seeded.session_manager.save_runtime_state(
+        {
+            "execution_mode": "manual",
+            "session_summary": "Older summary context.",
+        }
+    )
+
+    app = TuiApp(book_path=str(tmp_path))
+    result = asyncio.run(app._dispatch_slash_command("/mode hybrid"))
+    saved = app.session_manager.load_runtime_state()
+
+    assert "Execution mode set to hybrid." in result
+    assert saved["execution_mode"] == "hybrid"
+    assert saved["session_summary"] == "Older summary context."

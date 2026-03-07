@@ -64,6 +64,8 @@ assistant/backend flow.
 - `/mode <manual|hybrid|autopilot>` — Set execution mode for manual, assisted, or autopilot workflows.
 - `/autopilot <steps> <prompt>` — Run bounded autonomous turns when execution mode is `autopilot`.
 - `/state` — Show active narrative state and injected prompt block.
+- `/summary` and `/summary clear` — Inspect or reset rolling compacted session summary state.
+- `/context` — Show prompt-context diagnostics (provider/model, compacted turns, summary/tail usage).
 - `/progress` — Show canonical writing-pipeline checkpoint completion.
 - `/wizard` and `/wizard next` — Guided pipeline view and next-step recommendation.
 - `/pipeline` and `/pipeline next` — Alias for wizard-guided pipeline flow.
@@ -91,6 +93,17 @@ The TUI help menu is grouped by intent (`Writing`, `Planning`, `World`, `Project
 
 For normal prompts, the TUI prepends a compact scene-scoped block (`[Scene Plan]`
 and `[Scoped Context]`) before calling the existing assistant pipeline.
+
+Prompt assembly is now model-aware: the TUI computes an input budget from the
+active model context window, reserves output tokens (`max_tokens` from config
+when available), and prunes context in deterministic priority order:
+canon constraints -> scene/scoped context -> minimal recent turns -> retrieval
+chunks -> lower-priority extras.
+
+Long-running sessions now apply rolling transcript compaction: older turns are
+collapsed into a bounded `Session Summary` that is persisted in
+`sessions/session.json`, while the most recent turns remain verbatim in prompt
+context.
 
 Canon candidate commits from `/autopilot` are verified against accepted
 chapter facts before write; duplicate or contradiction-like candidates are
@@ -277,6 +290,8 @@ While command shortcuts are great for quick edits, some operations (large outlin
   ```
 
 While a job runs, the chat shows `[Role ⏳ …]` badges and drops a completion panel in-line when the task finishes. Raw logs are stored in `subagent_logs_dir/<role>/timestamp.md` (default: `.storycraftr/subagents/logs/<role>/timestamp.md`), so pipx users can still review them outside the chat.
+
+If the model returns a transient exhaustion/rate-limit error (for example `429`), the job enters a temporary `model_exhausted` state, performs a bounded cooldown, and retries once before reporting a final failure.
 
 ## VS Code Event Stream
 

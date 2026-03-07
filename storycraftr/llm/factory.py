@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass, field
-from typing import Dict, Optional, List
+from typing import Any, Dict, Optional, List
 from urllib.parse import urlparse
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -27,6 +28,9 @@ _PROVIDER_DEFAULT_ENV = {
 
 _OPENROUTER_DEFAULT_ENDPOINT = "https://openrouter.ai/api/v1"
 _SUPPORTED_PROVIDERS = {"openai", "openrouter", "ollama", "fake"}
+_OPENROUTER_FALLBACK_MODELS_ENV = "STORYCRAFTR_OPENROUTER_FALLBACK_MODELS"
+_OPENROUTER_RETRY_BASE_SECONDS = 0.5
+_OPENROUTER_MAX_ATTEMPTS = 3
 
 _OPENROUTER_MODEL_REQUIRED_MESSAGE = (
     "Missing 'llm_model' for provider 'openrouter'. Set it explicitly in storycraftr.json, "
@@ -82,6 +86,14 @@ def _classify_provider_exception(exc: Exception) -> str:
     ):
         return "connection"
     return "unknown"
+
+
+def _sanitize_error_text(text: str, secrets: list[str]) -> str:
+    sanitized = text
+    for secret in secrets:
+        if secret:
+            sanitized = sanitized.replace(secret, "***")
+    return sanitized
 
 
 def _next_action_for_error(
@@ -252,6 +264,108 @@ def _validate_endpoint(provider: str, endpoint: Optional[str]) -> None:
         )
 
 
+def _parse_openrouter_fallback_models(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    models: list[str] = []
+    seen: set[str] = set()
+    for candidate in raw.split(","):
+        model = candidate.strip()
+        if not model or model in seen:
+            continue
+        seen.add(model)
+        models.append(model)
+    return models
+
+
+def _openrouter_fallback_chain(primary_model: str) -> list[str]:
+    chain = _parse_openrouter_fallback_models(
+        os.getenv(_OPENROUTER_FALLBACK_MODELS_ENV)
+    )
+    if primary_model != "openrouter/free" and "openrouter/free" not in chain:
+        chain.append("openrouter/free")
+    return [model for model in chain if model != primary_model]
+
+
+class _ResilientOpenRouterChatModel(BaseChatModel):
+    """OpenRouter wrapper with bounded retry/backoff and explicit fallbacks."""
+
+    primary_model: Any
+    fallback_models: List[Any] = []
+    model_sequence: List[str] = []
+    max_attempts: int = _OPENROUTER_MAX_ATTEMPTS
+    retry_base_seconds: float = _OPENROUTER_RETRY_BASE_SECONDS
+
+    def __init__(
+        self,
+        *,
+        primary_model: Any,
+        fallback_models: List[Any],
+        model_sequence: List[str],
+        max_attempts: int,
+        retry_base_seconds: float,
+    ):
+        super().__init__(
+            primary_model=primary_model,
+            fallback_models=fallback_models,
+            model_sequence=model_sequence,
+            max_attempts=max_attempts,
+            retry_base_seconds=retry_base_seconds,
+        )
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs,
+    ) -> ChatResult:
+        models = [self.primary_model, *self.fallback_models]
+        last_exc: Exception | None = None
+
+        for model_index, model in enumerate(models):
+            model_name = (
+                self.model_sequence[model_index]
+                if model_index < len(self.model_sequence)
+                else f"openrouter-model-{model_index + 1}"
+            )
+
+            for attempt in range(1, max(1, self.max_attempts) + 1):
+                try:
+                    result = model._generate(  # noqa: SLF001
+                        messages,
+                        stop=stop,
+                        run_manager=run_manager,
+                        **kwargs,
+                    )
+                    if attempt > 1 or model_index > 0:
+                        console.print(
+                            "[dim]OpenRouter resolved provider/model: "
+                            f"openrouter/{model_name} (attempt {attempt})[/dim]"
+                        )
+                    return result
+                except Exception as exc:
+                    last_exc = exc
+                    error_kind = _classify_provider_exception(exc)
+                    if error_kind == "auth":
+                        raise
+
+                    retryable = error_kind in {"rate_limit", "timeout", "connection"}
+                    if retryable and attempt < max(1, self.max_attempts):
+                        sleep_seconds = self.retry_base_seconds * (2 ** (attempt - 1))
+                        time.sleep(max(0.0, sleep_seconds))
+                        continue
+                    break
+
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("OpenRouter request failed without an explicit exception.")
+
+    @property
+    def _llm_type(self) -> str:
+        return "openrouter-resilient"
+
+
 def build_chat_model(settings: LLMSettings) -> BaseChatModel:
     """
     Build a LangChain chat model according to the supplied settings.
@@ -318,7 +432,7 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
             params["default_headers"] = headers
 
         try:
-            return ChatOpenAI(api_key=api_key, **params)
+            primary_model = ChatOpenAI(api_key=api_key, **params)
         except Exception as exc:
             _raise_provider_error(
                 provider=provider,
@@ -327,6 +441,36 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
                 env_var=api_key_env,
                 exc=exc,
             )
+
+        if provider != "openrouter":
+            return primary_model
+
+        fallback_models: list[Any] = []
+        model_sequence = [model_name]
+        for fallback_model_name in _openrouter_fallback_chain(model_name):
+            fallback_params = dict(params)
+            fallback_params["model"] = fallback_model_name
+            try:
+                fallback_model = ChatOpenAI(api_key=api_key, **fallback_params)
+            except Exception as exc:
+                error_kind = _classify_provider_exception(exc)
+                redacted = _sanitize_error_text(str(exc), [api_key])
+                console.print(
+                    "[yellow]Warning: skipping OpenRouter fallback model "
+                    f"'{fallback_model_name}' due to {error_kind} initialization failure "
+                    f"({type(exc).__name__}): {redacted}[/yellow]"
+                )
+                continue
+            fallback_models.append(fallback_model)
+            model_sequence.append(fallback_model_name)
+
+        return _ResilientOpenRouterChatModel(
+            primary_model=primary_model,
+            fallback_models=fallback_models,
+            model_sequence=model_sequence,
+            max_attempts=_OPENROUTER_MAX_ATTEMPTS,
+            retry_base_seconds=_OPENROUTER_RETRY_BASE_SECONDS,
+        )
 
     if provider == "ollama":
         base_url = settings.endpoint or os.getenv("OLLAMA_BASE_URL")

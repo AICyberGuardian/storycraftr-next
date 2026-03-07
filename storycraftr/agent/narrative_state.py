@@ -343,7 +343,18 @@ class NarrativeStateStore:
         return updated
 
     def render_prompt_block(self, *, max_chars: int = 2400) -> str:
-        """Render strict JSON block for prompt injection."""
+        """Render strict JSON block for prompt injection with version header.
+
+        Format:
+            [Narrative State v{version} as of {timestamp}]
+            {JSON payload}
+
+        Args:
+            max_chars: Maximum characters for JSON payload (header not counted)
+
+        Returns:
+            Empty string if no data, otherwise formatted block with header
+        """
 
         snapshot = self.load()
         has_data = (
@@ -354,6 +365,11 @@ class NarrativeStateStore:
         )
         if not has_data:
             return ""
+
+        # Build version header
+        header = (
+            f"[Narrative State v{snapshot.version} as of {snapshot.last_modified}]\n"
+        )
 
         # Serialize Pydantic models for prompt
         payload = {
@@ -367,10 +383,10 @@ class NarrativeStateStore:
 
         raw = json.dumps(payload, ensure_ascii=True, sort_keys=True, indent=2)
         if len(raw) <= max_chars:
-            return raw
+            return header + raw
         if max_chars <= 3:
-            return raw[:max_chars]
-        return raw[: max_chars - 3].rstrip() + "..."
+            return header + raw[:max_chars]
+        return header + raw[: max_chars - 3].rstrip() + "..."
 
     # ========================================================================
     # PATCH VALIDATION & APPLICATION (DSVL Phase 1C)

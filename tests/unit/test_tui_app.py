@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import Executor, Future
 import sys
 from types import SimpleNamespace
 
 import pytest
 from rich.markup import render
+
+from storycraftr.tui.canon_extract import CanonCandidate
 
 
 def _load_tui_app():
@@ -37,6 +40,7 @@ def test_tui_help_includes_required_commands(tmp_path) -> None:
     assert "/progress" in help_text
     assert "/wizard" in help_text
     assert "/pipeline" in help_text
+    assert "/autopilot <steps> <prompt>" in help_text
     assert "/canon" in help_text
     assert "/canon show [chapter]" in help_text
     assert "/canon add <fact>" in help_text
@@ -48,6 +52,7 @@ def test_tui_help_includes_required_commands(tmp_path) -> None:
     assert "/session list" in help_text
     assert "/session save <name>" in help_text
     assert "/session load <name>" in help_text
+    assert "/mode <manual|hybrid|autopilot>" in help_text
     assert "/model-list" in help_text
     assert "/model-change <model_id>" in help_text
     assert "Ctrl+L" in help_text
@@ -103,7 +108,8 @@ def test_build_state_text_contains_injected_block(tmp_path) -> None:
 
     assert "Narrative State" in state_text
     assert "Injected Prompt Block" in state_text
-    assert "[Narrative State]" in state_text
+    assert "[Scene Plan]" in state_text
+    assert "[Scoped Context]" in state_text
 
 
 def test_dispatch_state_command_returns_state_block(tmp_path) -> None:
@@ -114,6 +120,72 @@ def test_dispatch_state_command_returns_state_block(tmp_path) -> None:
 
     assert "Narrative State" in result
     assert "Injected Prompt Block" in result
+
+
+def test_dispatch_mode_sets_and_reports_execution_mode(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    set_result = asyncio.run(app._dispatch_slash_command("/mode hybrid"))
+    show_result = asyncio.run(app._dispatch_slash_command("/mode"))
+
+    assert "Execution mode set to hybrid." in set_result
+    assert "Execution mode: hybrid" in show_result
+
+
+def test_dispatch_mode_rejects_invalid_value(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    result = asyncio.run(app._dispatch_slash_command("/mode unknown"))
+
+    assert result == "Usage: /mode <manual|hybrid|autopilot>"
+
+
+def test_status_includes_execution_mode(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.assistant = SimpleNamespace(last_documents=[])
+
+    asyncio.run(app._dispatch_slash_command("/mode autopilot"))
+    status = asyncio.run(app._build_status_text())
+
+    assert "- Execution mode: autopilot" in status
+
+
+def test_autopilot_requires_mode_autopilot(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    result = asyncio.run(app._dispatch_slash_command("/autopilot 1 Draft scene"))
+
+    assert "Set /mode autopilot first" in result
+
+
+def test_autopilot_commits_verified_candidates_only(tmp_path, monkeypatch) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.assistant = SimpleNamespace(last_documents=[])
+    app.thread_id = "thread-1"
+
+    asyncio.run(app._dispatch_slash_command("/mode autopilot"))
+
+    monkeypatch.setattr(
+        app,
+        "_invoke_assistant_sync",
+        lambda _prompt: "Mira is the ship navigator. Mira is not the ship navigator.",
+    )
+
+    result = asyncio.run(
+        app._dispatch_slash_command("/autopilot 1 Establish the opening beat")
+    )
+    show = asyncio.run(app._dispatch_slash_command("/canon show 1"))
+
+    assert "Autopilot Run" in result
+    assert "Final committed: 1" in result
+    assert "Final skipped: 1" in result
+    assert "Mira is the ship navigator." in show
+    assert "Mira is not the ship navigator." not in show
 
 
 def test_state_output_includes_active_constraints_when_canon_exists(tmp_path) -> None:
@@ -192,6 +264,136 @@ def test_dispatch_canon_uses_active_chapter_from_state_engine(tmp_path) -> None:
 
     assert "Chapter: 7" in show_result
     assert "The control room is dark." in show_result
+
+
+def test_dispatch_canon_accept_moves_pending_to_ledger(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.pending_canon_candidates = [
+        CanonCandidate(text="Mira is the pilot.", chapter=2),
+        CanonCandidate(text="The hangar is locked.", chapter=2),
+    ]
+
+    accept_result = asyncio.run(app._dispatch_slash_command("/canon accept 1"))
+    pending_result = asyncio.run(app._dispatch_slash_command("/canon pending"))
+    show_result = asyncio.run(app._dispatch_slash_command("/canon show 2"))
+
+    assert "Accepted 1 canon candidate" in accept_result
+    assert "Skipped 0 due to verification" in accept_result
+    assert "The hangar is locked." in pending_result
+    assert "Mira is the pilot." in show_result
+
+
+def test_dispatch_canon_accept_skips_conflicting_candidate(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    asyncio.run(app._dispatch_slash_command("/canon add 2 :: Mira is the pilot."))
+    app.pending_canon_candidates = [
+        CanonCandidate(text="Mira is not the pilot.", chapter=2),
+    ]
+
+    accept_result = asyncio.run(app._dispatch_slash_command("/canon accept 1"))
+    pending_result = asyncio.run(app._dispatch_slash_command("/canon pending"))
+    show_result = asyncio.run(app._dispatch_slash_command("/canon show 2"))
+
+    assert "Accepted 0 canon candidate" in accept_result
+    assert "Skipped 1 due to verification" in accept_result
+    assert "No pending canon candidates" in pending_result
+    assert "Mira is not the pilot." not in show_result
+
+
+def test_dispatch_canon_reject_clears_pending_candidates(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.pending_canon_candidates = [
+        CanonCandidate(text="Mira is the pilot.", chapter=2),
+        CanonCandidate(text="The hangar is locked.", chapter=2),
+    ]
+
+    result = asyncio.run(app._dispatch_slash_command("/canon reject"))
+    pending = asyncio.run(app._dispatch_slash_command("/canon pending"))
+
+    assert "Rejected 2 pending canon candidate" in result
+    assert "No pending canon candidates" in pending
+
+
+def test_hybrid_mode_queues_extracted_canon_candidates(tmp_path, monkeypatch) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    class _FakeLog:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def write(self, message: str) -> None:
+            self.messages.append(message)
+
+    fake_log = _FakeLog()
+
+    def _query_one(selector, _type=None):
+        if selector == "#output":
+            return fake_log
+        raise RuntimeError("unsupported selector")
+
+    monkeypatch.setattr(app, "query_one", _query_one)
+    asyncio.run(app._dispatch_slash_command("/mode hybrid"))
+
+    asyncio.run(
+        app._maybe_queue_hybrid_canon_candidates(
+            "Mira is the ship navigator. The lower deck is flooded."
+        )
+    )
+
+    pending = asyncio.run(app._dispatch_slash_command("/canon pending"))
+
+    assert "Mira is the ship navigator." in pending
+    assert "lower deck is flooded" in pending.lower()
+    assert any("Hybrid Canon" in msg for msg in fake_log.messages)
+
+
+def test_hybrid_mode_uses_subagent_executor_when_manager_available(
+    tmp_path, monkeypatch
+) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    class _FakeLog:
+        def write(self, _message: str) -> None:
+            return
+
+    class _ImmediateExecutor(Executor):
+        def __init__(self) -> None:
+            self.submissions = 0
+
+        def submit(self, fn, /, *args, **kwargs):
+            self.submissions += 1
+            future: Future = Future()
+            try:
+                future.set_result(fn(*args, **kwargs))
+            except Exception as exc:  # pragma: no cover - defensive
+                future.set_exception(exc)
+            return future
+
+    class _FakeManager:
+        def __init__(self) -> None:
+            self.executor = _ImmediateExecutor()
+
+    fake_manager = _FakeManager()
+
+    def _query_one(selector, _type=None):
+        if selector == "#output":
+            return _FakeLog()
+        raise RuntimeError("unsupported selector")
+
+    monkeypatch.setattr(app, "query_one", _query_one)
+    app._hybrid_extract_manager = fake_manager
+    asyncio.run(app._dispatch_slash_command("/mode hybrid"))
+
+    asyncio.run(app._maybe_queue_hybrid_canon_candidates("Mira is the ship navigator."))
+
+    assert fake_manager.executor.submissions >= 1
+    assert len(app.pending_canon_candidates) == 1
 
 
 def test_dispatch_wizard_next_returns_recommended_command(tmp_path) -> None:

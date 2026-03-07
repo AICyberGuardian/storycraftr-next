@@ -9,6 +9,10 @@
 - Added smart grouped TUI command help (`Writing`, `Planning`, `World`, `Project`) with topic filtering via `/help <topic>`, plus `/pipeline` (`/pipeline next`) as a wizard alias.
 - Expanded wizard guidance with profile-based planning commands (`/wizard set`, `/wizard show`, `/wizard plan`, `/wizard reset`) that generate advisory command sequences without auto-running them.
 - Added Canon Guard Phase 1 in the TUI/state layer: chapter-scoped `outline/canon.yml` ledger, `/canon` command group (`show`, `add`, `clear confirm`), and prompt injection of accepted canon facts under `[Active Constraints]`.
+- Added TUI execution modes with persistence (`/mode <manual|hybrid|autopilot>`) backed by `sessions/session.json`, plus a visible mode indicator in the TUI footer region.
+- Added Hybrid Canon extraction in TUI: when mode is `hybrid`, assistant responses queue pending canon candidates on the sub-agent worker pool for review via `/canon pending`, `/canon accept <n[,m,...]>`, and `/canon reject [n[,m,...]]` before ledger commit.
+- Added Priority 3 prompt optimization: scene-scoped prompt assembly with deterministic scene planning (`Goal`, `Conflict`, `Outcome`) and bounded `[Scoped Context]` construction for lower-token, higher-focus generation.
+- Added Priority 4 autopilot safety loop: `/autopilot <steps> <prompt>` is now mode-gated (`/mode autopilot`) and autopilot canon candidate commits require fail-closed chapter verification (duplicate and negation-conflict detection).
 - Extended the Textual TUI command UX with a state-driven layout: hidden-by-default project tree (toggle via `ctrl+t` or `/toggle-tree`), Narrative + Timeline strips, chapter/scene focus commands (`/chapter <number>`, `/scene <label>`), and OpenRouter model commands (`/model-list`, `/model-change <model_id>`).
 - Added read-only narrative context extraction in `storycraftr/tui/state_engine.py` (chapter frontmatter + optional outline YAML arc mapping) and prompt-prefix state injection in the TUI layer before assistant dispatch.
 - Added `/state` TUI command to expose the current narrative state snapshot and exact injected prompt block for user-auditable transparency.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from enum import StrEnum
 import inspect
 import io
 import os
@@ -29,13 +30,24 @@ from storycraftr.agent.agents import (
 from storycraftr.chat.commands import CommandContext, handle_command
 from storycraftr.chat.module_runner import ModuleCommandError, run_module_command
 from storycraftr.chat.session import SessionManager
+from storycraftr.subagents import SubAgentJobManager
 from storycraftr.tui.openrouter_models import (
     OpenRouterModel,
     fetch_free_openrouter_models,
 )
 from storycraftr.tui.canon import add_fact, clear_chapter_facts, list_facts
+from storycraftr.tui.canon_extract import CanonCandidate, extract_canon_candidates
+from storycraftr.tui.canon_verify import verify_candidate_against_canon
 from storycraftr.tui.state_engine import NarrativeState, NarrativeStateEngine
 from storycraftr.utils.core import BookConfig, load_book_config
+
+
+class ExecutionMode(StrEnum):
+    """Execution mode for managing autonomous behavior levels in the TUI."""
+
+    MANUAL = "manual"
+    HYBRID = "hybrid"
+    AUTOPILOT = "autopilot"
 
 
 def _resolve_book_path(book_path: str | None) -> Path:
@@ -72,6 +84,13 @@ class TuiApp(App[None]):
     .pane-title { padding: 0 0 1 0; text-style: bold; }
     #project-tree, #output { height: 1fr; }
     #command-input { dock: bottom; margin: 1 0 0 0; }
+    #mode-indicator {
+        dock: bottom;
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+        content-align: right middle;
+    }
     """
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
@@ -100,6 +119,10 @@ class TuiApp(App[None]):
         self._input_history: list[str] = []
         self._history_cursor: int | None = None
         self._wizard_profile: dict[str, str] = {}
+        self.pending_canon_candidates: list[CanonCandidate] = []
+        self._hybrid_extract_manager: SubAgentJobManager | None = None
+        self.execution_mode = ExecutionMode.MANUAL
+        self._load_execution_mode()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -117,6 +140,7 @@ class TuiApp(App[None]):
         yield Input(
             placeholder="Ask StoryCraftr or run /outline ...", id="command-input"
         )
+        yield Static("", id="mode-indicator")
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -150,7 +174,17 @@ class TuiApp(App[None]):
             "[green]Ready. Enter prompts or slash commands (e.g. /help, /outline ...).[/green]"
         )
         self.query_one("#sidebar", Vertical).display = False
+        self._refresh_mode_indicator()
         await self._refresh_state_strips(force_refresh=True)
+
+    async def on_unmount(self) -> None:
+        """Release background resources used by hybrid extraction."""
+
+        manager = self._hybrid_extract_manager
+        if manager is None:
+            return
+        self._hybrid_extract_manager = None
+        await asyncio.to_thread(manager.shutdown, False)
 
     @on(Input.Submitted)
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -174,6 +208,7 @@ class TuiApp(App[None]):
                 if not streamed:
                     log.write(f"[bold green]Assistant:[/bold green] {escape(response)}")
                 self.transcript.append({"user": text, "answer": response})
+                await self._maybe_queue_hybrid_canon_candidates(response)
         except Exception as exc:  # pragma: no cover
             if text.startswith("/"):
                 log.write(f"[red][Failed][/red] {escape(text)}")
@@ -251,6 +286,9 @@ class TuiApp(App[None]):
         if command == "state":
             return await self._build_state_text()
 
+        if command == "mode":
+            return self._handle_mode_command(args)
+
         if command == "canon":
             return await asyncio.to_thread(self._handle_canon_command, args)
 
@@ -262,6 +300,9 @@ class TuiApp(App[None]):
 
         if command == "pipeline":
             return await asyncio.to_thread(self._build_wizard_text, args)
+
+        if command == "autopilot":
+            return await self._run_autopilot_command(args)
 
         if command == "clear":
             return self._clear_output()
@@ -359,11 +400,15 @@ class TuiApp(App[None]):
                 "/wizard show",
                 "/wizard plan",
                 "/wizard reset",
+                "/autopilot <steps> <prompt>",
                 "/progress",
                 "/canon",
                 "/canon show [chapter]",
+                "/canon pending",
                 "/canon add <fact>",
                 "/canon add <chapter> :: <fact>",
+                "/canon accept <n[,m,...]>",
+                "/canon reject [n[,m,...]]",
                 "/canon clear [confirm]",
                 '/outline general-outline "..."',
                 '/outline chapter-synopsis "..."',
@@ -378,6 +423,7 @@ class TuiApp(App[None]):
             "project": [
                 "/status",
                 "/state",
+                "/mode <manual|hybrid|autopilot>",
                 "/clear",
                 "/toggle-tree",
                 "/chapter <number>",
@@ -423,6 +469,7 @@ class TuiApp(App[None]):
             f"- Project: {self.book_path}",
             f"- Provider: {self._active_provider()}",
             f"- Model: {self._active_model()}",
+            f"- Execution mode: {self.execution_mode.value}",
             f"- Active chapter: {state.active_chapter if state.active_chapter is not None else '<none>'}",
             f"- Active scene: {state.active_scene}",
             f"- Active arc: {state.active_arc}",
@@ -438,22 +485,9 @@ class TuiApp(App[None]):
         """Show the current state snapshot and prompt block used for injection."""
 
         state = await asyncio.to_thread(self.state_engine.get_state)
-        narrative_block = await asyncio.to_thread(
-            self.state_engine.build_prompt_block,
-            state=state,
-        )
-        canon_facts = await asyncio.to_thread(
-            self.state_engine.get_active_canon_facts,
-            state=state,
-        )
-        canon_block = await asyncio.to_thread(
-            self.state_engine.build_canon_block,
-            canon_facts,
-        )
-        block = (
-            narrative_block
-            if not canon_block
-            else f"{narrative_block}\n\n{canon_block}"
+        block = await asyncio.to_thread(
+            self.state_engine.build_scoped_context,
+            "State inspection snapshot.",
         )
         lines = [
             "Narrative State",
@@ -486,6 +520,141 @@ class TuiApp(App[None]):
         lines.append(f"- Completion: {completed}/{len(checkpoints)} checkpoints")
         return "\n".join(lines)
 
+    async def _run_autopilot_command(self, args: list[str]) -> str:
+        """Run bounded generation loop with fail-closed canon verification."""
+
+        if self.execution_mode is not ExecutionMode.AUTOPILOT:
+            return "Autopilot is disabled. Set /mode autopilot first."
+
+        if not args:
+            return "Usage: /autopilot <steps> <prompt>"
+
+        steps = 1
+        prompt_tokens = args
+        if args[0].isdigit():
+            steps = max(1, min(10, int(args[0])))
+            prompt_tokens = args[1:]
+
+        if not prompt_tokens:
+            return "Usage: /autopilot <steps> <prompt>"
+
+        seed_prompt = " ".join(prompt_tokens).strip()
+        chapter = self._active_chapter_for_canon()
+
+        lines = [
+            "Autopilot Run",
+            f"- Steps requested: {steps}",
+            f"- Active chapter: {chapter}",
+        ]
+
+        committed = 0
+        skipped = 0
+        user_prompt = seed_prompt
+
+        for idx in range(1, steps + 1):
+            scoped_prompt = await asyncio.to_thread(
+                self.state_engine.compose_prompt,
+                user_prompt,
+            )
+            response = await asyncio.to_thread(
+                self._invoke_assistant_sync, scoped_prompt
+            )
+            self.transcript.append(
+                {
+                    "user": f"[autopilot:{idx}] {user_prompt}",
+                    "answer": response,
+                }
+            )
+
+            candidates = await self._extract_candidates_with_hybrid_worker(
+                response=response,
+                chapter=chapter,
+            )
+
+            step_committed = 0
+            step_skipped = 0
+            for candidate in candidates:
+                result = await asyncio.to_thread(
+                    verify_candidate_against_canon,
+                    book_path=str(self.book_path),
+                    chapter=chapter,
+                    candidate_text=candidate.text,
+                )
+                if not result.allowed:
+                    step_skipped += 1
+                    continue
+
+                add_fact(
+                    str(self.book_path),
+                    chapter=chapter,
+                    text=candidate.text,
+                    fact_type=candidate.fact_type,
+                    source="accepted",
+                )
+                step_committed += 1
+
+            committed += step_committed
+            skipped += step_skipped
+            lines.append(
+                f"- Step {idx}: committed={step_committed}, skipped={step_skipped}, candidates={len(candidates)}"
+            )
+            user_prompt = f"Continue scene progression after step {idx}."
+
+        lines.append(f"- Final committed: {committed}")
+        lines.append(f"- Final skipped: {skipped}")
+        return "\n".join(lines)
+
+    def _handle_mode_command(self, args: list[str]) -> str:
+        """Show or update execution mode state for TUI workflows."""
+
+        if not args:
+            return (
+                f"Execution mode: {self.execution_mode.value}\n"
+                "Usage: /mode <manual|hybrid|autopilot>"
+            )
+
+        requested = self._parse_execution_mode(args[0])
+        if requested is None:
+            return "Usage: /mode <manual|hybrid|autopilot>"
+
+        self.execution_mode = requested
+        try:
+            self.session_manager.save_runtime_state(
+                {"execution_mode": self.execution_mode.value}
+            )
+        except Exception as exc:
+            return f"Failed to persist execution mode: {exc}"
+
+        self._refresh_mode_indicator()
+        return f"Execution mode set to {self.execution_mode.value}."
+
+    def _parse_execution_mode(self, raw: str | None) -> ExecutionMode | None:
+        """Parse user input into an execution mode value."""
+
+        if raw is None:
+            return None
+        try:
+            return ExecutionMode(raw.strip().lower())
+        except ValueError:
+            return None
+
+    def _load_execution_mode(self) -> None:
+        """Restore execution mode from runtime session metadata."""
+
+        state = self.session_manager.load_runtime_state()
+        mode = self._parse_execution_mode(state.get("execution_mode"))
+        if mode is not None:
+            self.execution_mode = mode
+
+    def _refresh_mode_indicator(self) -> None:
+        """Render the footer-adjacent mode indicator in the TUI."""
+
+        try:
+            indicator = self.query_one("#mode-indicator", Static)
+        except Exception:
+            return
+        indicator.update(f"[ MODE: {self.execution_mode.name} ]")
+
     def _active_chapter_for_canon(self) -> int:
         """Resolve active chapter for canon operations, defaulting to chapter 1."""
 
@@ -493,6 +662,83 @@ class TuiApp(App[None]):
         if state.active_chapter is None:
             return 1
         return max(1, int(state.active_chapter))
+
+    async def _maybe_queue_hybrid_canon_candidates(self, response: str) -> None:
+        """Queue extracted canon candidates when HYBRID mode is enabled."""
+
+        if self.execution_mode is not ExecutionMode.HYBRID:
+            return
+
+        chapter = self._active_chapter_for_canon()
+        extracted = await self._extract_candidates_with_hybrid_worker(
+            response=response,
+            chapter=chapter,
+        )
+        if not extracted:
+            return
+
+        existing_facts = {
+            fact.text.strip().lower()
+            for fact in list_facts(str(self.book_path), chapter=chapter)
+            if fact.text.strip()
+        }
+        pending = {
+            candidate.text.strip().lower()
+            for candidate in self.pending_canon_candidates
+            if candidate.chapter == chapter and candidate.text.strip()
+        }
+
+        added = 0
+        for candidate in extracted:
+            key = candidate.text.strip().lower()
+            if key in existing_facts or key in pending:
+                continue
+            self.pending_canon_candidates.append(candidate)
+            pending.add(key)
+            added += 1
+
+        if added <= 0:
+            return
+
+        self.query_one("#output", RichLog).write(
+            "[cyan]Hybrid Canon:[/cyan] "
+            f"queued {added} candidate fact(s). "
+            "Review with /canon pending and accept via /canon accept <indexes>."
+        )
+
+    async def _extract_candidates_with_hybrid_worker(
+        self, *, response: str, chapter: int
+    ) -> list[CanonCandidate]:
+        """Extract candidates using sub-agent worker pool when available."""
+
+        manager = self._ensure_hybrid_extract_manager()
+        if manager is None:
+            return await asyncio.to_thread(
+                extract_canon_candidates,
+                response,
+                chapter=chapter,
+            )
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            manager.executor,
+            lambda: extract_canon_candidates(response, chapter=chapter),
+        )
+
+    def _ensure_hybrid_extract_manager(self) -> SubAgentJobManager | None:
+        """Lazily initialize worker manager used by hybrid extraction."""
+
+        if self._hybrid_extract_manager is not None:
+            return self._hybrid_extract_manager
+
+        try:
+            self._hybrid_extract_manager = SubAgentJobManager(
+                str(self.book_path),
+                console=Console(),
+            )
+        except Exception:
+            self._hybrid_extract_manager = None
+        return self._hybrid_extract_manager
 
     def _handle_canon_command(self, args: list[str]) -> str:
         """Handle chapter-scoped canon ledger commands."""
@@ -513,8 +759,17 @@ class TuiApp(App[None]):
                         return "Usage: /canon show [chapter_number]"
                 return self._render_canon_verbose(chapter)
 
+            if mode == "pending":
+                return self._render_canon_pending()
+
             if mode == "add":
                 return self._canon_add_fact(args[1:], active_chapter)
+
+            if mode == "accept":
+                return self._canon_accept_candidates(args[1:])
+
+            if mode == "reject":
+                return self._canon_reject_candidates(args[1:])
 
             if mode in {"clear", "reset"}:
                 if len(args) >= 2 and args[1].lower() == "confirm":
@@ -528,9 +783,94 @@ class TuiApp(App[None]):
             return f"Canon Guard error: {exc}"
 
         return (
-            "Usage: /canon [show [chapter]] | /canon add <fact> | "
-            "/canon add <chapter> :: <fact> | /canon clear [confirm]"
+            "Usage: /canon [show [chapter]|pending] | /canon add <fact> | "
+            "/canon add <chapter> :: <fact> | /canon accept <n[,m,...]> | "
+            "/canon reject [n[,m,...]] | /canon clear [confirm]"
         )
+
+    def _canon_accept_candidates(self, args: list[str]) -> str:
+        """Accept pending extraction candidates into the canon ledger."""
+
+        if not self.pending_canon_candidates:
+            return "No pending canon candidates to accept."
+        if not args:
+            return "Usage: /canon accept <n[,m,...]>"
+
+        indexes = self._parse_candidate_indexes(args[0])
+        if not indexes:
+            return "Usage: /canon accept <n[,m,...]>"
+
+        accepted = 0
+        skipped = 0
+        kept: list[CanonCandidate] = []
+        for idx, candidate in enumerate(self.pending_canon_candidates, start=1):
+            if idx not in indexes:
+                kept.append(candidate)
+                continue
+            result = verify_candidate_against_canon(
+                book_path=str(self.book_path),
+                chapter=candidate.chapter,
+                candidate_text=candidate.text,
+            )
+            if not result.allowed:
+                skipped += 1
+                continue
+            add_fact(
+                str(self.book_path),
+                chapter=candidate.chapter,
+                text=candidate.text,
+                fact_type=candidate.fact_type,
+                source="accepted",
+            )
+            accepted += 1
+
+        self.pending_canon_candidates = kept
+        return (
+            f"[Done] Accepted {accepted} canon candidate(s). "
+            f"Skipped {skipped} due to verification."
+        )
+
+    def _canon_reject_candidates(self, args: list[str]) -> str:
+        """Reject pending candidates either by index list or all at once."""
+
+        if not self.pending_canon_candidates:
+            return "No pending canon candidates to reject."
+
+        if not args:
+            removed = len(self.pending_canon_candidates)
+            self.pending_canon_candidates = []
+            return f"[Done] Rejected {removed} pending canon candidate(s)."
+
+        indexes = self._parse_candidate_indexes(args[0])
+        if not indexes:
+            return "Usage: /canon reject [n[,m,...]]"
+
+        removed = 0
+        kept: list[CanonCandidate] = []
+        for idx, candidate in enumerate(self.pending_canon_candidates, start=1):
+            if idx in indexes:
+                removed += 1
+                continue
+            kept.append(candidate)
+
+        self.pending_canon_candidates = kept
+        return f"[Done] Rejected {removed} pending canon candidate(s)."
+
+    def _parse_candidate_indexes(self, raw: str) -> set[int]:
+        """Parse one-based candidate index list such as '1,2,4'."""
+
+        parsed: set[int] = set()
+        for token in raw.split(","):
+            item = token.strip()
+            if not item:
+                continue
+            if not item.isdigit():
+                return set()
+            value = int(item)
+            if value < 1:
+                return set()
+            parsed.add(value)
+        return parsed
 
     def _canon_add_fact(self, args: list[str], active_chapter: int) -> str:
         """Parse add command and append one canon fact."""
@@ -564,6 +904,7 @@ class TuiApp(App[None]):
             "Canon Guard",
             f"Active chapter: {chapter}",
             f"Accepted facts: {len(facts)}",
+            f"Pending candidates: {len(self.pending_canon_candidates)}",
         ]
 
         if not facts:
@@ -586,6 +927,26 @@ class TuiApp(App[None]):
 
         lines.extend(
             f"- [{fact.type}] {fact.text} (source={fact.source})" for fact in facts
+        )
+        return "\n".join(lines)
+
+    def _render_canon_pending(self) -> str:
+        """Render pending extracted canon candidates awaiting user approval."""
+
+        if not self.pending_canon_candidates:
+            return "Canon Guard\nNo pending canon candidates."
+
+        lines = ["Canon Guard", "Pending Canon Candidates", ""]
+        for idx, candidate in enumerate(self.pending_canon_candidates, start=1):
+            lines.append(
+                f"{idx}. (chapter {candidate.chapter}) [{candidate.fact_type}] {candidate.text}"
+            )
+        lines.extend(
+            [
+                "",
+                "Accept with: /canon accept <n[,m,...]>",
+                "Reject with: /canon reject [n[,m,...]]",
+            ]
         )
         return "\n".join(lines)
 

@@ -61,6 +61,8 @@ assistant/backend flow.
 
 - `/help` — Show available TUI slash commands.
 - `/status` — Show active project/provider/model and assistant retrieval status.
+- `/mode <manual|hybrid|autopilot>` — Set execution mode for manual, assisted, or autopilot workflows.
+- `/autopilot <steps> <prompt>` — Run bounded autonomous turns when execution mode is `autopilot`.
 - `/state` — Show active narrative state and injected prompt block.
 - `/progress` — Show canonical writing-pipeline checkpoint completion.
 - `/wizard` and `/wizard next` — Guided pipeline view and next-step recommendation.
@@ -68,8 +70,9 @@ assistant/backend flow.
 - `/wizard set <field> <value>`, `/wizard show`, `/wizard plan`, `/wizard reset`
   — Build and revise a guided command plan from writer inputs.
 - `/canon`, `/canon show [chapter]`, `/canon add <fact>`,
-  `/canon add <chapter> :: <fact>`, `/canon clear [confirm]`
-  — Manage writer-approved chapter canon facts used as prompt constraints.
+  `/canon add <chapter> :: <fact>`, `/canon pending`, `/canon accept <n[,m,...]>`,
+  `/canon reject [n[,m,...]]`, `/canon clear [confirm]`
+  — Manage writer-approved chapter canon facts and hybrid extraction candidate approvals.
 - `/clear` — Clear the output pane while keeping current session context.
 - `/toggle-tree` — Show/hide the project file tree (hidden by default).
 - `/chapter <number>` and `/scene <label>` — Set active narrative focus.
@@ -86,8 +89,12 @@ Slash commands also emit inline status markers (`[Running]`, `[Done]`, `[Failed]
 
 The TUI help menu is grouped by intent (`Writing`, `Planning`, `World`, `Project`), and `/help <topic>` shows only one group.
 
-For normal prompts, the TUI prepends a read-only narrative state block before
-calling the existing assistant pipeline.
+For normal prompts, the TUI prepends a compact scene-scoped block (`[Scene Plan]`
+and `[Scoped Context]`) before calling the existing assistant pipeline.
+
+Canon candidate commits from `/autopilot` are verified against accepted
+chapter facts before write; duplicate or contradiction-like candidates are
+skipped (fail-closed) and reported in command output.
 
 ## Available Commands within Chat
 

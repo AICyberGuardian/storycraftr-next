@@ -247,6 +247,8 @@ Current TUI slash commands include:
 
 - `/help` for a concise command reference
 - `/status` for project/assistant/runtime status
+- `/mode <manual|hybrid|autopilot>` to control TUI execution autonomy level
+- `/autopilot <steps> <prompt>` to run bounded autonomous turns when mode is `autopilot`
 - `/state` to inspect current narrative context and exact injected prompt block
 - `/progress` to show canonical generation checkpoint status
 - `/wizard` and `/wizard next` for guided pipeline recommendations
@@ -254,8 +256,12 @@ Current TUI slash commands include:
 - `/wizard set <field> <value>`, `/wizard show`, `/wizard plan`, `/wizard reset`
   for profile-based guided planning (advisory, no auto-execution)
 - `/canon`, `/canon show [chapter]`, `/canon add <fact>`,
-  `/canon add <chapter> :: <fact>`, `/canon clear [confirm]`
-  for chapter-scoped writer-approved canon constraints
+  `/canon add <chapter> :: <fact>`, `/canon pending`, `/canon accept <n[,m,...]>`,
+  `/canon reject [n[,m,...]]`, `/canon clear [confirm]`
+  for chapter-scoped writer-approved canon constraints and hybrid candidate review
+- In `hybrid` mode, candidate extraction runs on the sub-agent worker pool and only accepted candidates are persisted.
+- Prompt assembly now uses a scene-scoped context builder: explicit scene Goal/Conflict/Outcome, active chapter constraints, and bounded relevant context to reduce prompt bloat.
+- In `autopilot` mode, `/autopilot` runs a bounded loop that verifies extracted canon candidates against accepted facts and fails closed on duplicate/conflicting candidates before commit.
 - `/clear` to clear the output pane without resetting session state
 - `/toggle-tree` to show/hide the project file tree when needed
 - `/chapter <number>` and `/scene <label>` to set in-memory narrative focus
@@ -274,9 +280,9 @@ Command discovery:
 - `/help` now shows a grouped command menu (`Writing`, `Planning`, `World`, `Project`)
 - `/help writing|planning|world|project` filters help to one category
 
-For regular prompts, the TUI prepends a read-only narrative state block
-(active chapter/scene/arc and timeline context) before dispatching to the
-existing assistant pipeline.
+For regular prompts, the TUI prepends a compact scene-scoped block
+(`[Scene Plan]` + `[Scoped Context]`) before dispatching to the existing
+assistant pipeline.
 
 For help with available commands during the session, simply type:
 

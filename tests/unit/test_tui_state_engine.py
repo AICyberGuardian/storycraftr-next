@@ -101,7 +101,9 @@ Body
     engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
     prompt = engine.compose_prompt("Draft the next scene with sharper tension.")
 
-    assert "[Narrative State]" in prompt
+    assert "[Scene Plan]" in prompt
+    assert "Goal: Draft the next scene with sharper tension." in prompt
+    assert "[Scoped Context]" in prompt
     assert "Active Chapter: 3" in prompt
     assert "Active Scene: Reveal" in prompt
     assert "[User Prompt]" in prompt

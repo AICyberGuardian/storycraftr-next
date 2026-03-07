@@ -9,7 +9,9 @@ from typing import Any
 import yaml
 from yaml import YAMLError
 
+from storycraftr.agent.story.scene_planner import plan_next_scene
 from storycraftr.tui.canon import list_facts
+from storycraftr.tui.context_builder import build_scoped_context_block
 
 _CHAPTER_FILE_PATTERN = re.compile(r"^chapter-(\d+)\.md$", re.IGNORECASE)
 _FRONTMATTER_DELIMITER = "---"
@@ -101,17 +103,30 @@ class NarrativeStateEngine:
     def compose_prompt(self, user_prompt: str) -> str:
         """Prefix user input with the latest read-only state block."""
 
-        state = self.get_state()
-        narrative_block = self.build_prompt_block(state=state)
-        canon_facts = self.get_active_canon_facts(state=state)
-        canon_block = self.build_canon_block(canon_facts)
+        scoped_context = self.build_scoped_context(user_prompt)
+        return f"{scoped_context}\n\n[User Prompt]\n{user_prompt.strip()}"
 
-        if canon_block:
-            return (
-                f"{narrative_block}\n\n{canon_block}\n\n"
-                f"[User Prompt]\n{user_prompt.strip()}"
-            )
-        return f"{narrative_block}\n\n[User Prompt]\n{user_prompt.strip()}"
+    def build_scoped_context(
+        self,
+        user_prompt: str,
+        *,
+        retrieved_context: list[str] | None = None,
+    ) -> str:
+        """Build token-scoped context block with scene plan and constraints."""
+
+        state = self.get_state()
+        canon_facts = self.get_active_canon_facts(state=state)
+        scene_plan = plan_next_scene(
+            active_scene=state.active_scene,
+            active_arc=state.active_arc,
+            user_prompt=user_prompt,
+        )
+        return build_scoped_context_block(
+            state=state,
+            scene_plan=scene_plan,
+            canon_facts=canon_facts,
+            retrieved_context=retrieved_context,
+        )
 
     def get_active_canon_facts(
         self, *, state: NarrativeState, max_facts: int = 8

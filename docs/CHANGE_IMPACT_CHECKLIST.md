@@ -2,6 +2,63 @@
 
 ## Change History
 
+### 2026-03-07 — StoryCraftr Engineering Agent Context7 usage contract update
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `.github/agents/storycraftr-engineering.agent.md` to add an explicit Context7 operating policy for third-party library research.
+	- Added mandatory resolve-first workflow (`resolve-library-id` then `query-docs`), per-question query cap guidance, and rules for when Context7 should and should not be used.
+	- Added repository-specific Context7 targeting guidance for LangChain, Chroma, Textual, and VS Code extension API work.
+- **No impact:** sections 1–7 (no dependency/lockfile updates, no runtime config schema changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — StoryCraftr Engineering Agent instruction refresh
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `.github/agents/storycraftr-engineering.agent.md` to reflect current architecture and operating contracts, including TUI execution modes, `/autopilot` bounded-loop semantics, Canon Guard candidate approval + fail-closed verification, and explicit memory/recall integrity priorities.
+	- Aligned engineering workflow guidance with current validation surfaces (`test_tui_app`, `test_tui_state_engine`, `test_tui_context_builder`, `test_tui_canon_extract`, `test_tui_canon_verify`).
+- **No impact:** sections 1–7 (no dependency/lockfile updates, no runtime config schema changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Priority 4 autopilot safety: conflict verification + bounded loop
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/tui/canon_verify.py` with fail-closed candidate verification against accepted chapter facts, including duplicate and negation-conflict checks.
+	- Updated `storycraftr/tui/app.py` with `/autopilot <steps> <prompt>` command handling that is gated by execution mode (`/mode autopilot`) and bounded to a safe step range.
+	- Integrated verification-before-write behavior into the `/autopilot` commit path so only non-conflicting candidates are persisted to `outline/canon.yml`.
+	- Added tests in `tests/unit/test_tui_canon_verify.py` and expanded `tests/unit/test_tui_app.py` for mode gating and verified commit behavior.
+	- Synced docs in `README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `release_notes.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1–7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Priority 3 prompt efficiency: scene planner + scoped context
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/agent/story/scene_planner.py` with deterministic scene planning (`Goal`, `Conflict`, `Outcome`) from current state and user prompt.
+	- Added `storycraftr/tui/context_builder.py` with bounded `[Scoped Context]` assembly (active state, constraints, relevant context) and dedupe/cap logic.
+	- Refactored `storycraftr/tui/state_engine.py` prompt composition to build scene-scoped context via `build_scoped_context(...)` before appending `[User Prompt]`.
+	- Updated `storycraftr/tui/app.py` `/state` output path to display the same scoped context block used for injection.
+	- Added/updated tests in `tests/unit/test_scene_planner.py`, `tests/unit/test_tui_context_builder.py`, `tests/unit/test_tui_state_engine.py`, and `tests/unit/test_tui_app.py`.
+	- Synced docs in `README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `release_notes.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1–7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Hybrid canon extraction queue and approval commands
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/tui/canon_extract.py` with conservative fact-like sentence extraction for pending canon candidates.
+	- Added `storycraftr/tui/canon_verify.py` as the fail-closed verifier used when autopilot attempts to commit extracted candidates.
+	- Updated `storycraftr/tui/app.py` hybrid-mode behavior to queue extracted candidates after assistant responses using `SubAgentJobManager` executor workers, with lifecycle-safe shutdown on TUI unmount, and surface review guidance in TUI output.
+	- Expanded `/canon` command group with pending/approval controls: `/canon pending`, `/canon accept <n[,m,...]>`, and `/canon reject [n[,m,...]]`.
+	- Added/updated tests in `tests/unit/test_tui_canon_extract.py`, `tests/unit/test_tui_canon_verify.py`, and `tests/unit/test_tui_app.py` for extraction, queue, accept, reject, and conflict-guard flows.
+	- Synced docs in `README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1–7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — TUI execution mode safety gate: manual/hybrid/autopilot
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `ExecutionMode` control layer in `storycraftr/tui/app.py` with `/mode <manual|hybrid|autopilot>` command handling.
+	- Added footer-region mode indicator (`[ MODE: ... ]`) and status/help integration for execution mode visibility, including explicit `/autopilot <steps> <prompt>` discoverability.
+	- Added runtime persistence for execution mode in `storycraftr/chat/session.py` via `sessions/session.json` (`load_runtime_state`, `save_runtime_state`) and filtered session listings to ignore runtime metadata file.
+	- Added test coverage in `tests/unit/test_tui_app.py` and `tests/unit/test_core_paths.py` for mode command behavior, status visibility, runtime-state round-trip, and session listing behavior.
+	- Synced user/developer docs in `README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `release_notes.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1–7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Canon Guard Phase 1: manual canon ledger and prompt constraints
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

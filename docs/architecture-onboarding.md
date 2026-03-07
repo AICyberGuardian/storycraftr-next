@@ -41,6 +41,8 @@ Config note:
 - `storycraftr/utils/paths.py`: canonical runtime path resolver.
 - `storycraftr/subagents/jobs.py`: background role-based job execution.
 - `storycraftr/integrations/vscode.py`: JSONL event emission.
+- `storycraftr/tui/app.py`: Textual terminal command center with slash-command UX and model controls.
+- `storycraftr/tui/state_engine.py`: read-only narrative state extraction and prompt-prefix context builder.
 - `src/extension.ts`: VS Code event stream watcher and UI integration.
 - `src/event-contract.ts`: typed event parser and contract for extension event payloads.
 - `src/event-contract.test.ts`: event-contract regression tests.

@@ -139,17 +139,18 @@ def test_job_manager_marks_job_failed_if_log_persistence_fails(monkeypatch, tmp_
 
     monkeypatch.setattr(manager, "_persist_job", always_fail_persist)
 
-    manager.submit(
-        command_token="!outline",  # nosec B106
-        args=["general-outline", "Refine the prologue"],
-        role_slug="editor",
+    role = manager.get_role("editor")
+    assert role is not None
+    job = SubAgentJob(
+        job_id="persist-failure",
+        role=role,
+        command_text="outline general-outline 'Refine the prologue'",
     )
 
-    status = _wait_for_job_completion(manager)
+    manager._run_job(job)
     manager.shutdown()
 
-    job = manager.list_jobs()[0]
-    assert status == "failed"
+    assert job.status == "failed"
     assert job.error is not None
     assert "Failed to persist sub-agent job logs" in job.error
 

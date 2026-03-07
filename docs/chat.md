@@ -46,6 +46,31 @@ storycraftr chat --book-path ~/projects/la-purga-de-los-dioses
 
 Once the session starts, you’ll be able to type messages to the assistant and receive responses directly in your terminal.
 
+If you want a structured terminal dashboard instead of REPL-only chat, launch
+the Textual TUI:
+
+```bash
+python -m storycraftr.tui.app --book-path /path/to/your/book
+```
+
+The TUI adds a narrative-memory strip, scene timeline strip, and slash commands
+for command discovery/model operations while still reusing the same StoryCraftr
+assistant/backend flow.
+
+### Key TUI Slash Commands
+
+- `/help` — Show available TUI slash commands.
+- `/status` — Show active project/provider/model and assistant retrieval status.
+- `/state` — Show active narrative state and injected prompt block.
+- `/toggle-tree` — Show/hide the project file tree (hidden by default).
+- `/chapter <number>` and `/scene <label>` — Set active narrative focus.
+- `/model-list` — Fetch and display free OpenRouter models.
+- `/model-change <model_id>` — Switch the active TUI session model.
+- `/session ...` and `/sub-agent ...` — Route to existing chat command handlers.
+
+For normal prompts, the TUI prepends a read-only narrative state block before
+calling the existing assistant pipeline.
+
 ## Available Commands within Chat
 
 While in a chat session, you can use commands to quickly execute tasks that StoryCraftr supports, such as refining your outline, improving chapters, or updating your world-building. These commands provide flexibility, allowing you to iterate on various aspects of your novel without leaving the chat.

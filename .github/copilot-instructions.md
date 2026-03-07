@@ -37,6 +37,7 @@ storycraftr/          # Python package (all core logic)
   prompts/            # Prompt strings for story/ and paper/ flows; permute.py for date injection
   subagents/          # Background sub-agent system: models.py, defaults.py, storage.py, jobs.py
   templates/          # Python-side LaTeX/folder templates for project scaffolding
+  tui/                # Textual terminal UI shell (command center + model controls)
   utils/              # core.py (BookConfig, load_book_config), cleanup.py, markdown.py, pdf.py
   vectorstores/       # chroma.py: build_chroma_store()
   cli.py              # Entrypoint: click CLI group, init command, dual-mode routing

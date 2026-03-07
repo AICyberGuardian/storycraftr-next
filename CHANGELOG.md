@@ -4,9 +4,12 @@
 
 ### Changed
 
-- Extended the Textual TUI command UX with native `/help` and `/status` slash commands, visible provider/model status display, and OpenRouter-focused model commands: `/model-list` (free model discovery) and `/model-change <model_id>` (session-level safe model switch with continuity messaging).
+- Extended the Textual TUI command UX with a state-driven layout: hidden-by-default project tree (toggle via `ctrl+t` or `/toggle-tree`), Narrative + Timeline strips, chapter/scene focus commands (`/chapter <number>`, `/scene <label>`), and OpenRouter model commands (`/model-list`, `/model-change <model_id>`).
+- Added read-only narrative context extraction in `storycraftr/tui/state_engine.py` (chapter frontmatter + optional outline YAML arc mapping) and prompt-prefix state injection in the TUI layer before assistant dispatch.
+- Added `/state` TUI command to expose the current narrative state snapshot and exact injected prompt block for user-auditable transparency.
+- Hardened `storycraftr/tui/state_engine.py` parsing paths to safely degrade on malformed chapter frontmatter or invalid outline YAML files instead of crashing the TUI loop.
 - Added focused unit tests for TUI help/command parsing and OpenRouter free-model metadata filtering/parsing (`tests/unit/test_tui_app.py`, `tests/unit/test_tui_openrouter_models.py`).
-- Added a minimal Textual-based TUI shell at `storycraftr/tui/app.py` with a single-screen dashboard (`DirectoryTree` sidebar, `RichLog` output, and `Input` prompt) that reuses existing assistant/chat dispatch logic without modifying core agent/vector/sub-agent behavior.
+- Added a minimal Textual-based TUI shell at `storycraftr/tui/app.py` that reuses existing assistant/chat dispatch logic without modifying core agent/vector/sub-agent behavior.
 - Added module launch support for the TUI via `python -m storycraftr.tui.app` with optional `--book-path` argument parsing.
 - Phase 0 runtime-safety hardening:
   - Performed a small architectural extraction by moving assistant cache management from `storycraftr/agent/agents.py` into `storycraftr/agent/assistant_cache.py` (cache key normalization, lock-guarded lookup/store, shared cache state).

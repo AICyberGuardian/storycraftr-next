@@ -1,4 +1,4 @@
-## Draft Update - 2026-03-06 (CI Acceleration and Documentation Sync)
+## Draft Update - 2026-03-06 (CI, TUI UX, and Documentation Sync)
 
 Current development target: `v0.16` (`0.16.0-dev`).
 
@@ -13,6 +13,10 @@ Current development target: `v0.16` (`0.16.0-dev`).
 - Project documentation was synchronized with this CI convention (`README.md`, `CHANGELOG.md`, `AGENTS.md`, `.github/copilot-instructions.md`).
 - Repository links and install snippets were normalized to `AICyberGuardian/storycraftr-next`, and `docs/getting_started.md` now reflects development target `0.16.0-dev`.
 - Python runtime dependencies were refreshed to include `textual` with synchronized lockfile updates.
+- Textual TUI command UX includes `/help`, `/status`, `/model-list` (free OpenRouter discovery), and `/model-change <model_id>` (session-level model switch).
+- The Textual TUI shifted to a writer-focused state-driven UX: hidden-by-default file tree (`/toggle-tree` or `ctrl+t`), Narrative/Timeline strips, `/chapter` and `/scene` focus commands, `/state` transparency command, and prompt-prefix narrative state injection implemented entirely in the TUI layer (`storycraftr/tui/state_engine.py`).
+- Narrative state parsing now degrades safely when chapter frontmatter or outline YAML files are malformed, preventing UI-loop crashes.
+- Sub-agent lock regression test `tests/unit/test_subagents.py::test_job_manager_persist_job_uses_project_write_lock` now uses a deterministic persistence seam assertion (`_persist_job()`) instead of worker timing.
 
 For full step-level details, see `CHANGELOG.md` under `[Unreleased]`.
 

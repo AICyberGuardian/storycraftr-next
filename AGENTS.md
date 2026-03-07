@@ -10,7 +10,7 @@ Current development target: v0.16.
 - `CI_INSTALL_PATTERN`: CI uses `setup-uv` cache + `poetry export` + `uv pip install`; local development continues to use `poetry install`.
 
 ## Project Structure & Module Organization
-StoryCraftr ships a Python CLI plus a lightweight VS Code companion extension. Python sources live in `storycraftr/` (agents, CLI entrypoints, prompts, templates) with tests under `tests/` partitioned into `unit/` and `integration/`. The extension code sits in `src/` (TypeScript) and compiles to `out/` during builds. Shared documentation belongs in `docs/`, while runnable samples and starter outlines live in `examples/`. Treat `behavior.txt` as the canonical agent contract when adjusting automated behaviors.
+StoryCraftr ships a Python CLI plus a lightweight VS Code companion extension. Python sources live in `storycraftr/` (agents, CLI entrypoints, prompts, templates, and a Textual TUI under `storycraftr/tui/`) with tests under `tests/` partitioned into `unit/` and `integration/`. The extension code sits in `src/` (TypeScript) and compiles to `out/` during builds. Shared documentation belongs in `docs/`, while runnable samples and starter outlines live in `examples/`. Treat `behavior.txt` as the canonical agent contract when adjusting automated behaviors.
 
 ## Build, Test, and Development Commands
 - Unified dependency runner: `make sync-deps` updates Python/Node lock files together and stages them.

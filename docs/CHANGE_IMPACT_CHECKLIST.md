@@ -2,6 +2,25 @@
 
 ## Change History
 
+### 2026-03-06 — State-driven TUI UX and read-only narrative state engine
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
+- **Impact:**
+	- Refactored `storycraftr/tui/app.py` to a writer-focused state-driven layout: hidden-by-default `DirectoryTree` with `ctrl+t`/`/toggle-tree`, Narrative and Timeline strips, and slash commands `/chapter <number>` and `/scene <label>` for in-memory focus.
+	- Added `/state` slash command in `storycraftr/tui/app.py` to expose the active narrative snapshot and exact injected state block for user transparency.
+	- Added `storycraftr/tui/state_engine.py` as a read-only narrative state component that parses chapter markdown frontmatter and optional outline YAML arc mappings with safe fallback behavior on malformed files; no autonomous filesystem mutation paths were introduced.
+	- Wired TUI prompt dispatch to prefix a read-only state block before calling existing assistant APIs, preserving core `agents.py` and graph orchestration contracts.
+	- Added and updated TUI-focused unit tests in `tests/unit/test_tui_state_engine.py` and `tests/unit/test_tui_app.py`.
+	- Updated docs for TUI behavior and architecture surfaces (`README.md`, `docs/getting_started.md`, `docs/chat.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `CHANGELOG.md`, `release_notes.md`).
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security tooling policy changes).
+
+### 2026-03-06 — Documentation synchronization for TUI command center and model controls
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Synced architecture and onboarding docs to reflect the Textual TUI module and model-control surface: `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `docs/getting_started.md`, and `docs/chat.md`.
+	- Updated repository-level guidance docs (`AGENTS.md`, `.github/copilot-instructions.md`) to include `storycraftr/tui/` in the canonical layout and architecture map.
+	- Updated `release_notes.md` draft section to include the new TUI slash-command UX (`/help`, `/status`, `/model-list`, `/model-change`) and deterministic sub-agent lock-test seam update.
+- **No impact:** sections 1-7 (no dependency/lockfile updates, no Story/Paper config schema changes, no runtime provider routing changes, no sub-agent lifecycle/IPC contract changes, and no security-tooling policy changes).
+
 ### 2026-03-06 — TUI slash-command UX extension with OpenRouter free-model controls
 - **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
 - **Impact:**

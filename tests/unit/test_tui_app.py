@@ -5,6 +5,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+from rich.markup import render
 
 
 def _load_tui_app():
@@ -201,3 +202,82 @@ def test_change_model_rejects_coroutine_result_from_factory(
     assert "Failed to change model" in result
     assert "returned a coroutine" in result
     assert app.model_override == "old-model"
+
+
+def test_state_output_is_markup_safe_and_preserved(tmp_path, monkeypatch) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    class _FakeInput:
+        def __init__(self, value: str) -> None:
+            self.value = value
+            self.disabled = False
+
+        def focus(self) -> None:
+            return
+
+    class _MarkupCheckingLog:
+        def __init__(self) -> None:
+            self.rendered_plain: list[str] = []
+
+        def write(self, value) -> None:
+            if isinstance(value, str):
+                self.rendered_plain.append(render(value).plain)
+            else:
+                self.rendered_plain.append(str(value))
+
+    fake_log = _MarkupCheckingLog()
+
+    async def _fake_dispatch(_raw: str) -> str:
+        return "[Narrative State]\nActive Chapter: 1\n[/Narrative State]"
+
+    monkeypatch.setattr(app, "_dispatch_slash_command", _fake_dispatch)
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: fake_log)
+
+    event = SimpleNamespace(input=_FakeInput("/state"), value="/state")
+    asyncio.run(app.on_input_submitted(event))
+
+    combined = "\n".join(fake_log.rendered_plain)
+    assert "CLI:" in combined
+    assert "[Narrative State]" in combined
+    assert "[/Narrative State]" in combined
+
+
+def test_error_output_is_markup_safe_when_exception_contains_brackets(
+    tmp_path, monkeypatch
+) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    class _FakeInput:
+        def __init__(self, value: str) -> None:
+            self.value = value
+            self.disabled = False
+
+        def focus(self) -> None:
+            return
+
+    class _MarkupCheckingLog:
+        def __init__(self) -> None:
+            self.rendered_plain: list[str] = []
+
+        def write(self, value) -> None:
+            if isinstance(value, str):
+                self.rendered_plain.append(render(value).plain)
+            else:
+                self.rendered_plain.append(str(value))
+
+    fake_log = _MarkupCheckingLog()
+
+    async def _raising_dispatch(_raw: str) -> str:
+        raise RuntimeError("bad [/Narrative State] [not-a-style]")
+
+    monkeypatch.setattr(app, "_dispatch_slash_command", _raising_dispatch)
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: fake_log)
+
+    event = SimpleNamespace(input=_FakeInput("/state"), value="/state")
+    asyncio.run(app.on_input_submitted(event))
+
+    combined = "\n".join(fake_log.rendered_plain)
+    assert "Error:" in combined
+    assert "bad [/Narrative State] [not-a-style]" in combined

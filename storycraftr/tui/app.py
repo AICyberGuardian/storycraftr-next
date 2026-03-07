@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from rich.markup import escape
 from rich.console import Console
 from textual import on
 from textual.app import App, ComposeResult
@@ -121,14 +122,18 @@ class TuiApp(App[None]):
             return
 
         self.model_override = self.config.llm_model
-        output.write(f"[cyan]Loading assistant for {self.book_path}...[/cyan]")
+        output.write(
+            f"[cyan]Loading assistant for {escape(str(self.book_path))}...[/cyan]"
+        )
         try:
             self.assistant = await asyncio.to_thread(
                 create_or_get_assistant, str(self.book_path)
             )
             self.thread_id = get_thread(str(self.book_path)).id
         except Exception as exc:  # pragma: no cover
-            output.write(f"[red]Assistant initialization failed: {exc}[/red]")
+            output.write(
+                f"[red]Assistant initialization failed: {escape(str(exc))}[/red]"
+            )
             user_input.disabled = True
             return
         output.write(
@@ -144,21 +149,20 @@ class TuiApp(App[None]):
         if not text:
             return
         log = self.query_one(RichLog)
-        log.write(f"[bold cyan]You:[/bold cyan] {text}")
+        log.write(f"[bold cyan]You:[/bold cyan] {escape(text)}")
         event.input.disabled = True
         try:
             if text.startswith("/"):
-                log.write(
-                    f"[bold magenta]CLI:[/bold magenta] {await self._dispatch_slash_command(text)}"
-                )
+                command_result = await self._dispatch_slash_command(text)
+                log.write(f"[bold magenta]CLI:[/bold magenta] {escape(command_result)}")
             else:
                 prompt = await asyncio.to_thread(self.state_engine.compose_prompt, text)
                 response, streamed = await self._run_assistant_turn(prompt)
                 if not streamed:
-                    log.write(f"[bold green]Assistant:[/bold green] {response}")
+                    log.write(f"[bold green]Assistant:[/bold green] {escape(response)}")
                 self.transcript.append({"user": text, "answer": response})
         except Exception as exc:  # pragma: no cover
-            log.write(f"[red]Error: {exc}[/red]")
+            log.write(f"[red]Error: {escape(str(exc))}[/red]")
         finally:
             event.input.disabled = False
             event.input.focus()
@@ -174,7 +178,7 @@ class TuiApp(App[None]):
                 text = str(token)
                 if text:
                     parts.append(text)
-                    self.query_one(RichLog).write(text)
+                    self.query_one(RichLog).write(escape(text))
             return "".join(parts).strip(), True
         response = await asyncio.to_thread(self._invoke_assistant_sync, prompt)
         return response, False

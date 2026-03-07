@@ -4,7 +4,7 @@ Tests for DSVL Phase 1A: Pydantic validation models for narrative state.
 Validates:
 - CharacterState validation rules
 - LocationState validation rules
-- PlotThreadState validation rules  
+- PlotThreadState validation rules
 - NarrativeStateSnapshot cross-entity validation
 """
 

@@ -7,6 +7,9 @@ from typing import Any
 import yaml
 from yaml import YAMLError
 
+from storycraftr.utils.core import load_book_config
+from storycraftr.utils.project_lock import project_write_lock
+
 
 @dataclass(frozen=True)
 class CanonFact:
@@ -179,66 +182,70 @@ def add_fact(
     if not text:
         raise RuntimeError("Canon fact text cannot be empty.")
 
-    data = load_canon(book_path)
-    if not data:
-        data = dict(_DEFAULT_CANON)
+    config = load_book_config(book_path)
+    with project_write_lock(book_path, config=config):
+        data = load_canon(book_path)
+        if not data:
+            data = dict(_DEFAULT_CANON)
 
-    chapters = data.setdefault("chapters", {})
-    if not isinstance(chapters, dict):
-        raise RuntimeError("Invalid canon data: 'chapters' must be a mapping.")
+        chapters = data.setdefault("chapters", {})
+        if not isinstance(chapters, dict):
+            raise RuntimeError("Invalid canon data: 'chapters' must be a mapping.")
 
-    chapter_key = str(chapter)
-    chapter_entry = chapters.setdefault(chapter_key, {"facts": []})
-    if not isinstance(chapter_entry, dict):
-        chapter_entry = {"facts": []}
-        chapters[chapter_key] = chapter_entry
+        chapter_key = str(chapter)
+        chapter_entry = chapters.setdefault(chapter_key, {"facts": []})
+        if not isinstance(chapter_entry, dict):
+            chapter_entry = {"facts": []}
+            chapters[chapter_key] = chapter_entry
 
-    facts = chapter_entry.setdefault("facts", [])
-    if not isinstance(facts, list):
-        facts = []
-        chapter_entry["facts"] = facts
+        facts = chapter_entry.setdefault("facts", [])
+        if not isinstance(facts, list):
+            facts = []
+            chapter_entry["facts"] = facts
 
-    next_id = _next_fact_id(chapters)
-    normalized_type = fact_type.strip() or "constraint"
-    normalized_source = _normalize_source(source)
-    row = {
-        "id": next_id,
-        "text": text,
-        "type": normalized_type,
-        "source": normalized_source,
-    }
-    facts.append(row)
+        next_id = _next_fact_id(chapters)
+        normalized_type = fact_type.strip() or "constraint"
+        normalized_source = _normalize_source(source)
+        row = {
+            "id": next_id,
+            "text": text,
+            "type": normalized_type,
+            "source": normalized_source,
+        }
+        facts.append(row)
 
-    save_canon(book_path, data)
-    return CanonFact(
-        id=next_id,
-        text=text,
-        type=normalized_type,
-        source=normalized_source,
-        chapter=chapter,
-    )
+        save_canon(book_path, data)
+        return CanonFact(
+            id=next_id,
+            text=text,
+            type=normalized_type,
+            source=normalized_source,
+            chapter=chapter,
+        )
 
 
 def clear_chapter_facts(book_path: str, chapter: int) -> int:
     """Clear facts for one chapter and return removed count."""
 
     chapter = max(1, int(chapter))
-    data = load_canon(book_path)
-    chapters = data.get("chapters", {})
-    if not isinstance(chapters, dict):
-        return 0
+    config = load_book_config(book_path)
+    with project_write_lock(book_path, config=config):
+        data = load_canon(book_path)
+        chapters = data.get("chapters", {})
+        if not isinstance(chapters, dict):
+            return 0
 
-    chapter_key = str(chapter)
-    chapter_entry = chapters.get(chapter_key)
-    if not isinstance(chapter_entry, dict):
-        return 0
+        chapter_key = str(chapter)
+        chapter_entry = chapters.get(chapter_key)
+        if not isinstance(chapter_entry, dict):
+            return 0
 
-    rows = chapter_entry.get("facts", [])
-    removed = len(rows) if isinstance(rows, list) else 0
+        rows = chapter_entry.get("facts", [])
+        removed = len(rows) if isinstance(rows, list) else 0
 
-    chapters.pop(chapter_key, None)
-    save_canon(book_path, data)
-    return removed
+        chapters.pop(chapter_key, None)
+        save_canon(book_path, data)
+        return removed
 
 
 def _normalize_source(value: Any) -> str:

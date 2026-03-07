@@ -58,7 +58,6 @@
 	- Added test coverage in `tests/unit/test_tui_app.py` and `tests/unit/test_core_paths.py` for mode command behavior, status visibility, runtime-state round-trip, and session listing behavior.
 	- Synced user/developer docs in `README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `release_notes.md`, and `CHANGELOG.md`.
 - **No impact:** sections 1–7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
-
 ### 2026-03-07 — Canon Guard Phase 1: manual canon ledger and prompt constraints
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

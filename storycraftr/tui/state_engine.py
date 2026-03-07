@@ -141,15 +141,6 @@ class NarrativeStateEngine:
         cleaned = [fact.text.strip() for fact in facts if fact.text.strip()]
         return cleaned[: max(1, max_facts)]
 
-    def build_canon_block(self, facts: list[str]) -> str:
-        """Build prompt-ready active constraints block from canon facts."""
-
-        if not facts:
-            return ""
-        lines = ["[Active Constraints]"]
-        lines.extend(f"- {fact}" for fact in facts if fact.strip())
-        return "\n".join(lines)
-
     def _build_state(self) -> NarrativeState:
         chapters = self._load_chapter_states()
         active_chapter = self._resolve_active_chapter(chapters)

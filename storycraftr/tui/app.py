@@ -290,7 +290,7 @@ class TuiApp(App[None]):
             return self._handle_mode_command(args)
 
         if command == "canon":
-            return await asyncio.to_thread(self._handle_canon_command, args)
+            return self._handle_canon_command(args)
 
         if command == "progress":
             return await asyncio.to_thread(self._build_progress_text)

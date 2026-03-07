@@ -2,6 +2,21 @@
 
 ## Change History
 
+### 2026-03-07 — DSVL Phase 2B: TUI audit trail integration
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Modified `storycraftr/tui/app.py` to add `/state audit` command with subcommand routing pattern.
+	- Changed `_dispatch_slash_command()` to route `/state` to `_handle_state_command(args)` dispatcher.
+	- Added `_handle_state_command()` method to route to `_build_state_text()` (default) or `_build_state_audit_text()` (audit subcommand).
+	- Implemented `_build_state_audit_text(args)` method (~75 lines) for audit history query and formatting.
+	- Filter support: `limit=<n>` for result count, `entity=<id>` for entity filtering, `type=<character|location|plot_thread>` for entity type filtering.
+	- Display format: entry number, timestamp, operation type, actor, patch operation count, changeset modification count, state version.
+	- Error handling: validates filter arguments, checks for disabled audit logging, handles empty audit logs.
+	- Updated TUI help text to include `/state audit [limit=<n>] [entity=<id>] [type=<type>]` command with filter examples.
+	- Added 11 comprehensive tests to `tests/unit/test_tui_app.py` covering all filter combinations, error cases, and disabled audit scenarios.
+	- Updated `CHANGELOG.md` with DSVL Phase 2B entry.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no LLM provider changes, no sub-agent lifecycle changes, no vector-store changes, no VS Code event schema changes, and no security-tooling policy changes). Pure TUI enhancement (display-only) with no core behavior or data model changes.
+
 ### 2026-03-07 — DSVL Phase 2A: Persistent audit trail logging
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

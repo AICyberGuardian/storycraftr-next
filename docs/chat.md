@@ -108,7 +108,6 @@ upstream API is temporarily unavailable.
 
 `/model-change` validates requested OpenRouter models against the current
 free-only discovery catalog; paid, unknown, or unavailable models are rejected.
-
 Long-running sessions now apply rolling transcript compaction: older turns are
 collapsed into a bounded `Session Summary` that is persisted in
 `sessions/session.json`, while the most recent turns remain verbatim in prompt

@@ -88,7 +88,6 @@ def resolve_model_context(
                 max_completion_tokens=dynamic_limits.max_completion_tokens,
                 source="openrouter-live-discovery",
             )
-
     for entry in _MODEL_REGISTRY:
         if provider_key != entry.provider:
             continue
@@ -137,7 +136,6 @@ def compute_input_budget_tokens(
 
     if spec.max_completion_tokens is not None:
         reserve = min(reserve, max(1, spec.max_completion_tokens))
-
     max_reserve = max(1, spec.context_window_tokens - max(1, minimum_input_tokens))
     reserve = min(reserve, max_reserve)
 

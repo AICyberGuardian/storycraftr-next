@@ -19,7 +19,6 @@
 	- Added/updated tests across discovery, model context, factory, TUI context budgeting, TUI command dispatch, and CLI command behavior.
 	- Synced docs in `README.md`, `docs/chat.md`, `docs/getting_started.md`, and `CHANGELOG.md`.
 - **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile updates, no Story/Paper config schema changes, no sub-agent lifecycle contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
-
 ### 2026-03-07 — Post-merge documentation parity sweep (P0-P2)
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

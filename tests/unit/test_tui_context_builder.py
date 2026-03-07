@@ -79,7 +79,6 @@ def test_compose_budgeted_prompt_uses_model_aware_budget(monkeypatch) -> None:
             source="openrouter-live-discovery",
         ),
     )
-
     prompt, budget = compose_budgeted_prompt(
         state=_state(),
         scene_plan=ScenePlan(

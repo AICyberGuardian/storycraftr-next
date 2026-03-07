@@ -11,7 +11,10 @@ from yaml import YAMLError
 
 from storycraftr.agent.story.scene_planner import plan_next_scene
 from storycraftr.tui.canon import list_facts
-from storycraftr.tui.context_builder import build_scoped_context_block
+from storycraftr.tui.context_builder import (
+    build_scoped_context_block,
+    compose_budgeted_prompt,
+)
 
 _CHAPTER_FILE_PATTERN = re.compile(r"^chapter-(\d+)\.md$", re.IGNORECASE)
 _FRONTMATTER_DELIMITER = "---"
@@ -100,11 +103,37 @@ class NarrativeStateEngine:
             ]
         )
 
-    def compose_prompt(self, user_prompt: str) -> str:
-        """Prefix user input with the latest read-only state block."""
+    def compose_prompt(
+        self,
+        user_prompt: str,
+        *,
+        provider: str = "openrouter",
+        model_id: str = "openrouter/free",
+        output_reserve_tokens: int | None = None,
+        retrieved_context: list[str] | None = None,
+        recent_turns: list[str] | None = None,
+    ) -> str:
+        """Compose a model-budgeted prompt with deterministic context pruning."""
 
-        scoped_context = self.build_scoped_context(user_prompt)
-        return f"{scoped_context}\n\n[User Prompt]\n{user_prompt.strip()}"
+        state = self.get_state()
+        canon_facts = self.get_active_canon_facts(state=state)
+        scene_plan = plan_next_scene(
+            active_scene=state.active_scene,
+            active_arc=state.active_arc,
+            user_prompt=user_prompt,
+        )
+        prompt, _ = compose_budgeted_prompt(
+            state=state,
+            scene_plan=scene_plan,
+            canon_facts=canon_facts,
+            user_prompt=user_prompt,
+            provider=provider,
+            model_id=model_id,
+            output_reserve_tokens=output_reserve_tokens,
+            retrieved_context=retrieved_context,
+            recent_turns=recent_turns,
+        )
+        return prompt
 
     def build_scoped_context(
         self,

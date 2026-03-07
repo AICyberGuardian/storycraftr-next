@@ -100,6 +100,9 @@ class TuiApp(App[None]):
     ]
 
     _FREE_MODEL_CACHE_TTL_SECONDS = 300
+    _SUMMARY_TRIGGER_TURNS = 8
+    _SUMMARY_KEEP_RECENT_TURNS = 3
+    _SUMMARY_MAX_LENGTH = 1200
 
     def __init__(self, *, book_path: str | None = None) -> None:
         super().__init__()
@@ -122,7 +125,10 @@ class TuiApp(App[None]):
         self.pending_canon_candidates: list[CanonCandidate] = []
         self._hybrid_extract_manager: SubAgentJobManager | None = None
         self.execution_mode = ExecutionMode.MANUAL
+        self._session_summary = ""
+        self._session_compacted_turns = 0
         self._load_execution_mode()
+        self._load_session_summary_state()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -203,11 +209,21 @@ class TuiApp(App[None]):
                 log.write(f"[green][Done][/green] {escape(text)}")
                 log.write(f"[bold magenta]CLI:[/bold magenta] {escape(command_result)}")
             else:
-                prompt = await asyncio.to_thread(self.state_engine.compose_prompt, text)
+                prompt = await asyncio.to_thread(
+                    self.state_engine.compose_prompt,
+                    text,
+                    provider=self._active_provider(),
+                    model_id=self._active_model(),
+                    output_reserve_tokens=(
+                        self.config.max_tokens if self.config is not None else None
+                    ),
+                    recent_turns=self._recent_turns_for_prompt(),
+                )
                 response, streamed = await self._run_assistant_turn(prompt)
                 if not streamed:
                     log.write(f"[bold green]Assistant:[/bold green] {escape(response)}")
                 self.transcript.append({"user": text, "answer": response})
+                self._roll_session_summary_if_needed()
                 await self._maybe_queue_hybrid_canon_candidates(response)
         except Exception as exc:  # pragma: no cover
             if text.startswith("/"):
@@ -286,6 +302,12 @@ class TuiApp(App[None]):
         if command == "state":
             return await self._build_state_text()
 
+        if command == "summary":
+            return self._handle_summary_command(args)
+
+        if command == "context":
+            return await self._build_context_text()
+
         if command == "mode":
             return self._handle_mode_command(args)
 
@@ -359,6 +381,81 @@ class TuiApp(App[None]):
             return self.config.llm_provider
         return "<unknown>"
 
+    def _recent_turns_for_prompt(self, max_turns: int = 3) -> list[str]:
+        """Return a small transcript tail for prompt continuity under budget."""
+
+        if max_turns <= 0:
+            return []
+
+        rendered: list[str] = []
+        if self._session_summary:
+            rendered.append(f"Session Summary: {self._session_summary}")
+
+        tail = self.transcript[-max_turns:]
+        for turn in tail:
+            user_text = str(turn.get("user", "")).strip()
+            assistant_text = str(turn.get("answer", "")).strip()
+            if user_text:
+                rendered.append(f"User: {user_text}")
+            if assistant_text:
+                rendered.append(f"Assistant: {assistant_text}")
+        return rendered
+
+    def _roll_session_summary_if_needed(self) -> None:
+        """Compact older transcript turns into a bounded rolling summary."""
+
+        if len(self.transcript) <= self._SUMMARY_TRIGGER_TURNS:
+            return
+
+        compact_until = max(0, len(self.transcript) - self._SUMMARY_KEEP_RECENT_TURNS)
+        if compact_until <= self._session_compacted_turns:
+            return
+
+        fresh_slice = self.transcript[self._session_compacted_turns : compact_until]
+        fresh_summary = self._summarize_turn_slice(fresh_slice)
+        if not fresh_summary:
+            self._session_compacted_turns = compact_until
+            return
+
+        if self._session_summary:
+            combined = f"{self._session_summary} | {fresh_summary}"
+        else:
+            combined = fresh_summary
+
+        self._session_summary = self._truncate_summary(combined)
+        self._session_compacted_turns = compact_until
+        self._persist_runtime_state_patch({"session_summary": self._session_summary})
+
+    def _summarize_turn_slice(self, turns: list[dict[str, Any]]) -> str:
+        """Build a deterministic compact summary for a transcript slice."""
+
+        snippets: list[str] = []
+        for turn in turns:
+            user_text = self._compact_summary_text(str(turn.get("user", "")), 80)
+            answer_text = self._compact_summary_text(str(turn.get("answer", "")), 80)
+            if user_text:
+                snippets.append(f"U:{user_text}")
+            if answer_text:
+                snippets.append(f"A:{answer_text}")
+            if len(snippets) >= 12:
+                break
+        return "; ".join(snippets)
+
+    def _compact_summary_text(self, text: str, max_chars: int) -> str:
+        collapsed = " ".join(text.split()).strip()
+        if not collapsed:
+            return ""
+        if len(collapsed) <= max_chars:
+            return collapsed
+        if max_chars <= 3:
+            return collapsed[:max_chars]
+        return collapsed[: max_chars - 3].rstrip() + "..."
+
+    def _truncate_summary(self, text: str) -> str:
+        if len(text) <= self._SUMMARY_MAX_LENGTH:
+            return text
+        return text[-self._SUMMARY_MAX_LENGTH :]
+
     def action_toggle_tree(self) -> None:
         self._toggle_tree_visibility()
 
@@ -423,6 +520,8 @@ class TuiApp(App[None]):
             "project": [
                 "/status",
                 "/state",
+                "/summary [clear]",
+                "/context",
                 "/mode <manual|hybrid|autopilot>",
                 "/clear",
                 "/toggle-tree",
@@ -502,6 +601,58 @@ class TuiApp(App[None]):
         ]
         return "\n".join(lines)
 
+    async def _build_context_text(self) -> str:
+        """Render prompt-context diagnostics for summary and tail context."""
+
+        recent = self._recent_turns_for_prompt()
+        summary_text = self._session_summary
+        lines = [
+            "Prompt Context Diagnostics",
+            f"- Provider: {self._active_provider()}",
+            f"- Model: {self._active_model()}",
+            f"- Transcript turns: {len(self.transcript)}",
+            f"- Compacted turns: {self._session_compacted_turns}",
+            f"- Summary present: {'yes' if summary_text else 'no'}",
+            f"- Summary chars: {len(summary_text)}",
+            f"- Recent prompt lines: {len(recent)}",
+        ]
+        if summary_text:
+            lines.extend(
+                [
+                    "",
+                    "Session Summary Preview",
+                    self._compact_summary_text(summary_text, 220),
+                ]
+            )
+        return "\n".join(lines)
+
+    def _handle_summary_command(self, args: list[str]) -> str:
+        """Inspect or clear the rolling session summary used for prompt continuity."""
+
+        if args and args[0].lower() == "clear":
+            self._session_summary = ""
+            self._session_compacted_turns = len(self.transcript)
+            try:
+                self._persist_runtime_state_patch({"session_summary": ""})
+            except Exception as exc:
+                return f"Failed to clear session summary: {exc}"
+            return "Session summary cleared."
+
+        if args:
+            return "Usage: /summary [clear]"
+
+        lines = [
+            "Session Summary",
+            f"- Transcript turns: {len(self.transcript)}",
+            f"- Compacted turns: {self._session_compacted_turns}",
+            f"- Summary chars: {len(self._session_summary)}",
+        ]
+        if self._session_summary:
+            lines.extend(["", self._session_summary])
+        else:
+            lines.append("- Summary text: <empty>")
+        return "\n".join(lines)
+
     def _build_progress_text(self) -> str:
         """Render project generation checkpoints from known output files."""
 
@@ -555,6 +706,12 @@ class TuiApp(App[None]):
             scoped_prompt = await asyncio.to_thread(
                 self.state_engine.compose_prompt,
                 user_prompt,
+                provider=self._active_provider(),
+                model_id=self._active_model(),
+                output_reserve_tokens=(
+                    self.config.max_tokens if self.config is not None else None
+                ),
+                recent_turns=self._recent_turns_for_prompt(),
             )
             response = await asyncio.to_thread(
                 self._invoke_assistant_sync, scoped_prompt
@@ -565,6 +722,7 @@ class TuiApp(App[None]):
                     "answer": response,
                 }
             )
+            self._roll_session_summary_if_needed()
 
             candidates = await self._extract_candidates_with_hybrid_worker(
                 response=response,
@@ -619,7 +777,7 @@ class TuiApp(App[None]):
 
         self.execution_mode = requested
         try:
-            self.session_manager.save_runtime_state(
+            self._persist_runtime_state_patch(
                 {"execution_mode": self.execution_mode.value}
             )
         except Exception as exc:
@@ -645,6 +803,23 @@ class TuiApp(App[None]):
         mode = self._parse_execution_mode(state.get("execution_mode"))
         if mode is not None:
             self.execution_mode = mode
+
+    def _load_session_summary_state(self) -> None:
+        """Restore compact session summary from runtime metadata."""
+
+        state = self.session_manager.load_runtime_state()
+        summary_raw = state.get("session_summary")
+        if isinstance(summary_raw, str):
+            self._session_summary = self._truncate_summary(summary_raw.strip())
+        else:
+            self._session_summary = ""
+
+    def _persist_runtime_state_patch(self, updates: dict[str, Any]) -> None:
+        """Persist runtime metadata updates without clobbering sibling keys."""
+
+        state = self.session_manager.load_runtime_state()
+        state.update(updates)
+        self.session_manager.save_runtime_state(state)
 
     def _refresh_mode_indicator(self) -> None:
         """Render the footer-adjacent mode indicator in the TUI."""

@@ -293,3 +293,32 @@ chapters:
 
     assert "Chapter two fact." in prompt
     assert "Chapter one fact." not in prompt
+
+
+def test_compose_prompt_includes_recent_turns_when_budget_allows(tmp_path) -> None:
+    _write(
+        tmp_path / "chapters" / "chapter-1.md",
+        """---
+title: Arrival
+scene: Setup
+arc: Act I
+---
+# Chapter 1
+Body
+""",
+    )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+    prompt = engine.compose_prompt(
+        "Continue the chapter.",
+        provider="openrouter",
+        model_id="openrouter/free",
+        output_reserve_tokens=4096,
+        recent_turns=[
+            "User: tighten POV",
+            "Assistant: tightened POV and sensory detail",
+        ],
+    )
+
+    assert "[Recent Turns]" in prompt
+    assert "User: tighten POV" in prompt

@@ -2,8 +2,9 @@
 
 ## Scope
 
-This document is the canonical architecture reference for StoryCraftr-Next.
-It focuses on current, verified behavior and omits speculative roadmap content.
+This document is the deep architecture reference for StoryCraftr-Next.
+For routine contributor onboarding, start with `docs/architecture-onboarding.md`.
+This file is intentionally secondary and deeper.
 
 Current development target: `v0.16` (`0.16.0-dev`).
 
@@ -34,7 +35,8 @@ StoryCraftr-Next is a local-first writing platform with:
 - `storycraftr/agent/assistant_cache.py`: assistant cache key generation and lock-guarded cache helpers.
 - `storycraftr/agent/vector_hydration.py`: vector-store refresh/hydration and markdown ingestion helpers.
 - `storycraftr/graph/assistant_graph.py`: LCEL graph composition (`answer` + `documents`).
-- `storycraftr/llm/factory.py`: provider/model/endpoint validation and chat model construction.
+- `storycraftr/llm/factory.py`: provider/model/endpoint validation, chat model construction, and OpenRouter retry/backoff/fallback resilience wrapper.
+- `storycraftr/llm/model_context.py`: in-repo model-context registry used to compute prompt input budgets.
 - `storycraftr/llm/credentials.py`: credential resolution order and keyring helper.
 - `storycraftr/llm/embeddings.py`: embedding client construction.
 - `storycraftr/vectorstores/chroma.py`: persistent Chroma setup.
@@ -96,7 +98,7 @@ Default logical locations:
 ## TUI Command Center
 
 - The TUI is a thin UI layer over existing assistant/chat APIs and does not replace core generation logic.
-- It supports slash-command UX including `/help`, `/status`, `/mode <manual|hybrid|autopilot>`, `/autopilot <steps> <prompt>`, `/state`, `/progress`, `/wizard`, `/pipeline`, `/canon`, `/toggle-tree`, `/chapter <number>`, `/scene <label>`, `/session ...`, `/sub-agent ...`, `/model-list`, and `/model-change <model_id>`.
+- It supports slash-command UX including `/help`, `/status`, `/mode <manual|hybrid|autopilot>`, `/autopilot <steps> <prompt>`, `/state`, `/summary [clear]`, `/context`, `/progress`, `/wizard`, `/pipeline`, `/canon`, `/toggle-tree`, `/chapter <number>`, `/scene <label>`, `/session ...`, `/sub-agent ...`, `/model-list`, and `/model-change <model_id>`.
 - The project tree defaults to hidden and can be shown on-demand for filesystem inspection.
 - `/model-list` uses OpenRouter `/api/v1/models` metadata and filters free models by zero prompt/completion pricing.
 - `/model-change` rebuilds the active TUI assistant via existing safe assistant creation paths with model override, while preserving project and retrieval context and reporting continuity limits explicitly.
@@ -104,14 +106,16 @@ Default logical locations:
 - In `hybrid` mode, assistant outputs are heuristically mined for pending canon candidates on the `SubAgentJobManager` worker pool and must be explicitly approved (`/canon accept ...`) before ledger commit.
 - In `autopilot` mode, `/autopilot` runs bounded assistant turns and verifies extracted canon candidates before commit; duplicates and contradiction-like candidates are skipped (fail-closed).
 - Prompt construction is scene-scoped to control token usage: state engine composes `[Scene Plan]` + `[Scoped Context]` blocks and limits constraints/retrieval snippets before appending user input.
+- Prompt budgeting is model-aware: context builder resolves model context window + output reserve and applies deterministic pruning order under budget pressure.
 - `/mode` persists execution control state to `sessions/session.json` and drives a visible footer-region mode indicator (`[ MODE: ... ]`) to avoid accidental autonomy escalation.
+- Rolling session compaction persists compacted summary state to `sessions/session.json`; `/summary` and `/context` provide writer-visible diagnostics for summary/tail prompt context.
 - Normal user prompts are prefixed in the TUI layer with a compact scene-scoped block before dispatch to existing assistant execution APIs.
 
 ## Sub-Agent System
 
 - Roles are defined as YAML-backed models (`storycraftr/subagents/models.py`, `storage.py`, `defaults.py`).
 - Jobs run via `SubAgentJobManager` (`storycraftr/subagents/jobs.py`).
-- Lifecycle states include `pending`, `running`, `succeeded`, and `failed`.
+- Lifecycle includes cooldown checkpoints for transient provider exhaustion: `pending` -> `running` -> optional `model_exhausted` -> retry or terminal `succeeded`/`failed`.
 - Logs are persisted for diagnostics and reproducibility.
 
 ## VS Code Integration Contract
@@ -148,7 +152,8 @@ For onboarding and architecture understanding, read in this order:
 1. `AGENTS.md`
 2. `.github/copilot-instructions.md`
 3. `docs/architecture-onboarding.md`
-4. This file (deep reference)
+4. `README.md` if the change is user-facing
+5. This file only when you need deeper subsystem detail
 
 ## Out of Scope
 

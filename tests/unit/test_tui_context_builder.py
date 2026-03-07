@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from storycraftr.agent.story.scene_planner import ScenePlan
-from storycraftr.tui.context_builder import build_scoped_context_block
+from storycraftr.tui.context_builder import (
+    build_scoped_context_block,
+    compose_budgeted_prompt,
+)
 from storycraftr.tui.state_engine import NarrativeState
 
 
@@ -61,3 +64,75 @@ def test_build_scoped_context_block_dedupes_and_caps_inputs() -> None:
     assert "Chunk four." not in block
     assert ("A" * 180) in block
     assert "..." in block
+
+
+def test_compose_budgeted_prompt_uses_model_aware_budget() -> None:
+    prompt, budget = compose_budgeted_prompt(
+        state=_state(),
+        scene_plan=ScenePlan(
+            goal="Escalate.",
+            conflict="Collapse.",
+            outcome="Shift.",
+        ),
+        canon_facts=["Mira is the ship navigator."],
+        user_prompt="Continue the scene with pressure.",
+        provider="openrouter",
+        model_id="openrouter/free",
+        output_reserve_tokens=4096,
+        retrieved_context=["Bridge logs confirm sabotage."],
+        recent_turns=["User: tighten pacing", "Assistant: pacing tightened"],
+    )
+
+    assert budget.context_window_tokens == 32768
+    assert budget.output_reserve_tokens == 4096
+    assert budget.input_budget_tokens == 28672
+    assert "[Scene Plan]" in prompt
+    assert "[User Prompt]" in prompt
+
+
+def test_compose_budgeted_prompt_prunes_in_priority_order() -> None:
+    huge = "X" * 15000
+    prompt, _ = compose_budgeted_prompt(
+        state=_state(),
+        scene_plan=ScenePlan(
+            goal="Keep chapter continuity.",
+            conflict="Pacing pressure rises.",
+            outcome="Land on a sharp pivot.",
+        ),
+        canon_facts=[
+            f"Canon fact one {huge}",
+            f"Canon fact two {huge}",
+        ],
+        user_prompt="Continue the chapter.",
+        provider="unknown",
+        model_id="unknown",
+        output_reserve_tokens=7900,
+        retrieved_context=[
+            huge,
+            huge,
+            huge,
+            huge,
+            huge,
+            huge,
+            huge,
+            huge,
+        ],
+        recent_turns=[
+            f"User: {huge}",
+            f"Assistant: {huge}",
+            f"User: {huge}",
+            f"Assistant: {huge}",
+            f"User: {huge}",
+            f"Assistant: {huge}",
+            f"User: {huge}",
+            f"Assistant: {huge}",
+        ],
+        max_retrieval_chunks=8,
+        max_recent_turns=8,
+    )
+
+    # Lower-priority sections should disappear before high-priority constraints.
+    if "[Recent Turns]" not in prompt:
+        assert "[Relevant Context]" not in prompt
+    assert "[Active Constraints]" in prompt
+    assert "Canon fact one" in prompt

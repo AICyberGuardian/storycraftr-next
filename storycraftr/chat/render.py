@@ -93,10 +93,11 @@ def render_footer(
     )
     jobs = job_stats or {}
     job_text = Text(
-        f"Sub-Agents — pending:{jobs.get('pending',0)} "
-        f"running:{jobs.get('running',0)} "
-        f"succeeded:{jobs.get('succeeded',0)} "
-        f"failed:{jobs.get('failed',0)}",
+        f"Sub-Agents — pending:{jobs.get('pending', 0)} "
+        f"running:{jobs.get('running', 0)} "
+        f"model_exhausted:{jobs.get('model_exhausted', 0)} "
+        f"succeeded:{jobs.get('succeeded', 0)} "
+        f"failed:{jobs.get('failed', 0)}",
         style="magenta",
     )
     console.print(

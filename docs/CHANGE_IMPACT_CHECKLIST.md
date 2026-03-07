@@ -2,6 +2,75 @@
 
 ## Change History
 
+### 2026-03-07 — Post-merge documentation parity sweep (P0-P2)
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `docs/getting_started.md` to reflect OpenRouter fallback resilience, TUI model-aware budgeting and rolling summary context, `/summary` + `/context`, and sub-agent `model_exhausted` cooldown-retry behavior.
+	- Updated `release_notes.md` with a consolidated 2026-03-07 draft section covering prompt budgeting, rolling compaction diagnostics, and sub-agent cooldown lifecycle.
+	- Updated canonical contributor/architecture contracts in `.github/copilot-instructions.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, and `docs/contributor-reference.md` to align with the current sub-agent lifecycle and behavior-default location.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (documentation-only sync; no dependency/lockfile, runtime config schema, LLM routing code, sub-agent implementation code, vector-store/path contracts, VS Code event schema, or security-tooling behavior changed).
+
+### 2026-03-07 — P2 sub-agent model exhaustion cooldown + retry checkpoint
+- **Sections reviewed:** 4 (Sub-Agents & Background Jobs), 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/subagents/jobs.py` to add a `model_exhausted` lifecycle checkpoint for transient model-capacity/rate-limit failures, including bounded cooldown, one retry attempt, and persisted checkpoint metadata (`attempts`, `cooldown_until`).
+	- Updated `storycraftr/chat/render.py` session footer to surface `model_exhausted` job counts alongside pending/running/succeeded/failed.
+	- Added regressions in `tests/unit/test_subagent_jobs.py` for cooldown retry success and in-cooldown stats visibility.
+	- Synced docs in `docs/chat.md` and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 5, 6, and 7 (no dependency/lockfile updates, no Story/Paper config schema changes, no LLM provider factory contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — P1.5 TUI compaction diagnostics + canonical doc sync
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/app.py` with diagnostic commands `/summary` (`/summary clear`) and `/context` so users can inspect rolling session summary state and prompt-context composition.
+	- Added TUI regressions in `tests/unit/test_tui_app.py` for summary reporting, summary clearing persistence, context diagnostics output, and help text command discovery.
+	- Synced user and canonical architecture docs in `README.md`, `docs/chat.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `.github/copilot-instructions.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile updates, no Story/Paper config schema changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Unified contributor reference catalog
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `docs/contributor-reference.md` as a single shareable reference for contributors and AI agents covering mandatory reading, file categories, per-file summaries, and update-sync rules.
+	- Updated `docs/architecture-onboarding.md` to point to the new contributor reference for the detailed file-by-file catalog and maintenance matrix.
+- **No impact:** sections 1–7 (documentation-only consolidation; no dependency, config, LLM, sub-agent, vector-store, IPC, or security-tooling behavior changed).
+
+### 2026-03-07 — Contributor doc surface consolidation via onboarding guide
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Expanded `docs/architecture-onboarding.md` into the single contributor-facing reading guide, including the minimum mandatory doc set, area-specific references, junior-dev starter order, and the current `behavior.txt` documentation gap.
+	- Repositioned `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md` as a deep reference instead of part of the minimum must-read set.
+	- Updated contributor entry points in `README.md` and `CONTRIBUTING.md` to send developers first to `docs/architecture-onboarding.md`.
+- **No impact:** sections 1–7 (documentation-only consolidation; no dependency, config, LLM, sub-agent, vector-store, IPC, or security-tooling behavior changed).
+
+### 2026-03-07 — P1 rolling session summary compaction boundary
+- **Sections reviewed:** 4 (Sub-Agents & Background Jobs), 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/app.py` to add deterministic rolling transcript compaction for long sessions: older turns are collapsed into a bounded `Session Summary`, recent turns remain verbatim, and summary context is injected through existing budgeted prompt composition.
+	- Persisted compact summary state in `sessions/session.json` via runtime-state merge writes so mode/session metadata keys no longer clobber one another.
+	- Added regressions in `tests/unit/test_tui_app.py` covering summary injection and runtime-state preservation when changing execution mode.
+	- Synced docs in `README.md`, `docs/chat.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 5, 6, and 7 (no dependency/lockfile updates, no Story/Paper config schema changes, no provider routing contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — P1 OpenRouter native resilience in factory layer
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/llm/factory.py` to wrap OpenRouter models with native resilience (`_ResilientOpenRouterChatModel`) that performs bounded exponential-backoff retries for transient failures (rate limit, timeout, connection) and explicit fallback traversal.
+	- Added configurable OpenRouter fallback chain support via `STORYCRAFTR_OPENROUTER_FALLBACK_MODELS`; factory fallback order now appends `openrouter/free` when primary differs.
+	- Added resolved provider/model logging for successful OpenRouter calls in the resilience wrapper.
+	- Expanded `tests/unit/test_llm_factory.py` for wrapper construction, fallback chain parsing, retry success, and fallback-after-retry-exhaustion behavior while preserving existing provider validation coverage.
+	- Synced docs in `README.md` and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile updates, no Story/Paper config schema changes, no sub-agent lifecycle contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — P0 model-aware token budget gate + model-context registry
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/llm/model_context.py` with a small in-repo model-context registry, conservative unknown-model fallback, and input-budget computation (`context_window - output_reserve`).
+	- Added deterministic, model-aware prompt compaction in `storycraftr/tui/context_builder.py` via `compose_budgeted_prompt(...)` with explicit pruning order: active constraints, scoped scene context, recent turns, retrieval chunks, then low-priority state strips.
+	- Updated `storycraftr/tui/state_engine.py` and `storycraftr/tui/app.py` to pass active provider/model and reserved output tokens into budgeted prompt composition for both interactive and autopilot turns.
+	- Added regressions in `tests/unit/test_model_context.py`, `tests/unit/test_tui_context_builder.py`, and `tests/unit/test_tui_state_engine.py`.
+	- Synced docs in `README.md`, `docs/chat.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile updates, no Story/Paper config schema changes, no sub-agent lifecycle contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — StoryCraftr Engineering Agent Context7 usage contract update
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

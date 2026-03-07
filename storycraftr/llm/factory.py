@@ -15,6 +15,7 @@ from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from rich.console import Console
 
 from storycraftr.llm.credentials import credential_lookup_details
+from storycraftr.llm.openrouter_discovery import is_model_free
 
 console = Console()
 
@@ -287,6 +288,16 @@ def _openrouter_fallback_chain(primary_model: str) -> list[str]:
     return [model for model in chain if model != primary_model]
 
 
+def _ensure_openrouter_model_is_free(model_name: str) -> None:
+    if is_model_free(model_name):
+        return
+    raise LLMConfigurationError(
+        "OpenRouter model validation failed for free-only mode. "
+        f"Model '{model_name}' is not currently listed as free, unknown, or unavailable. "
+        "Use a current free model ID from /model-list or storycraftr model-list."
+    )
+
+
 class _ResilientOpenRouterChatModel(BaseChatModel):
     """OpenRouter wrapper with bounded retry/backoff and explicit fallbacks."""
 
@@ -431,6 +442,9 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
         if headers:
             params["default_headers"] = headers
 
+        if provider == "openrouter":
+            _ensure_openrouter_model_is_free(model_name)
+
         try:
             primary_model = ChatOpenAI(api_key=api_key, **params)
         except Exception as exc:
@@ -448,6 +462,14 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
         fallback_models: list[Any] = []
         model_sequence = [model_name]
         for fallback_model_name in _openrouter_fallback_chain(model_name):
+            try:
+                _ensure_openrouter_model_is_free(fallback_model_name)
+            except LLMConfigurationError as exc:
+                console.print(
+                    "[yellow]Warning: skipping OpenRouter fallback model "
+                    f"'{fallback_model_name}' because it is not free: {exc}[/yellow]"
+                )
+                continue
             fallback_params = dict(params)
             fallback_params["model"] = fallback_model_name
             try:

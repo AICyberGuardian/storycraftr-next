@@ -2,6 +2,17 @@
 
 ## Change History
 
+### 2026-03-07 — Dynamic OpenRouter free-model discovery + strict free-only validation
+- **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/llm/openrouter_discovery.py` with dynamic OpenRouter catalog fetch (`/api/v1/models`), free-model filtering, typed metadata parsing, user-local cache (`~/.storycraftr/openrouter-models-cache.json`), default 6-hour TTL, stale-cache fallback, and minimal emergency fallback.
+	- Updated `storycraftr/llm/model_context.py` to prioritize discovery-driven OpenRouter limits (context length + max completion tokens) for budgeting while preserving conservative registry defaults/fallback behavior for unknown or unavailable discovery data.
+	- Updated `storycraftr/llm/factory.py` to enforce strict free-only validation for OpenRouter primary/fallback models before provider initialization, preventing paid or unknown model usage in free-only mode.
+	- Updated model discovery UX surfaces: TUI `/model-list` now shows discovered limits with `/model-list refresh`; added CLI `model-list` command with `--refresh`.
+	- Added/updated tests across discovery, model context, factory, TUI context budgeting, TUI command dispatch, and CLI command behavior.
+	- Synced docs in `README.md`, `docs/chat.md`, `docs/getting_started.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile updates, no Story/Paper config schema changes, no sub-agent lifecycle contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Post-merge documentation parity sweep (P0-P2)
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

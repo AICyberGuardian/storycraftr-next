@@ -36,7 +36,8 @@ StoryCraftr-Next is a local-first writing platform with:
 - `storycraftr/agent/vector_hydration.py`: vector-store refresh/hydration and markdown ingestion helpers.
 - `storycraftr/graph/assistant_graph.py`: LCEL graph composition (`answer` + `documents`).
 - `storycraftr/llm/factory.py`: provider/model/endpoint validation, chat model construction, and OpenRouter retry/backoff/fallback resilience wrapper.
-- `storycraftr/llm/model_context.py`: in-repo model-context registry used to compute prompt input budgets.
+- `storycraftr/llm/openrouter_discovery.py`: dynamic OpenRouter model discovery, free-model filtering, limits extraction, and user-local catalog caching.
+- `storycraftr/llm/model_context.py`: dynamic-first model limit resolution for budgeting (OpenRouter) plus conservative in-repo fallback registry.
 - `storycraftr/llm/credentials.py`: credential resolution order and keyring helper.
 - `storycraftr/llm/embeddings.py`: embedding client construction.
 - `storycraftr/vectorstores/chroma.py`: persistent Chroma setup.
@@ -100,13 +101,13 @@ Default logical locations:
 - The TUI is a thin UI layer over existing assistant/chat APIs and does not replace core generation logic.
 - It supports slash-command UX including `/help`, `/status`, `/mode <manual|hybrid|autopilot>`, `/autopilot <steps> <prompt>`, `/state`, `/summary [clear]`, `/context`, `/progress`, `/wizard`, `/pipeline`, `/canon`, `/toggle-tree`, `/chapter <number>`, `/scene <label>`, `/session ...`, `/sub-agent ...`, `/model-list`, and `/model-change <model_id>`.
 - The project tree defaults to hidden and can be shown on-demand for filesystem inspection.
-- `/model-list` uses OpenRouter `/api/v1/models` metadata and filters free models by zero prompt/completion pricing.
+- `/model-list` reads from dynamic OpenRouter free-model discovery cache and supports `/model-list refresh` to force catalog refresh.
 - `/model-change` rebuilds the active TUI assistant via existing safe assistant creation paths with model override, while preserving project and retrieval context and reporting continuity limits explicitly.
 - `/canon` commands persist chapter-scoped accepted constraints in `outline/canon.yml`; state-engine prompt assembly injects these as `[Active Constraints]` for the active chapter.
 - In `hybrid` mode, assistant outputs are heuristically mined for pending canon candidates on the `SubAgentJobManager` worker pool and must be explicitly approved (`/canon accept ...`) before ledger commit.
 - In `autopilot` mode, `/autopilot` runs bounded assistant turns and verifies extracted canon candidates before commit; duplicates and contradiction-like candidates are skipped (fail-closed).
 - Prompt construction is scene-scoped to control token usage: state engine composes `[Scene Plan]` + `[Scoped Context]` blocks and limits constraints/retrieval snippets before appending user input.
-- Prompt budgeting is model-aware: context builder resolves model context window + output reserve and applies deterministic pruning order under budget pressure.
+- Prompt budgeting is model-aware: context builder resolves model context window + output reserve (including discovered max completion limits for OpenRouter models) and applies deterministic pruning order under budget pressure.
 - `/mode` persists execution control state to `sessions/session.json` and drives a visible footer-region mode indicator (`[ MODE: ... ]`) to avoid accidental autonomy escalation.
 - Rolling session compaction persists compacted summary state to `sessions/session.json`; `/summary` and `/context` provide writer-visible diagnostics for summary/tail prompt context.
 - Normal user prompts are prefixed in the TUI layer with a compact scene-scoped block before dispatch to existing assistant execution APIs.

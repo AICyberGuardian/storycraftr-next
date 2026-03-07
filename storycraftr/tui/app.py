@@ -354,7 +354,11 @@ class TuiApp(App[None]):
             return "Already in chat mode."
 
         if command == "model-list":
-            return await asyncio.to_thread(self._render_model_list)
+            force_refresh = bool(args and args[0].lower() == "refresh")
+            return await asyncio.to_thread(
+                self._render_model_list,
+                force_refresh,
+            )
 
         if command == "model-change":
             if not args:
@@ -531,6 +535,7 @@ class TuiApp(App[None]):
                 "/session save <name>",
                 "/session load <name>",
                 "/model-list",
+                "/model-list refresh",
                 "/model-change <model_id>",
                 "Ctrl+L (toggle focus mode)",
             ],
@@ -1382,14 +1387,17 @@ class TuiApp(App[None]):
         ):
             return self._cached_free_models
 
-        models = fetch_free_openrouter_models(api_key=self._openrouter_api_key())
+        models = fetch_free_openrouter_models(
+            api_key=self._openrouter_api_key(),
+            force_refresh=force_refresh,
+        )
         self._cached_free_models = models
         self._cached_free_models_at = now
         return models
 
-    def _render_model_list(self) -> str:
+    def _render_model_list(self, force_refresh: bool = False) -> str:
         try:
-            models = self._get_free_models(force_refresh=True)
+            models = self._get_free_models(force_refresh=force_refresh)
         except Exception as exc:
             if self._cached_free_models:
                 lines = [
@@ -1397,7 +1405,10 @@ class TuiApp(App[None]):
                     "Using cached free model list:",
                 ]
                 lines.extend(
-                    f"- {model.model_id} - {model.label}"
+                    "- "
+                    f"{model.model_id} | context={model.context_length} | "
+                    f"max_completion={model.max_completion_tokens or 'unknown'} | "
+                    f"{model.label}"
                     for model in self._cached_free_models
                 )
                 return "\n".join(lines)
@@ -1407,7 +1418,13 @@ class TuiApp(App[None]):
             return "No free OpenRouter models were found in the current API response."
 
         lines = ["Free OpenRouter Models"]
-        lines.extend(f"- {model.model_id} - {model.label}" for model in models)
+        lines.extend(
+            "- "
+            f"{model.model_id} | context={model.context_length} | "
+            f"max_completion={model.max_completion_tokens or 'unknown'} | "
+            f"{model.label}"
+            for model in models
+        )
         return "\n".join(lines)
 
     async def _change_model(self, model_id: str) -> str:

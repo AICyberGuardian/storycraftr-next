@@ -55,7 +55,8 @@ explicit attributes.
 - `storycraftr/agent/vector_hydration.py`: vector-store refresh/hydration and markdown ingestion helpers.
 - `storycraftr/graph/assistant_graph.py`: LCEL retrieval plus answer graph.
 - `storycraftr/llm/factory.py`: provider selection/validation plus OpenRouter retry/backoff/fallback wrapper.
-- `storycraftr/llm/model_context.py`: model-context registry and input-budget computation helpers for prompt gating.
+- `storycraftr/llm/openrouter_discovery.py`: dynamic OpenRouter free-model discovery, limits metadata, and user-local cached catalog.
+- `storycraftr/llm/model_context.py`: dynamic-first model-limit resolution (OpenRouter) plus conservative fallback registry and input-budget computation helpers.
 - `storycraftr/llm/credentials.py`: env -> keyring -> legacy fallback credential lookup.
 - `storycraftr/llm/embeddings.py`: embedding model creation.
 - `storycraftr/vectorstores/chroma.py`: persistent Chroma setup.

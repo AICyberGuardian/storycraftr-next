@@ -6,6 +6,7 @@ from rich.console import Console
 from pathlib import Path
 from storycraftr.utils.cleanup import cleanup_vector_stores
 from storycraftr.llm.credentials import load_local_credentials
+from storycraftr.llm.openrouter_discovery import get_free_models
 
 console = Console()
 
@@ -391,6 +392,38 @@ def cleanup(book_path, force):
         project_not_initialized_error(book_path)
 
 
+@click.command(name="model-list")
+@click.option(
+    "--refresh",
+    is_flag=True,
+    default=False,
+    help="Force refresh from OpenRouter before reading local cache.",
+)
+def model_list(refresh):
+    """List currently free OpenRouter models and discovered limits."""
+
+    try:
+        models = get_free_models(force_refresh=refresh)
+    except Exception as exc:
+        raise click.ClickException(f"Failed to load OpenRouter model catalog: {exc}")
+
+    if not models:
+        console.print("[yellow]No free OpenRouter models were discovered.[/yellow]")
+        return
+
+    header = "id | context_length | max_completion_tokens | free"
+    console.print(header)
+    for model in models:
+        max_completion = (
+            str(model.max_completion_tokens)
+            if model.max_completion_tokens is not None
+            else "unknown"
+        )
+        console.print(
+            f"{model.model_id} | {model.context_length} | {max_completion} | yes"
+        )
+
+
 @cli.group(name="sub-agents")
 def sub_agents():
     """Manage sub-agent role definitions."""
@@ -431,6 +464,7 @@ cli.add_command(chat)
 cli.add_command(publish)
 cli.add_command(cleanup)
 cli.add_command(sub_agents)
+cli.add_command(model_list)
 
 # CLI-specific group configuration
 if cli_name == "storycraftr":

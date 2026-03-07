@@ -28,6 +28,11 @@ def clean_llm_env(monkeypatch):
         monkeypatch.delenv(env_var, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def allow_openrouter_models_by_default(monkeypatch):
+    monkeypatch.setattr("storycraftr.llm.factory.is_model_free", lambda model_id: True)
+
+
 def test_openrouter_requires_explicit_provider_model(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
 
@@ -35,6 +40,35 @@ def test_openrouter_requires_explicit_provider_model(monkeypatch):
 
     with pytest.raises(LLMConfigurationError, match="provider/model"):
         build_chat_model(settings)
+
+
+def test_openrouter_rejects_non_free_model_before_client_init(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    monkeypatch.setattr("storycraftr.llm.factory.is_model_free", lambda model_id: False)
+
+    with mock.patch("storycraftr.llm.factory.ChatOpenAI") as mock_chat_openai:
+        with pytest.raises(LLMConfigurationError, match="free-only mode"):
+            build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="meta-llama/llama-3.3-70b-instruct",
+                )
+            )
+
+    assert mock_chat_openai.call_count == 0
+
+
+def test_openrouter_rejects_model_when_discovery_cannot_verify(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    monkeypatch.setattr("storycraftr.llm.factory.is_model_free", lambda model_id: False)
+
+    with pytest.raises(LLMConfigurationError, match="unknown, or unavailable"):
+        build_chat_model(
+            LLMSettings(
+                provider="openrouter",
+                model="openrouter/free",
+            )
+        )
 
 
 def test_openrouter_missing_api_key_raises_provider_auth_error():

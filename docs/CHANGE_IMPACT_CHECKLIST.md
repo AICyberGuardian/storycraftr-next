@@ -2,6 +2,18 @@
 
 ## Change History
 
+### 2026-03-07 — DSVL Phase 1C: Rule-governed patch validation and application
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `StateValidationError` exception, `PatchOperation`, and `StatePatch` dataclasses to `storycraftr/agent/narrative_state.py`.
+	- Implemented `validate_patch()` method with rule enforcement: dead characters cannot change location, location references must exist, cannot remove locations with characters, cannot add duplicate entities.
+	- Implemented `apply_patch()` method with atomic multi-operation application, version increments, and timestamp updates.
+	- Added internal validators: `_validate_character_patch()`, `_validate_location_patch()`, `_validate_plot_thread_patch()`.
+	- Added internal apply methods: `_apply_character_operation()`, `_apply_location_operation()`, `_apply_plot_thread_operation()`.
+	- Created `tests/unit/test_patch_validation.py` with 14 comprehensive patch validation tests.
+	- Updated `CHANGELOG.md` with DSVL Phase 1C entry.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no LLM provider changes, no sub-agent lifecycle changes, no vector-store changes, no VS Code event schema changes, and no security-tooling policy changes). Pure additive module with no runtime integration yet (pending Phase 2B).
+
 ### 2026-03-07 — DSVL Phase 1B: Deterministic state diff engine
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

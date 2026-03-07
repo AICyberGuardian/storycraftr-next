@@ -78,7 +78,8 @@ assistant/backend flow.
 - `/clear` — Clear the output pane while keeping current session context.
 - `/toggle-tree` — Show/hide the project file tree (hidden by default).
 - `/chapter <number>` and `/scene <label>` — Set active narrative focus.
-- `/model-list` — Fetch and display free OpenRouter models.
+- `/model-list` — Display free OpenRouter models from local discovery cache.
+- `/model-list refresh` — Force-refresh the OpenRouter catalog before rendering.
 - `/model-change <model_id>` — Switch the active TUI session model.
 - `/session ...` and `/sub-agent ...` — Route to existing chat command handlers.
 
@@ -100,6 +101,13 @@ when available), and prunes context in deterministic priority order:
 canon constraints -> scene/scoped context -> minimal recent turns -> retrieval
 chunks -> lower-priority extras.
 
+OpenRouter model metadata is discovered dynamically from
+`https://openrouter.ai/api/v1/models`, cached locally for 6 hours in
+`~/.storycraftr/openrouter-models-cache.json`, and reused in stale mode if the
+upstream API is temporarily unavailable.
+
+`/model-change` validates requested OpenRouter models against the current
+free-only discovery catalog; paid, unknown, or unavailable models are rejected.
 Long-running sessions now apply rolling transcript compaction: older turns are
 collapsed into a bounded `Session Summary` that is persisted in
 `sessions/session.json`, while the most recent turns remain verbatim in prompt

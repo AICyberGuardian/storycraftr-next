@@ -149,10 +149,15 @@ Key config fields:
 API keys are resolved from environment variables. Default variable names: `OPENAI_API_KEY`, `OPENROUTER_API_KEY`. Ollama uses `OLLAMA_BASE_URL` (no key required). Credentials can also be stored as plain-text files in `~/.storycraftr/` (e.g., `openai_api_key.txt`), loaded by `storycraftr/llm/credentials.py`.
 
 OpenRouter runtime resilience is implemented natively in this layer through a wrapper that applies bounded exponential-backoff retries for transient errors and explicit fallback-model traversal (`STORYCRAFTR_OPENROUTER_FALLBACK_MODELS`).
+OpenRouter model IDs are validated against dynamic free-model discovery before provider initialization (for primary and fallback models) to block paid/unknown model selection in free-only flows.
+
+### OpenRouter Discovery (`storycraftr/llm/openrouter_discovery.py`)
+
+Fetches `https://openrouter.ai/api/v1/models`, normalizes metadata, filters free models by live pricing, and stores user-local cache metadata in `~/.storycraftr/openrouter-models-cache.json` (default TTL: 6 hours). Runtime callers use stale cache fallback on transient API failures.
 
 ### Model Context Registry (`storycraftr/llm/model_context.py`)
 
-Contains a small in-repo registry for effective model context windows and default output reserves. TUI prompt composition uses this registry to compute input budgets and prune context deterministically under overflow pressure.
+Resolves effective context windows/output reserves for budgeting. OpenRouter lookups now use dynamic discovery limits first (context length + max completion tokens), with the small in-repo registry kept as a conservative fallback for unavailable or unknown discovery data.
 
 ### Embedding Model (`storycraftr/llm/embeddings.py`)
 

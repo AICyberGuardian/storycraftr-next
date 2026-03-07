@@ -111,7 +111,9 @@ Each project stores its configuration in `storycraftr.json` or `papercraftr.json
 - For `llm_provider=openrouter`, set `llm_model` explicitly in `provider/model` format (for example `meta-llama/llama-3.3-70b-instruct`).
 - `llm_endpoint` lets you target custom bases (e.g., `https://openrouter.ai/api/v1`).
 - StoryCraftr now validates provider/model/endpoint settings before runtime model calls and raises provider-specific configuration/authentication errors early.
-- OpenRouter calls now include native resilience in the factory layer: bounded exponential-backoff retries for transient failures (`429`, timeout, connection), plus an explicit fallback chain ending with `openrouter/free`.
+- OpenRouter model selection is now dynamic and free-only: StoryCraftr discovers live models from `GET https://openrouter.ai/api/v1/models`, filters by zero prompt/completion pricing, and rejects paid/unknown models before provider startup.
+- OpenRouter discovery uses a user-local cache at `~/.storycraftr/openrouter-models-cache.json` with a default 6-hour TTL; stale cache is reused if live discovery is unavailable.
+- OpenRouter calls include native resilience in the factory layer: bounded exponential-backoff retries for transient failures (`429`, timeout, connection), plus an explicit fallback chain where each fallback model is also validated as currently free.
 - Configure additional fallback models with `STORYCRAFTR_OPENROUTER_FALLBACK_MODELS` (comma-separated model IDs, for example `meta-llama/llama-3.2-3b-instruct:free,openrouter/free`).
 - `max_tokens` caps completion length per LLM request (default `8192`) to reduce truncation risk on long generations.
 - TUI prompt assembly now applies a model-aware input budget gate: it resolves an effective context window per active model, reserves output tokens, and prunes context deterministically by priority (canon constraints -> scene/scoped context -> recent turns -> retrieval chunks -> lower-priority extras) to prevent prompt overflow.
@@ -272,8 +274,14 @@ Current TUI slash commands include:
 - `/toggle-tree` to show/hide the project file tree when needed
 - `/chapter <number>` and `/scene <label>` to set in-memory narrative focus
 - `/session ...` and `/sub-agent ...` passthrough commands
-- `/model-list` to fetch and show current free OpenRouter models
+- `/model-list` to show current free OpenRouter models from local cache
+- `/model-list refresh` to force-refresh the OpenRouter catalog
 - `/model-change <model_id>` to switch the active TUI session model safely
+
+CLI model discovery:
+
+- `storycraftr model-list` lists free OpenRouter models with discovered limits (`context_length`, `max_completion_tokens`).
+- `storycraftr model-list --refresh` forces a live catalog refresh before rendering.
 
 Keyboard ergonomics:
 

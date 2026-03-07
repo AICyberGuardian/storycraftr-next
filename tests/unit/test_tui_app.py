@@ -56,6 +56,7 @@ def test_tui_help_includes_required_commands(tmp_path) -> None:
     assert "/summary [clear]" in help_text
     assert "/context" in help_text
     assert "/model-list" in help_text
+    assert "/model-list refresh" in help_text
     assert "/model-change <model_id>" in help_text
     assert "Ctrl+L" in help_text
 
@@ -79,6 +80,26 @@ def test_dispatch_model_change_requires_model_id(tmp_path) -> None:
     result = asyncio.run(app._dispatch_slash_command("/model-change"))
 
     assert result == "Usage: /model-change <model_id>"
+
+
+def test_dispatch_model_list_refresh_passes_force_refresh(
+    tmp_path, monkeypatch
+) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    observed: list[bool] = []
+
+    def _fake_render(force_refresh: bool = False) -> str:
+        observed.append(force_refresh)
+        return "ok"
+
+    monkeypatch.setattr(app, "_render_model_list", _fake_render)
+
+    result = asyncio.run(app._dispatch_slash_command("/model-list refresh"))
+
+    assert result == "ok"
+    assert observed == [True]
 
 
 def test_dispatch_chapter_requires_number(tmp_path) -> None:

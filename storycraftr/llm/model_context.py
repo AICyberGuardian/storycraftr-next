@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from storycraftr.llm.openrouter_discovery import get_model_limits
+
 
 @dataclass(frozen=True)
 class ModelContextSpec:
@@ -11,6 +13,7 @@ class ModelContextSpec:
     model_id: str
     context_window_tokens: int
     default_output_reserve_tokens: int
+    max_completion_tokens: int | None
     source: str
 
 
@@ -20,6 +23,7 @@ class _RegistryEntry:
     matcher: str
     context_window_tokens: int
     default_output_reserve_tokens: int
+    max_completion_tokens: int | None
     source: str
 
 
@@ -33,6 +37,7 @@ _MODEL_REGISTRY: tuple[_RegistryEntry, ...] = (
         matcher="gpt-4o",
         context_window_tokens=128000,
         default_output_reserve_tokens=4096,
+        max_completion_tokens=4096,
         source="openai-docs-gpt-4o",
     ),
     _RegistryEntry(
@@ -40,6 +45,7 @@ _MODEL_REGISTRY: tuple[_RegistryEntry, ...] = (
         matcher="gpt-4o-mini",
         context_window_tokens=128000,
         default_output_reserve_tokens=4096,
+        max_completion_tokens=4096,
         source="openai-docs-gpt-4o-mini",
     ),
     _RegistryEntry(
@@ -47,6 +53,7 @@ _MODEL_REGISTRY: tuple[_RegistryEntry, ...] = (
         matcher="openrouter/free",
         context_window_tokens=32768,
         default_output_reserve_tokens=4096,
+        max_completion_tokens=4096,
         source="openrouter-free-conservative",
     ),
 )
@@ -68,6 +75,19 @@ def resolve_model_context(
     provider_key = _normalize_provider(provider)
     model_key = _normalize_model_id(model_id)
 
+    if provider_key == "openrouter" and model_key:
+        dynamic_limits = get_model_limits(model_key)
+        if dynamic_limits is not None:
+            reserve = dynamic_limits.max_completion_tokens or 3072
+            reserve = max(512, min(reserve, 8192))
+            return ModelContextSpec(
+                provider=provider_key,
+                model_id=model_key,
+                context_window_tokens=dynamic_limits.context_length,
+                default_output_reserve_tokens=reserve,
+                max_completion_tokens=dynamic_limits.max_completion_tokens,
+                source="openrouter-live-discovery",
+            )
     for entry in _MODEL_REGISTRY:
         if provider_key != entry.provider:
             continue
@@ -77,6 +97,7 @@ def resolve_model_context(
                 model_id=model_key,
                 context_window_tokens=entry.context_window_tokens,
                 default_output_reserve_tokens=entry.default_output_reserve_tokens,
+                max_completion_tokens=entry.max_completion_tokens,
                 source=entry.source,
             )
 
@@ -87,6 +108,7 @@ def resolve_model_context(
             model_id=model_key,
             context_window_tokens=16384,
             default_output_reserve_tokens=3072,
+            max_completion_tokens=3072,
             source="openrouter-free-suffix-conservative",
         )
 
@@ -95,6 +117,7 @@ def resolve_model_context(
         model_id=model_key,
         context_window_tokens=_DEFAULT_CONTEXT_WINDOW_TOKENS,
         default_output_reserve_tokens=_DEFAULT_OUTPUT_RESERVE_TOKENS,
+        max_completion_tokens=None,
         source="fallback-default-conservative",
     )
 
@@ -111,6 +134,8 @@ def compute_input_budget_tokens(
     if requested_output_tokens is not None:
         reserve = max(1, int(requested_output_tokens))
 
+    if spec.max_completion_tokens is not None:
+        reserve = min(reserve, max(1, spec.max_completion_tokens))
     max_reserve = max(1, spec.context_window_tokens - max(1, minimum_input_tokens))
     reserve = min(reserve, max_reserve)
 

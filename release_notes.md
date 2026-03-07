@@ -1,11 +1,14 @@
-## Draft Update - 2026-03-07 (Prompt Budgeting, TUI Diagnostics, and Sub-Agent Cooldown)
+## Draft Update - 2026-03-07 (Dynamic OpenRouter Discovery, Prompt Budgeting, and Sub-Agent Cooldown)
 
 Current development target: `v0.16` (`0.16.0-dev`).
 
 ### Highlights
 
-- Added model-aware prompt budgeting in the TUI prompt path with deterministic pruning under budget pressure, backed by an in-repo model context registry (`storycraftr/llm/model_context.py`).
+- Added dynamic OpenRouter free-model discovery (`storycraftr/llm/openrouter_discovery.py`) using `GET https://openrouter.ai/api/v1/models`, with user-local cache at `~/.storycraftr/openrouter-models-cache.json`, default 6-hour TTL, stale-cache fallback, and a minimal emergency fallback profile.
+- Added strict free-only OpenRouter startup validation in `storycraftr/llm/factory.py`: paid/unknown/unavailable model IDs are rejected before provider initialization for both primary and fallback models.
+- Updated model-aware prompt budgeting in the TUI prompt path to use live-discovered OpenRouter limits first (context length + max completion), with conservative in-repo fallback defaults in `storycraftr/llm/model_context.py`.
 - Added native OpenRouter resilience in `storycraftr/llm/factory.py` with bounded retry/backoff and configurable fallback traversal (`STORYCRAFTR_OPENROUTER_FALLBACK_MODELS`).
+- Added model discovery visibility commands: `storycraftr model-list` (`--refresh`) and TUI `/model-list refresh`, with model limit output (`context_length`, `max_completion_tokens`).
 - Added rolling TUI session compaction that preserves recent turns verbatim while collapsing older turns into a persisted summary in `sessions/session.json`.
 - Added TUI diagnostics commands `/summary` (`/summary clear`) and `/context` for writer-visible prompt-context introspection.
 - Added sub-agent `model_exhausted` lifecycle checkpoint handling in `storycraftr/subagents/jobs.py`: transient rate-limit/capacity failures now checkpoint, cooldown, and retry once before terminal failure.

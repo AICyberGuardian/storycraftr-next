@@ -261,3 +261,38 @@ def test_chat_prompt_emits_event_contract_payloads(tmp_path):
 
     ended_payload = emitter.events[2][1]
     assert set(["book_path", "session"]).issubset(ended_payload)
+
+
+def test_model_list_command_outputs_limits(monkeypatch) -> None:
+    runner = CliRunner()
+
+    model = SimpleNamespace(
+        model_id="openrouter/free",
+        context_length=32768,
+        max_completion_tokens=4096,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cli.get_free_models", lambda force_refresh: [model]
+    )
+
+    result = runner.invoke(cli, ["model-list"])
+
+    assert result.exit_code == 0, result.output
+    assert "id | context_length | max_completion_tokens | free" in result.output
+    assert "openrouter/free | 32768 | 4096 | yes" in result.output
+
+
+def test_model_list_command_refresh_forces_fetch(monkeypatch) -> None:
+    runner = CliRunner()
+    observed: dict[str, bool] = {"refresh": False}
+
+    def _fake_models(force_refresh: bool):
+        observed["refresh"] = force_refresh
+        return []
+
+    monkeypatch.setattr("storycraftr.cli.get_free_models", _fake_models)
+
+    result = runner.invoke(cli, ["model-list", "--refresh"])
+
+    assert result.exit_code == 0, result.output
+    assert observed["refresh"] is True

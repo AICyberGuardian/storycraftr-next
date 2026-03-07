@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from storycraftr.agent.story.scene_planner import ScenePlan
+from storycraftr.llm.model_context import ModelContextSpec
 from storycraftr.tui.context_builder import (
     build_scoped_context_block,
     compose_budgeted_prompt,
@@ -66,7 +67,18 @@ def test_build_scoped_context_block_dedupes_and_caps_inputs() -> None:
     assert "..." in block
 
 
-def test_compose_budgeted_prompt_uses_model_aware_budget() -> None:
+def test_compose_budgeted_prompt_uses_model_aware_budget(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "storycraftr.tui.context_builder.resolve_model_context",
+        lambda provider, model_id: ModelContextSpec(
+            provider="openrouter",
+            model_id=model_id,
+            context_window_tokens=32768,
+            default_output_reserve_tokens=4096,
+            max_completion_tokens=4096,
+            source="openrouter-live-discovery",
+        ),
+    )
     prompt, budget = compose_budgeted_prompt(
         state=_state(),
         scene_plan=ScenePlan(
@@ -136,3 +148,37 @@ def test_compose_budgeted_prompt_prunes_in_priority_order() -> None:
         assert "[Relevant Context]" not in prompt
     assert "[Active Constraints]" in prompt
     assert "Canon fact one" in prompt
+
+
+def test_compose_budgeted_prompt_clamps_reserve_to_model_max_completion(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "storycraftr.tui.context_builder.resolve_model_context",
+        lambda provider, model_id: ModelContextSpec(
+            provider="openrouter",
+            model_id=model_id,
+            context_window_tokens=20000,
+            default_output_reserve_tokens=4096,
+            max_completion_tokens=1024,
+            source="test",
+        ),
+    )
+
+    _prompt, budget = compose_budgeted_prompt(
+        state=_state(),
+        scene_plan=ScenePlan(
+            goal="Escalate.",
+            conflict="Collapse.",
+            outcome="Shift.",
+        ),
+        canon_facts=["Mira is the ship navigator."],
+        user_prompt="Continue the scene with pressure.",
+        provider="openrouter",
+        model_id="openrouter/free",
+        output_reserve_tokens=5000,
+    )
+
+    assert budget.context_window_tokens == 20000
+    assert budget.output_reserve_tokens == 1024
+    assert budget.input_budget_tokens == 18976

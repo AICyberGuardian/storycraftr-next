@@ -81,7 +81,9 @@ When you run `storycraftr init`, the generated `storycraftr.json` includes the n
 - `llm_provider=openrouter` requires an explicit `llm_model` in `provider/model` format (for example, `meta-llama/llama-3.3-70b-instruct`).
 - `llm_endpoint` lets you point at custom-compatible bases.
 - Provider/model/endpoint settings are validated before runtime model invocation, with provider-specific error messages for invalid config or missing keys.
-- OpenRouter requests now include native resilience in the model factory: bounded exponential-backoff retries for transient errors and an explicit fallback model chain.
+- OpenRouter model discovery is dynamic: StoryCraftr fetches `https://openrouter.ai/api/v1/models`, filters models to current free pricing, and uses that free-only catalog as the source of truth.
+- OpenRouter discovery metadata is cached at `~/.storycraftr/openrouter-models-cache.json` with a default 6-hour TTL and stale-cache fallback when the live API is unavailable.
+- OpenRouter requests include native resilience in the model factory: bounded exponential-backoff retries for transient errors and an explicit fallback model chain where each fallback is validated as currently free.
 - Configure additional fallback models with `STORYCRAFTR_OPENROUTER_FALLBACK_MODELS` (comma-separated model IDs).
 - `max_tokens` limits completion size per request (default `8192`) to reduce truncated outputs.
 - `embed_model` defaults to `BAAI/bge-large-en-v1.5` for OpenAI-quality local embeddings; switch to a smaller model if resources are limited.
@@ -420,9 +422,15 @@ Useful slash commands:
 - `/canon`, `/canon show [chapter]`, `/canon add <fact>`, `/canon add <chapter> :: <fact>`, `/canon pending`, `/canon accept <n[,m,...]>`, `/canon reject [n[,m,...]]`, `/canon clear [confirm]` manage chapter-scoped writer-approved canon constraints and hybrid extraction approvals.
 - `/toggle-tree` shows/hides the project tree (hidden by default).
 - `/chapter <number>` and `/scene <label>` set in-memory narrative focus.
-- `/model-list` fetches current free OpenRouter models.
+- `/model-list` shows current free OpenRouter models from the local discovery cache.
+- `/model-list refresh` forces a live OpenRouter catalog refresh.
 - `/model-change <model_id>` switches the active TUI session model.
 - `/session ...` and `/sub-agent ...` route to existing StoryCraftr commands.
+
+CLI discovery commands:
+
+- `storycraftr model-list` prints free OpenRouter model IDs with discovered limits.
+- `storycraftr model-list --refresh` forces live refresh before listing.
 
 Regular prompts are prefixed with a scene-scoped context block (scene
 Goal/Conflict/Outcome + active chapter constraints + compact state summary)

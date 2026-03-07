@@ -9,6 +9,8 @@ from typing import Any
 import yaml
 from yaml import YAMLError
 
+from storycraftr.tui.canon import list_facts
+
 _CHAPTER_FILE_PATTERN = re.compile(r"^chapter-(\d+)\.md$", re.IGNORECASE)
 _FRONTMATTER_DELIMITER = "---"
 
@@ -100,8 +102,38 @@ class NarrativeStateEngine:
         """Prefix user input with the latest read-only state block."""
 
         state = self.get_state()
-        block = self.build_prompt_block(state=state)
-        return f"{block}\n\n[User Prompt]\n{user_prompt.strip()}"
+        narrative_block = self.build_prompt_block(state=state)
+        canon_facts = self.get_active_canon_facts(state=state)
+        canon_block = self.build_canon_block(canon_facts)
+
+        if canon_block:
+            return (
+                f"{narrative_block}\n\n{canon_block}\n\n"
+                f"[User Prompt]\n{user_prompt.strip()}"
+            )
+        return f"{narrative_block}\n\n[User Prompt]\n{user_prompt.strip()}"
+
+    def get_active_canon_facts(
+        self, *, state: NarrativeState, max_facts: int = 8
+    ) -> list[str]:
+        """Return chapter-scoped canon fact text for prompt constraint injection."""
+
+        chapter = state.active_chapter
+        if chapter is None:
+            return []
+
+        facts = list_facts(str(self.book_path), chapter=chapter)
+        cleaned = [fact.text.strip() for fact in facts if fact.text.strip()]
+        return cleaned[: max(1, max_facts)]
+
+    def build_canon_block(self, facts: list[str]) -> str:
+        """Build prompt-ready active constraints block from canon facts."""
+
+        if not facts:
+            return ""
+        lines = ["[Active Constraints]"]
+        lines.extend(f"- {fact}" for fact in facts if fact.strip())
+        return "\n".join(lines)
 
     def _build_state(self) -> NarrativeState:
         chapters = self._load_chapter_states()

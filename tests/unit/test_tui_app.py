@@ -37,6 +37,10 @@ def test_tui_help_includes_required_commands(tmp_path) -> None:
     assert "/progress" in help_text
     assert "/wizard" in help_text
     assert "/pipeline" in help_text
+    assert "/canon" in help_text
+    assert "/canon show [chapter]" in help_text
+    assert "/canon add <fact>" in help_text
+    assert "/canon clear [confirm]" in help_text
     assert "/clear" in help_text
     assert "/toggle-tree" in help_text
     assert "/chapter <number>" in help_text
@@ -112,6 +116,18 @@ def test_dispatch_state_command_returns_state_block(tmp_path) -> None:
     assert "Injected Prompt Block" in result
 
 
+def test_state_output_includes_active_constraints_when_canon_exists(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.state_engine.set_active_chapter(1)
+
+    asyncio.run(app._dispatch_slash_command("/canon add Alex is the active POV."))
+    result = asyncio.run(app._dispatch_slash_command("/state"))
+
+    assert "[Active Constraints]" in result
+    assert "Alex is the active POV." in result
+
+
 def test_dispatch_progress_command_reports_checkpoints(tmp_path) -> None:
     TuiApp = _load_tui_app()
     app = TuiApp(book_path=str(tmp_path))
@@ -127,6 +143,55 @@ def test_dispatch_progress_command_reports_checkpoints(tmp_path) -> None:
     assert "General Outline: [x]" in result
     assert "Character Summary: [ ]" in result
     assert "Completion:" in result
+
+
+def test_dispatch_canon_empty_summary(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    result = asyncio.run(app._dispatch_slash_command("/canon"))
+
+    assert "Canon Guard" in result
+    assert "Accepted facts: 0" in result
+
+
+def test_dispatch_canon_add_and_show(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    add_result = asyncio.run(
+        app._dispatch_slash_command("/canon add The control room is dark.")
+    )
+    show_result = asyncio.run(app._dispatch_slash_command("/canon show"))
+
+    assert "Canon fact added" in add_result
+    assert "The control room is dark." in show_result
+
+
+def test_dispatch_canon_clear_confirm_removes_facts(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    asyncio.run(app._dispatch_slash_command("/canon add Elias dropped his sword."))
+    warn_result = asyncio.run(app._dispatch_slash_command("/canon clear"))
+    clear_result = asyncio.run(app._dispatch_slash_command("/canon clear confirm"))
+    final_result = asyncio.run(app._dispatch_slash_command("/canon"))
+
+    assert "Run /canon clear confirm" in warn_result
+    assert "Cleared 1 canon fact" in clear_result
+    assert "Accepted facts: 0" in final_result
+
+
+def test_dispatch_canon_uses_active_chapter_from_state_engine(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.state_engine.set_active_chapter(7)
+
+    asyncio.run(app._dispatch_slash_command("/canon add The control room is dark."))
+    show_result = asyncio.run(app._dispatch_slash_command("/canon show"))
+
+    assert "Chapter: 7" in show_result
+    assert "The control room is dark." in show_result
 
 
 def test_dispatch_wizard_next_returns_recommended_command(tmp_path) -> None:

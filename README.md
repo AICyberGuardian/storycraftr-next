@@ -253,6 +253,9 @@ Current TUI slash commands include:
 - `/pipeline` and `/pipeline next` as aliases for the wizard flow
 - `/wizard set <field> <value>`, `/wizard show`, `/wizard plan`, `/wizard reset`
   for profile-based guided planning (advisory, no auto-execution)
+- `/canon`, `/canon show [chapter]`, `/canon add <fact>`,
+  `/canon add <chapter> :: <fact>`, `/canon clear [confirm]`
+  for chapter-scoped writer-approved canon constraints
 - `/clear` to clear the output pane without resetting session state
 - `/toggle-tree` to show/hide the project file tree when needed
 - `/chapter <number>` and `/scene <label>` to set in-memory narrative focus

@@ -2,6 +2,13 @@
 
 ## Change History
 
+### 2026-03-07 — Contributor-reference execution: release-note parity sync for dynamic OpenRouter discovery
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Reviewed `docs/contributor-reference.md` update rules and verified required user-facing sync targets for the dynamic OpenRouter discovery rollout.
+	- Updated `release_notes.md` top draft section to reflect shipped behavior: live free-model discovery, user-local cache + TTL + stale fallback, strict free-only model validation, dynamic model limits in budgeting, and model-list refresh commands.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (documentation-only parity update; no dependency/lockfile changes, runtime code changes, config schema changes, sub-agent lifecycle changes, vector-store/path changes, VS Code event contract changes, or security-tooling policy changes).
+
 ### 2026-03-07 — Dynamic OpenRouter free-model discovery + strict free-only validation
 - **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
 - **Impact:**

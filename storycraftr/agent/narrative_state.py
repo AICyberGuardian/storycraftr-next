@@ -104,6 +104,33 @@ class NarrativeStateSnapshot(BaseModel):
 
 
 # ============================================================================
+# PATCH VALIDATION & APPLICATION (DSVL Phase 1C)
+# ============================================================================
+
+
+class StateValidationError(Exception):
+    """Raised when a state patch violates business rules."""
+
+    pass
+
+
+class PatchOperation(BaseModel):
+    """Single patch operation on an entity."""
+
+    operation: Literal["add", "update", "remove"]
+    entity_type: Literal["character", "location", "plot_thread"]
+    entity_id: str
+    data: dict[str, Any] | None = None  # None for remove operations
+
+
+class StatePatch(BaseModel):
+    """Collection of operations to apply to narrative state."""
+
+    operations: list[PatchOperation] = Field(default_factory=list)
+    description: str = ""  # Human-readable description of the patch
+
+
+# ============================================================================
 # LEGACY SUPPORT & MIGRATION
 # ============================================================================
 
@@ -324,6 +351,229 @@ class NarrativeStateStore:
         if max_chars <= 3:
             return raw[:max_chars]
         return raw[: max_chars - 3].rstrip() + "..."
+
+    # ========================================================================
+    # PATCH VALIDATION & APPLICATION (DSVL Phase 1C)
+    # ========================================================================
+
+    def validate_patch(self, patch: StatePatch) -> None:
+        """
+        Validate a state patch against business rules.
+
+        Raises StateValidationError if any operation violates rules:
+        - Dead characters cannot move (location changes rejected)
+        - Cannot revive dead characters without explicit status change
+        - Location references must exist
+        - Cannot modify removed entities
+
+        Args:
+            patch: The patch to validate
+
+        Raises:
+            StateValidationError: If patch violates business rules
+        """
+        snapshot = self.load()
+
+        for op in patch.operations:
+            if op.entity_type == "character":
+                self._validate_character_patch(snapshot, op)
+            elif op.entity_type == "location":
+                self._validate_location_patch(snapshot, op)
+            elif op.entity_type == "plot_thread":
+                self._validate_plot_thread_patch(snapshot, op)
+
+    def _validate_character_patch(
+        self, snapshot: NarrativeStateSnapshot, op: PatchOperation
+    ) -> None:
+        """Validate character-specific business rules."""
+        if op.operation == "update":
+            existing = snapshot.characters.get(op.entity_id)
+            if existing is None:
+                raise StateValidationError(
+                    f"Cannot update non-existent character: {op.entity_id}"
+                )
+
+            # Dead characters cannot move
+            if existing.status == "dead" and op.data:
+                new_location = op.data.get("location")
+                if new_location is not None and new_location != existing.location:
+                    raise StateValidationError(
+                        f"Dead character {op.entity_id} cannot change location "
+                        f"from {existing.location} to {new_location}"
+                    )
+
+            # Validate location references exist
+            if op.data and "location" in op.data:
+                new_location = op.data["location"]
+                if new_location and new_location not in snapshot.locations:
+                    raise StateValidationError(
+                        f"Character {op.entity_id} references unknown location: {new_location}"
+                    )
+
+        elif op.operation == "add":
+            if op.entity_id in snapshot.characters:
+                raise StateValidationError(
+                    f"Cannot add existing character: {op.entity_id}"
+                )
+
+            # Validate location references for new characters
+            if op.data and "location" in op.data:
+                new_location = op.data["location"]
+                if new_location and new_location not in snapshot.locations:
+                    raise StateValidationError(
+                        f"New character {op.entity_id} references unknown location: {new_location}"
+                    )
+
+    def _validate_location_patch(
+        self, snapshot: NarrativeStateSnapshot, op: PatchOperation
+    ) -> None:
+        """Validate location-specific business rules."""
+        if op.operation == "update":
+            if op.entity_id not in snapshot.locations:
+                raise StateValidationError(
+                    f"Cannot update non-existent location: {op.entity_id}"
+                )
+        elif op.operation == "remove":
+            # Check if any characters reference this location
+            for char_id, char in snapshot.characters.items():
+                if char.location == op.entity_id:
+                    raise StateValidationError(
+                        f"Cannot remove location {op.entity_id}: "
+                        f"character {char_id} is still there"
+                    )
+
+    def _validate_plot_thread_patch(
+        self, snapshot: NarrativeStateSnapshot, op: PatchOperation
+    ) -> None:
+        """Validate plot thread-specific business rules."""
+        if op.operation == "update":
+            if op.entity_id not in snapshot.plot_threads:
+                raise StateValidationError(
+                    f"Cannot update non-existent plot thread: {op.entity_id}"
+                )
+
+    def apply_patch(self, patch: StatePatch) -> NarrativeStateSnapshot:
+        """
+        Apply a validated patch to the narrative state.
+
+        The patch is validated before application. If validation fails,
+        the state is left unchanged.
+
+        Args:
+            patch: The patch to apply
+
+        Returns:
+            Updated snapshot after applying all operations
+
+        Raises:
+            StateValidationError: If patch validation fails
+        """
+        # Validate first
+        self.validate_patch(patch)
+
+        # Load current state
+        snapshot = self.load()
+
+        # Apply operations
+        for op in patch.operations:
+            if op.entity_type == "character":
+                snapshot = self._apply_character_operation(snapshot, op)
+            elif op.entity_type == "location":
+                snapshot = self._apply_location_operation(snapshot, op)
+            elif op.entity_type == "plot_thread":
+                snapshot = self._apply_plot_thread_operation(snapshot, op)
+
+        # Update version and timestamp
+        snapshot = NarrativeStateSnapshot(
+            characters=snapshot.characters,
+            locations=snapshot.locations,
+            plot_threads=snapshot.plot_threads,
+            world=snapshot.world,
+            version=snapshot.version + 1,
+            last_modified=datetime.now().isoformat(),
+        )
+
+        # Persist
+        self.save(snapshot)
+        return snapshot
+
+    def _apply_character_operation(
+        self, snapshot: NarrativeStateSnapshot, op: PatchOperation
+    ) -> NarrativeStateSnapshot:
+        """Apply a character operation."""
+        characters = dict(snapshot.characters)
+
+        if op.operation == "add":
+            if op.data:
+                characters[op.entity_id] = CharacterState(**op.data)
+        elif op.operation == "update":
+            existing = characters[op.entity_id]
+            updated_data = existing.model_dump()
+            if op.data:
+                updated_data.update(op.data)
+            characters[op.entity_id] = CharacterState(**updated_data)
+        elif op.operation == "remove":
+            characters.pop(op.entity_id, None)
+
+        return NarrativeStateSnapshot(
+            characters=characters,
+            locations=snapshot.locations,
+            plot_threads=snapshot.plot_threads,
+            world=snapshot.world,
+            version=snapshot.version,
+        )
+
+    def _apply_location_operation(
+        self, snapshot: NarrativeStateSnapshot, op: PatchOperation
+    ) -> NarrativeStateSnapshot:
+        """Apply a location operation."""
+        locations = dict(snapshot.locations)
+
+        if op.operation == "add":
+            if op.data:
+                locations[op.entity_id] = LocationState(**op.data)
+        elif op.operation == "update":
+            existing = locations[op.entity_id]
+            updated_data = existing.model_dump()
+            if op.data:
+                updated_data.update(op.data)
+            locations[op.entity_id] = LocationState(**updated_data)
+        elif op.operation == "remove":
+            locations.pop(op.entity_id, None)
+
+        return NarrativeStateSnapshot(
+            characters=snapshot.characters,
+            locations=locations,
+            plot_threads=snapshot.plot_threads,
+            world=snapshot.world,
+            version=snapshot.version,
+        )
+
+    def _apply_plot_thread_operation(
+        self, snapshot: NarrativeStateSnapshot, op: PatchOperation
+    ) -> NarrativeStateSnapshot:
+        """Apply a plot thread operation."""
+        plot_threads = dict(snapshot.plot_threads)
+
+        if op.operation == "add":
+            if op.data:
+                plot_threads[op.entity_id] = PlotThreadState(**op.data)
+        elif op.operation == "update":
+            existing = plot_threads[op.entity_id]
+            updated_data = existing.model_dump()
+            if op.data:
+                updated_data.update(op.data)
+            plot_threads[op.entity_id] = PlotThreadState(**updated_data)
+        elif op.operation == "remove":
+            plot_threads.pop(op.entity_id, None)
+
+        return NarrativeStateSnapshot(
+            characters=snapshot.characters,
+            locations=snapshot.locations,
+            plot_threads=plot_threads,
+            world=snapshot.world,
+            version=snapshot.version,
+        )
 
 
 def _normalize_mapping(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:

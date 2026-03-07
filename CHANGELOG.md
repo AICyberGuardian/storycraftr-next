@@ -5,6 +5,7 @@
 ### Added
 
 - **DSVL Phase 1A: Validated Narrative State Schema** — Added Pydantic-based validation models (`CharacterState`, `LocationState`, `PlotThreadState`) with strict field validation, model-level invariant enforcement, and cross-entity reference validation. Replaced unvalidated dict-based state with type-safe models while maintaining backward compatibility with legacy "world" field. Comprehensive test suite with 30 validation tests ensures schema integrity and rejection of invalid state transitions.
+- **DSVL Phase 1B: Deterministic State Diff Engine** — Added `state_diff.py` module with `DiffType` enum, `FieldDiff`, `EntityDiff`, and `StateChangeset` dataclasses for tracking field-level and entity-level changes between narrative state snapshots. `compute_state_diff()` function provides deterministic diff computation with sorted output for characters, locations, plot threads, and world dict changes. Comprehensive test suite with 16 diff detection tests ensures reliable change tracking.
 
 ### Changed
 

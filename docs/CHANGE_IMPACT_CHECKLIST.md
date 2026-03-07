@@ -2,6 +2,18 @@
 
 ## Change History
 
+### 2026-03-07 — DSVL Phase 1B: Deterministic state diff engine
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Created `storycraftr/agent/state_diff.py` with `DiffType` enum, `FieldDiff`, `EntityDiff`, and `StateChangeset` dataclasses.
+	- Implemented `compute_state_diff()` function with deterministic (sorted) ordering for characters, locations, plot threads.
+	- Added field-level change tracking (ADDED, REMOVED, MODIFIED, UNCHANGED).
+	- Added entity-level diff detection across all state entity types.
+	- Added world dict change detection.
+	- Created `tests/unit/test_state_diff.py` with 16 comprehensive diff detection tests.
+	- Updated `CHANGELOG.md` with DSVL Phase 1B entry.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no LLM provider changes, no sub-agent lifecycle changes, no vector-store changes, no VS Code event schema changes, and no security-tooling policy changes). Pure additive module with no runtime integration yet (pending Phase 1C/2B).
+
 ### 2026-03-07 — DSVL Phase 1A: Validated narrative state schema models
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

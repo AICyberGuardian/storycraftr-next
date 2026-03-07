@@ -2,6 +2,24 @@
 
 ## Change History
 
+### 2026-03-07 — DSVL Phase 2C: Version-aware prompt injection
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Modified `render_prompt_block()` in `storycraftr/agent/narrative_state.py` to add version metadata header.
+	- Header format: `[Narrative State v{version} as of {timestamp}]` prepended to JSON payload.
+	- Version and timestamp extracted from `NarrativeStateSnapshot.version` and `NarrativeStateSnapshot.last_modified`.
+	- Header is not counted toward `max_chars` truncation limit (truncation applies to JSON only).
+	- Empty state continues to return empty string with no header (backward compatible).
+	- LLMs can now reference specific narrative state versions in responses for continuity tracking.
+	- Added 5 comprehensive tests to `tests/unit/test_narrative_state.py`:
+		- test_render_prompt_block_includes_version_header: Validates header presence
+		- test_render_prompt_block_header_format: Validates exact format
+		- test_render_prompt_block_empty_returns_empty_string: Validates empty state
+		- test_render_prompt_block_truncation_preserves_header: Validates truncation behavior
+		- test_render_prompt_block_version_increments: Validates version tracking
+	- Updated `CHANGELOG.md` with DSVL Phase 2C entry.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no LLM provider changes, no sub-agent lifecycle changes, no vector-store changes, no VS Code event schema changes, and no security-tooling policy changes). Pure prompt enhancement (additive metadata) with no breaking changes to existing prompt format.
+
 ### 2026-03-07 — DSVL Phase 2B: TUI audit trail integration
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

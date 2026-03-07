@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Added Phase A Textual TUI ergonomics: `/clear` output reset command, `ctrl+l` focus mode toggle, Up/Down command history navigation, and inline slash-command status markers (`[Running]`, `[Done]`, `[Failed]`).
+- Added TUI workflow guidance commands: `/progress` for file-backed checkpoint status and `/wizard` (`/wizard next`) for canonical next-step recommendations based on project artifacts.
+- Added smart grouped TUI command help (`Writing`, `Planning`, `World`, `Project`) with topic filtering via `/help <topic>`, plus `/pipeline` (`/pipeline next`) as a wizard alias.
+- Expanded wizard guidance with profile-based planning commands (`/wizard set`, `/wizard show`, `/wizard plan`, `/wizard reset`) that generate advisory command sequences without auto-running them.
 - Extended the Textual TUI command UX with a state-driven layout: hidden-by-default project tree (toggle via `ctrl+t` or `/toggle-tree`), Narrative + Timeline strips, chapter/scene focus commands (`/chapter <number>`, `/scene <label>`), and OpenRouter model commands (`/model-list`, `/model-change <model_id>`).
 - Added read-only narrative context extraction in `storycraftr/tui/state_engine.py` (chapter frontmatter + optional outline YAML arc mapping) and prompt-prefix state injection in the TUI layer before assistant dispatch.
 - Added `/state` TUI command to expose the current narrative state snapshot and exact injected prompt block for user-auditable transparency.

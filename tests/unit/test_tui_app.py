@@ -29,9 +29,15 @@ def test_tui_help_includes_required_commands(tmp_path) -> None:
 
     help_text = app._build_help_text()
 
-    assert "/help" in help_text
-    assert "/status" in help_text
-    assert "/state" in help_text
+    assert "TUI Command Guide" in help_text
+    assert "Writing" in help_text
+    assert "Planning" in help_text
+    assert "World" in help_text
+    assert "Project" in help_text
+    assert "/progress" in help_text
+    assert "/wizard" in help_text
+    assert "/pipeline" in help_text
+    assert "/clear" in help_text
     assert "/toggle-tree" in help_text
     assert "/chapter <number>" in help_text
     assert "/scene <label>" in help_text
@@ -40,6 +46,19 @@ def test_tui_help_includes_required_commands(tmp_path) -> None:
     assert "/session load <name>" in help_text
     assert "/model-list" in help_text
     assert "/model-change <model_id>" in help_text
+    assert "Ctrl+L" in help_text
+
+
+def test_help_topic_filtering_and_invalid_topic(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    writing_help = asyncio.run(app._dispatch_slash_command("/help writing"))
+    assert "TUI Help: Writing" in writing_help
+    assert "/chapters chapter" in writing_help
+
+    invalid = asyncio.run(app._dispatch_slash_command("/help unknown"))
+    assert "Unknown help topic" in invalid
 
 
 def test_dispatch_model_change_requires_model_id(tmp_path) -> None:
@@ -93,6 +112,135 @@ def test_dispatch_state_command_returns_state_block(tmp_path) -> None:
     assert "Injected Prompt Block" in result
 
 
+def test_dispatch_progress_command_reports_checkpoints(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    (tmp_path / "outline").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "outline" / "general_outline.md").write_text(
+        "# General Outline\n\nline1\nline2\nline3\nline4\n", encoding="utf-8"
+    )
+
+    result = asyncio.run(app._dispatch_slash_command("/progress"))
+
+    assert "Project Progress" in result
+    assert "General Outline: [x]" in result
+    assert "Character Summary: [ ]" in result
+    assert "Completion:" in result
+
+
+def test_dispatch_wizard_next_returns_recommended_command(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    result = asyncio.run(app._dispatch_slash_command("/wizard next"))
+
+    assert "Next recommended step: General Outline" in result
+    assert "/outline general-outline" in result
+
+
+def test_dispatch_pipeline_alias_matches_wizard(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    wizard = asyncio.run(app._dispatch_slash_command("/wizard next"))
+    pipeline = asyncio.run(app._dispatch_slash_command("/pipeline next"))
+
+    assert pipeline == wizard
+
+
+def test_wizard_profile_set_show_and_reset(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    set_result = asyncio.run(
+        app._dispatch_slash_command(
+            "/wizard set premise A rebellion against immortal rulers"
+        )
+    )
+    assert "Wizard field set: premise" in set_result
+
+    show_result = asyncio.run(app._dispatch_slash_command("/wizard show"))
+    assert "Wizard Profile" in show_result
+    assert "premise: A rebellion against immortal rulers" in show_result
+
+    reset_result = asyncio.run(app._dispatch_slash_command("/wizard reset"))
+    assert "Wizard profile reset" in reset_result
+
+    empty_show = asyncio.run(app._dispatch_slash_command("/wizard show"))
+    assert "Wizard profile is empty" in empty_show
+
+
+def test_wizard_plan_uses_profile_and_flow(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    asyncio.run(app._dispatch_slash_command("/wizard set flow world-first"))
+    asyncio.run(app._dispatch_slash_command("/wizard set genre dystopian sci-fi"))
+    asyncio.run(app._dispatch_slash_command("/wizard set tone bleak"))
+    asyncio.run(
+        app._dispatch_slash_command(
+            "/wizard set premise The elite hide technology as magic"
+        )
+    )
+
+    plan_result = asyncio.run(app._dispatch_slash_command("/wizard plan"))
+
+    assert "Wizard Plan Draft" in plan_result
+    assert "Flow: world-first" in plan_result
+    assert "/worldbuilding history" in plan_result
+    assert "/outline general-outline" in plan_result
+    assert plan_result.index("/worldbuilding history") < plan_result.index(
+        "/outline general-outline"
+    )
+
+
+def test_wizard_set_rejects_invalid_field_and_flow(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    bad_field = asyncio.run(app._dispatch_slash_command("/wizard set invalid foo"))
+    assert "Unsupported wizard field" in bad_field
+
+    bad_flow = asyncio.run(app._dispatch_slash_command("/wizard set flow random"))
+    assert "Flow must be one of" in bad_flow
+
+
+def test_dispatch_wizard_advances_after_checkpoint_completion(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    (tmp_path / "outline").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "outline" / "general_outline.md").write_text(
+        "# General Outline\n\nline1\nline2\nline3\nline4\n", encoding="utf-8"
+    )
+
+    result = asyncio.run(app._dispatch_slash_command("/wizard next"))
+
+    assert "Next recommended step: Character Summary" in result
+    assert "/outline character-summary" in result
+
+
+def test_dispatch_clear_command_clears_output(tmp_path, monkeypatch) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    class _FakeLog:
+        def __init__(self) -> None:
+            self.was_cleared = False
+
+        def clear(self) -> None:
+            self.was_cleared = True
+
+    fake_log = _FakeLog()
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: fake_log)
+
+    result = asyncio.run(app._dispatch_slash_command("/clear"))
+
+    assert result == "Output cleared."
+    assert fake_log.was_cleared is True
+
+
 def test_toggle_tree_hides_sidebar_container(tmp_path, monkeypatch) -> None:
     TuiApp = _load_tui_app()
     app = TuiApp(book_path=str(tmp_path))
@@ -131,6 +279,54 @@ def test_toggle_tree_returns_unavailable_when_sidebar_missing(
         app._toggle_tree_visibility()
         == "Project tree is not available in the current view."
     )
+
+
+def test_focus_mode_toggles_sidebar_and_state_strip_visibility(
+    tmp_path, monkeypatch
+) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    class _Pane:
+        def __init__(self, display: bool) -> None:
+            self.display = display
+
+    sidebar = _Pane(display=True)
+    state_strips = _Pane(display=True)
+
+    def _query_one(selector, _type=None):
+        if selector == "#sidebar":
+            return sidebar
+        if selector == "#state-strips":
+            return state_strips
+        raise RuntimeError("unknown selector")
+
+    monkeypatch.setattr(app, "query_one", _query_one)
+
+    app.action_toggle_focus_mode()
+    assert sidebar.display is False
+    assert state_strips.display is False
+
+    app.action_toggle_focus_mode()
+    assert sidebar.display is True
+    assert state_strips.display is True
+
+
+def test_input_history_navigation_roundtrip(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    app._record_input_history("/status")
+    app._record_input_history("/outline general")
+
+    assert (
+        app._navigate_input_history(direction=-1, current_text="") == "/outline general"
+    )
+    assert app._navigate_input_history(direction=-1, current_text="") == "/status"
+    assert (
+        app._navigate_input_history(direction=1, current_text="") == "/outline general"
+    )
+    assert app._navigate_input_history(direction=1, current_text="") == ""
 
 
 def test_change_model_skips_openrouter_validation_for_non_openrouter_provider(

@@ -2,6 +2,50 @@
 
 ## Change History
 
+### 2026-03-07 — TUI guided planning enhancement: profile-driven /wizard plan
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Extended `storycraftr/tui/app.py` wizard flow with profile commands:
+	  - `/wizard set <field> <value>` for premise/protagonist/genre/tone/flow
+	  - `/wizard show` and `/wizard reset`
+	  - `/wizard plan` to generate an advisory command sequence based on writer inputs.
+	- Preserved non-destructive behavior: wizard outputs recommendations only and does not auto-execute generation commands.
+	- Expanded `tests/unit/test_tui_app.py` coverage for wizard profile lifecycle, invalid field/flow validation, and plan ordering behavior.
+	- Synced docs in `README.md`, `docs/chat.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1–7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — TUI command discoverability: grouped /help and /pipeline alias
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/app.py` to provide grouped command help (`Writing`, `Planning`, `World`, `Project`) and topic-scoped help via `/help <topic>`.
+	- Added `/pipeline` (`/pipeline next`) as an alias to existing wizard guidance behavior for onboarding clarity.
+	- Expanded `tests/unit/test_tui_app.py` with regressions for grouped help output, topic filtering, unknown help topic handling, and wizard/pipeline alias parity.
+	- Synced user-facing command docs in `README.md`, `docs/chat.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1–7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — TUI workflow guidance: /progress checkpoint view and /wizard next-step helper
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/app.py` with two new guided workflow commands:
+	  - `/progress` renders file-backed completion state for canonical story pipeline checkpoints.
+	  - `/wizard` and `/wizard next` provide a guided pipeline checklist and next recommended command derived from missing artifacts.
+	- Added helper logic to detect generated artifacts under `outline/`, `worldbuilding/`, `chapters/`, and `book/` for checkpoint status.
+	- Expanded `tests/unit/test_tui_app.py` with regressions for `/progress` output and `/wizard next` recommendation sequencing.
+	- Synced docs in `README.md`, `docs/chat.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1–7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — TUI ergonomics pass: clear output, focus mode, prompt history, inline command status
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/app.py` with writer-focused quality-of-life controls:
+	  - Added `/clear` slash command to clear the output pane without resetting session state.
+	  - Added `ctrl+l` focus-mode binding to hide/show sidebar and state strips together.
+	  - Added command-input history navigation with Up/Down arrow handling.
+	  - Added inline slash-command execution status messages (`[Running]`, `[Done]`, `[Failed]`) in the output log.
+	- Updated TUI command/help regressions in `tests/unit/test_tui_app.py` for `/clear`, focus mode toggling, and history navigation behavior.
+	- Synced user-facing docs for the new TUI behavior in `README.md`, `docs/chat.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1–7 (no dependency/lockfile updates, no Story/Paper config schema changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-06 — TUI focus layout fix: collapsible sidebar container and softer strip fallbacks
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

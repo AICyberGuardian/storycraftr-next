@@ -248,11 +248,28 @@ Current TUI slash commands include:
 - `/help` for a concise command reference
 - `/status` for project/assistant/runtime status
 - `/state` to inspect current narrative context and exact injected prompt block
+- `/progress` to show canonical generation checkpoint status
+- `/wizard` and `/wizard next` for guided pipeline recommendations
+- `/pipeline` and `/pipeline next` as aliases for the wizard flow
+- `/wizard set <field> <value>`, `/wizard show`, `/wizard plan`, `/wizard reset`
+  for profile-based guided planning (advisory, no auto-execution)
+- `/clear` to clear the output pane without resetting session state
 - `/toggle-tree` to show/hide the project file tree when needed
 - `/chapter <number>` and `/scene <label>` to set in-memory narrative focus
 - `/session ...` and `/sub-agent ...` passthrough commands
 - `/model-list` to fetch and show current free OpenRouter models
 - `/model-change <model_id>` to switch the active TUI session model safely
+
+Keyboard ergonomics:
+
+- `Ctrl+L` toggles focus mode by hiding/showing sidebar and top strips
+- `Up` / `Down` arrows navigate prompt history in the command input
+- Slash commands now print inline `[Running]`, `[Done]`, or `[Failed]` progress lines
+
+Command discovery:
+
+- `/help` now shows a grouped command menu (`Writing`, `Planning`, `World`, `Project`)
+- `/help writing|planning|world|project` filters help to one category
 
 For regular prompts, the TUI prepends a read-only narrative state block
 (active chapter/scene/arc and timeline context) before dispatching to the

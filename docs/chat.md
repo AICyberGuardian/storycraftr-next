@@ -62,11 +62,26 @@ assistant/backend flow.
 - `/help` — Show available TUI slash commands.
 - `/status` — Show active project/provider/model and assistant retrieval status.
 - `/state` — Show active narrative state and injected prompt block.
+- `/progress` — Show canonical writing-pipeline checkpoint completion.
+- `/wizard` and `/wizard next` — Guided pipeline view and next-step recommendation.
+- `/pipeline` and `/pipeline next` — Alias for wizard-guided pipeline flow.
+- `/wizard set <field> <value>`, `/wizard show`, `/wizard plan`, `/wizard reset`
+  — Build and revise a guided command plan from writer inputs.
+- `/clear` — Clear the output pane while keeping current session context.
 - `/toggle-tree` — Show/hide the project file tree (hidden by default).
 - `/chapter <number>` and `/scene <label>` — Set active narrative focus.
 - `/model-list` — Fetch and display free OpenRouter models.
 - `/model-change <model_id>` — Switch the active TUI session model.
 - `/session ...` and `/sub-agent ...` — Route to existing chat command handlers.
+
+### Keyboard Shortcuts
+
+- `Ctrl+L` — Toggle focus mode (hide/show sidebar and state strips).
+- `Up` / `Down` — Navigate command input history.
+
+Slash commands also emit inline status markers (`[Running]`, `[Done]`, `[Failed]`) so long-running tasks provide immediate feedback in the output pane.
+
+The TUI help menu is grouped by intent (`Writing`, `Planning`, `World`, `Project`), and `/help <topic>` shows only one group.
 
 For normal prompts, the TUI prepends a read-only narrative state block before
 calling the existing assistant pipeline.

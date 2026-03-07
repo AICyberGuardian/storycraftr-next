@@ -7,6 +7,7 @@ import os
 import shlex
 import sys
 import time
+import re
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.events import Key
 from textual.widgets import DirectoryTree, Footer, Header, Input, Label, RichLog, Static
 
 from storycraftr.agent.agents import (
@@ -74,6 +76,7 @@ class TuiApp(App[None]):
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+p", "command_palette", "Command Palette"),
         Binding("ctrl+t", "toggle_tree", "Toggle Tree"),
+        Binding("ctrl+l", "toggle_focus_mode", "Focus Mode"),
     ]
 
     _FREE_MODEL_CACHE_TTL_SECONDS = 300
@@ -90,6 +93,12 @@ class TuiApp(App[None]):
         self.transcript: list[dict[str, Any]] = []
         self.state_engine = NarrativeStateEngine(book_path=str(self.book_path))
         self.session_manager = SessionManager(str(self.book_path))
+        self._focus_mode_enabled = False
+        self._sidebar_visible_before_focus = False
+        self._state_strips_visible_before_focus = True
+        self._input_history: list[str] = []
+        self._history_cursor: int | None = None
+        self._wizard_profile: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -148,12 +157,15 @@ class TuiApp(App[None]):
         event.input.value = ""
         if not text:
             return
+        self._record_input_history(text)
         log = self.query_one(RichLog)
         log.write(f"[bold cyan]You:[/bold cyan] {escape(text)}")
         event.input.disabled = True
         try:
             if text.startswith("/"):
+                log.write(f"[yellow][Running][/yellow] {escape(text)}")
                 command_result = await self._dispatch_slash_command(text)
+                log.write(f"[green][Done][/green] {escape(text)}")
                 log.write(f"[bold magenta]CLI:[/bold magenta] {escape(command_result)}")
             else:
                 prompt = await asyncio.to_thread(self.state_engine.compose_prompt, text)
@@ -162,10 +174,34 @@ class TuiApp(App[None]):
                     log.write(f"[bold green]Assistant:[/bold green] {escape(response)}")
                 self.transcript.append({"user": text, "answer": response})
         except Exception as exc:  # pragma: no cover
+            if text.startswith("/"):
+                log.write(f"[red][Failed][/red] {escape(text)}")
             log.write(f"[red]Error: {escape(str(exc))}[/red]")
         finally:
             event.input.disabled = False
             event.input.focus()
+
+    @on(Key)
+    def _handle_input_history_navigation(self, event: Key) -> None:
+        """Support command history navigation in the active input widget."""
+
+        if event.key not in {"up", "down"}:
+            return
+        try:
+            user_input = self.query_one("#command-input", Input)
+        except Exception:
+            return
+        if self.focused is not user_input:
+            return
+
+        replacement = self._navigate_input_history(
+            direction=-1 if event.key == "up" else 1,
+            current_text=user_input.value,
+        )
+        if replacement is None:
+            return
+        user_input.value = replacement
+        event.stop()
 
     async def _run_assistant_turn(self, prompt: str) -> tuple[str, bool]:
         if not self.assistant or not self.thread_id:
@@ -206,13 +242,25 @@ class TuiApp(App[None]):
         args = parts[1:]
 
         if command == "help":
-            return self._build_help_text()
+            return self._build_help_text(args)
 
         if command == "status":
             return await self._build_status_text()
 
         if command == "state":
             return await self._build_state_text()
+
+        if command == "progress":
+            return await asyncio.to_thread(self._build_progress_text)
+
+        if command == "wizard":
+            return await asyncio.to_thread(self._build_wizard_text, args)
+
+        if command == "pipeline":
+            return await asyncio.to_thread(self._build_wizard_text, args)
+
+        if command == "clear":
+            return self._clear_output()
 
         if command == "toggle-tree":
             return self._toggle_tree_visibility()
@@ -269,22 +317,94 @@ class TuiApp(App[None]):
     def action_toggle_tree(self) -> None:
         self._toggle_tree_visibility()
 
-    def _build_help_text(self) -> str:
+    def action_toggle_focus_mode(self) -> None:
+        """Toggle distraction-reduced mode by hiding sidebar and state strips."""
+
+        try:
+            sidebar = self.query_one("#sidebar", Vertical)
+            state_strips = self.query_one("#state-strips", Horizontal)
+        except Exception:
+            return
+
+        if not self._focus_mode_enabled:
+            self._sidebar_visible_before_focus = bool(sidebar.display)
+            self._state_strips_visible_before_focus = bool(state_strips.display)
+            sidebar.display = False
+            state_strips.display = False
+            self._focus_mode_enabled = True
+            return
+
+        sidebar.display = self._sidebar_visible_before_focus
+        state_strips.display = self._state_strips_visible_before_focus
+        self._focus_mode_enabled = False
+
+    def _build_help_text(self, args: list[str] | None = None) -> str:
+        """Render grouped command help with optional category filtering."""
+
+        groups: dict[str, list[str]] = {
+            "writing": [
+                '/chapters chapter <number> "..."',
+                '/chapters cover "..."',
+                '/chapters back-cover "..."',
+                '/iterate chapter <number> "..."',
+            ],
+            "planning": [
+                "/wizard [next]",
+                "/pipeline [next]",
+                "/wizard set <field> <value>",
+                "/wizard show",
+                "/wizard plan",
+                "/wizard reset",
+                "/progress",
+                '/outline general-outline "..."',
+                '/outline chapter-synopsis "..."',
+            ],
+            "world": [
+                '/worldbuilding history "..."',
+                '/worldbuilding geography "..."',
+                '/worldbuilding culture "..."',
+                '/worldbuilding magic-system "..."',
+                '/worldbuilding technology "..."',
+            ],
+            "project": [
+                "/status",
+                "/state",
+                "/clear",
+                "/toggle-tree",
+                "/chapter <number>",
+                "/scene <label>",
+                "/session list",
+                "/session save <name>",
+                "/session load <name>",
+                "/model-list",
+                "/model-change <model_id>",
+                "Ctrl+L (toggle focus mode)",
+            ],
+        }
+
+        if args:
+            category = args[0].lower()
+            if category in groups:
+                lines = [f"TUI Help: {category.title()}"]
+                lines.extend(f"- {entry}" for entry in groups[category])
+                return "\n".join(lines)
+            return (
+                "Unknown help topic. Available topics: writing, planning, world, project.\n"
+                "Use /help to view all grouped commands."
+            )
+
         lines = [
-            "TUI Slash Commands",
-            "- /help - show this command reference",
-            "- /status - show project/assistant/runtime status",
-            "- /state - show active narrative state and injected prompt block",
-            "- /toggle-tree - show/hide project file tree",
-            "- /chapter <number> - set active chapter focus for state context",
-            "- /scene <label> - set active scene focus for state context",
-            "- /session list",
-            "- /session save <name>",
-            "- /session load <name>",
-            "- /model-list - list free OpenRouter models",
-            "- /model-change <model_id> - switch active model for this TUI session",
-            "- /outline ... /chapters ... /worldbuilding ... - routed to existing CLI module commands",
+            "TUI Command Guide",
+            "Writing",
         ]
+        lines.extend(f"- {entry}" for entry in groups["writing"])
+        lines.append("Planning")
+        lines.extend(f"- {entry}" for entry in groups["planning"])
+        lines.append("World")
+        lines.extend(f"- {entry}" for entry in groups["world"])
+        lines.append("Project")
+        lines.extend(f"- {entry}" for entry in groups["project"])
+        lines.append("Tip: /help <topic> for a focused list.")
         return "\n".join(lines)
 
     async def _build_status_text(self) -> str:
@@ -325,6 +445,265 @@ class TuiApp(App[None]):
             block,
         ]
         return "\n".join(lines)
+
+    def _build_progress_text(self) -> str:
+        """Render project generation checkpoints from known output files."""
+
+        checkpoints = self._story_pipeline_checkpoints()
+        lines = ["Project Progress"]
+        completed = 0
+        for item in checkpoints:
+            done = bool(item["done"])
+            status = "[x]" if done else "[ ]"
+            if done:
+                completed += 1
+            lines.append(f"- {item['name']}: {status}")
+
+        chapter_count = len(self._chapter_numbers())
+        lines.append(f"- Chapters drafted: {chapter_count}")
+        lines.append(f"- Completion: {completed}/{len(checkpoints)} checkpoints")
+        return "\n".join(lines)
+
+    def _build_wizard_text(self, args: list[str]) -> str:
+        """Provide a guided pipeline view and next-step recommendation."""
+
+        if args:
+            mode = args[0].lower()
+            if mode == "set":
+                return self._wizard_set_field(args[1:])
+            if mode == "show":
+                return self._wizard_show_profile()
+            if mode == "reset":
+                self._wizard_profile.clear()
+                return "Wizard profile reset. Use /wizard set <field> <value>."
+            if mode == "plan":
+                return self._wizard_build_plan()
+
+        checkpoints = self._story_pipeline_checkpoints()
+        next_item = next((item for item in checkpoints if not item["done"]), None)
+
+        if args and args[0].lower() == "next":
+            if next_item is None:
+                return (
+                    "Pipeline complete. Suggested next steps:\n"
+                    '- /chapters chapter <n> "Draft the next chapter"\n'
+                    '- /iterate check-consistency "Check continuity and style"'
+                )
+            return (
+                f"Next recommended step: {next_item['name']}\n"
+                f"Command: {next_item['command']}"
+            )
+
+        lines = ["Story Pipeline Wizard"]
+        for idx, item in enumerate(checkpoints, start=1):
+            marker = "[x]" if item["done"] else "[ ]"
+            lines.append(f"{idx}. {item['name']} {marker}")
+
+        if next_item is None:
+            lines.extend(
+                [
+                    "",
+                    "All core checkpoints are complete.",
+                    'Try: /iterate check-consistency "Check continuity and style"',
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "",
+                    f"Next: {next_item['name']}",
+                    f"Run: {next_item['command']}",
+                    "Tip: use /wizard next for a compact recommendation.",
+                ]
+            )
+
+        return "\n".join(lines)
+
+    def _wizard_set_field(self, args: list[str]) -> str:
+        """Set a wizard profile field for guided plan generation."""
+
+        if len(args) < 2:
+            return (
+                "Usage: /wizard set <field> <value>\n"
+                "Fields: premise, protagonist, genre, tone, flow"
+            )
+
+        field = args[0].lower().strip()
+        value = " ".join(args[1:]).strip()
+        allowed_fields = {"premise", "protagonist", "genre", "tone", "flow"}
+        if field not in allowed_fields:
+            return (
+                "Unsupported wizard field. "
+                "Allowed: premise, protagonist, genre, tone, flow"
+            )
+        if not value:
+            return "Wizard field value cannot be empty."
+
+        if field == "flow" and value not in {"outline-first", "world-first"}:
+            return "Flow must be one of: outline-first, world-first"
+
+        self._wizard_profile[field] = value
+        return f"Wizard field set: {field} = {value}"
+
+    def _wizard_show_profile(self) -> str:
+        """Show current guided wizard profile values."""
+
+        if not self._wizard_profile:
+            return (
+                "Wizard profile is empty.\n"
+                "Set values with /wizard set <field> <value> "
+                "(premise, protagonist, genre, tone, flow)."
+            )
+
+        lines = ["Wizard Profile"]
+        for field in ["premise", "protagonist", "genre", "tone", "flow"]:
+            value = self._wizard_profile.get(field)
+            if value:
+                lines.append(f"- {field}: {value}")
+        return "\n".join(lines)
+
+    def _wizard_build_plan(self) -> str:
+        """Build a command plan from wizard profile without executing commands."""
+
+        premise = self._wizard_profile.get("premise", "the core premise")
+        protagonist = self._wizard_profile.get("protagonist", "the protagonist")
+        genre = self._wizard_profile.get("genre", "the target genre")
+        tone = self._wizard_profile.get("tone", "the desired tone")
+        flow = self._wizard_profile.get("flow", "outline-first")
+
+        outline_cmds = [
+            f'/outline general-outline "Create the high-level story arc for {genre} with a {tone} tone. Premise: {premise}."',
+            f'/outline character-summary "Summarize {protagonist} and key supporting characters."',
+            '/outline chapter-synopsis "Produce a chapter-by-chapter synopsis with escalating stakes."',
+        ]
+        world_cmds = [
+            f'/worldbuilding history "Define world history that supports this premise: {premise}."',
+            '/worldbuilding culture "Define social norms, factions, and conflicts."',
+            '/worldbuilding magic-system "Define rules, costs, and limitations."',
+        ]
+
+        ordered = (
+            world_cmds + outline_cmds
+            if flow == "world-first"
+            else outline_cmds + world_cmds
+        )
+        ordered.extend(
+            [
+                '/chapters chapter 1 "Draft chapter 1 using synopsis + state context."',
+                "/progress",
+            ]
+        )
+
+        lines = [
+            "Wizard Plan Draft",
+            f"- Flow: {flow}",
+            "- This plan is advisory; commands are not auto-executed.",
+            "",
+        ]
+        lines.extend(f"{idx}. {cmd}" for idx, cmd in enumerate(ordered, start=1))
+        lines.append("")
+        lines.append("Tip: update inputs with /wizard set ... then rerun /wizard plan.")
+        return "\n".join(lines)
+
+    def _story_pipeline_checkpoints(self) -> list[dict[str, str | bool]]:
+        """Return canonical story pipeline checkpoints with completion status."""
+
+        has_pdf = any((self.book_path / "book").glob("book-*.pdf"))
+        return [
+            {
+                "name": "General Outline",
+                "done": self._has_content("outline/general_outline.md"),
+                "command": '/outline general-outline "Summarize the overall plot"',
+            },
+            {
+                "name": "Character Summary",
+                "done": self._has_content("outline/character_summary.md"),
+                "command": '/outline character-summary "Summarize key characters"',
+            },
+            {
+                "name": "Plot Points",
+                "done": self._has_content("outline/plot_points.md"),
+                "command": '/outline plot-points "List the major plot points"',
+            },
+            {
+                "name": "Chapter Synopsis",
+                "done": self._has_content("outline/chapter_synopsis.md"),
+                "command": '/outline chapter-synopsis "Outline each chapter"',
+            },
+            {
+                "name": "World History",
+                "done": self._has_content("worldbuilding/history.md"),
+                "command": '/worldbuilding history "Describe world history"',
+            },
+            {
+                "name": "World Geography",
+                "done": self._has_content("worldbuilding/geography.md"),
+                "command": '/worldbuilding geography "Describe world geography"',
+            },
+            {
+                "name": "World Culture",
+                "done": self._has_content("worldbuilding/culture.md"),
+                "command": '/worldbuilding culture "Describe world culture"',
+            },
+            {
+                "name": "Magic System",
+                "done": self._has_content("worldbuilding/magic_system.md"),
+                "command": '/worldbuilding magic-system "Describe the magic system"',
+            },
+            {
+                "name": "Technology",
+                "done": self._has_content("worldbuilding/technology.md"),
+                "command": '/worldbuilding technology "Describe world technology"',
+            },
+            {
+                "name": "First Chapter Draft",
+                "done": self._has_content("chapters/chapter-1.md"),
+                "command": '/chapters chapter 1 "Write chapter 1 from synopsis"',
+            },
+            {
+                "name": "Cover",
+                "done": self._has_content("chapters/cover.md"),
+                "command": '/chapters cover "Generate cover text"',
+            },
+            {
+                "name": "Back Cover",
+                "done": self._has_content("chapters/back-cover.md"),
+                "command": '/chapters back-cover "Generate back-cover text"',
+            },
+            {
+                "name": "Published PDF",
+                "done": has_pdf,
+                "command": "/publish pdf en",
+            },
+        ]
+
+    def _has_content(self, relative_path: str) -> bool:
+        """Return True when a generated markdown file exists with non-trivial content."""
+
+        path = self.book_path / relative_path
+        if not path.exists() or not path.is_file():
+            return False
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return False
+        return len(text.strip().splitlines()) > 3
+
+    def _chapter_numbers(self) -> list[int]:
+        """Return sorted chapter numbers from chapter markdown filenames."""
+
+        chapters_dir = self.book_path / "chapters"
+        if not chapters_dir.exists():
+            return []
+
+        numbers: list[int] = []
+        for chapter_path in chapters_dir.glob("chapter-*.md"):
+            match = re.match(r"chapter-(\d+)\.md$", chapter_path.name)
+            if match is not None:
+                numbers.append(int(match.group(1)))
+
+        numbers.sort()
+        return numbers
 
     def _openrouter_api_key(self) -> str | None:
         if self.config and self.config.llm_api_key_env:
@@ -476,6 +855,49 @@ class TuiApp(App[None]):
 
         sidebar.display = not sidebar.display
         return "Project tree shown." if sidebar.display else "Project tree hidden."
+
+    def _clear_output(self) -> str:
+        """Clear output text while preserving session and state context."""
+
+        try:
+            self.query_one("#output", RichLog).clear()
+        except Exception:
+            return "Output panel is not available in the current view."
+        return "Output cleared."
+
+    def _record_input_history(self, text: str) -> None:
+        """Record user input for keyboard history navigation."""
+
+        item = text.strip()
+        if not item:
+            return
+        self._input_history.append(item)
+        self._history_cursor = None
+
+    def _navigate_input_history(
+        self, *, direction: int, current_text: str
+    ) -> str | None:
+        """Return previous/next command from history for Up/Down navigation."""
+
+        if not self._input_history:
+            return None
+
+        if self._history_cursor is None:
+            if direction < 0:
+                self._history_cursor = len(self._input_history) - 1
+                return self._input_history[self._history_cursor]
+            return current_text
+
+        next_index = self._history_cursor + direction
+        if next_index < 0:
+            self._history_cursor = 0
+            return self._input_history[self._history_cursor]
+        if next_index >= len(self._input_history):
+            self._history_cursor = None
+            return ""
+
+        self._history_cursor = next_index
+        return self._input_history[self._history_cursor]
 
     def _run_chat_command_capture(self, command_text: str) -> str:
         stream = io.StringIO()

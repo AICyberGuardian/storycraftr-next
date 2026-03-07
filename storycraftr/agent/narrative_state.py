@@ -12,6 +12,13 @@ from storycraftr.utils.project_lock import project_write_lock
 
 logger = logging.getLogger(__name__)
 
+# Import audit and diff modules (forward declarations for type hints)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from storycraftr.agent.state_audit import StateAuditLog
+    from storycraftr.agent.state_diff import StateChangeset
+
 
 # ============================================================================
 # PYDANTIC VALIDATION MODELS (DSVL Phase 1A)
@@ -144,9 +151,22 @@ _DEFAULT_STATE: dict[str, dict[str, dict[str, Any]]] = {
 class NarrativeStateStore:
     """JSON-backed state store for deterministic character/world constraints."""
 
-    def __init__(self, book_path: str) -> None:
+    def __init__(self, book_path: str, enable_audit: bool = True) -> None:
         self.book_path = str(Path(book_path).resolve())
         self._file_path = Path(self.book_path) / "outline" / "narrative_state.json"
+        self._audit_path = Path(self.book_path) / "outline" / "narrative_audit.jsonl"
+        self._enable_audit = enable_audit
+        self._audit_log: StateAuditLog | None = None
+
+    def _get_audit_log(self) -> StateAuditLog | None:
+        """Lazy-initialize audit log."""
+        if not self._enable_audit:
+            return None
+        if self._audit_log is None:
+            from storycraftr.agent.state_audit import StateAuditLog
+
+            self._audit_log = StateAuditLog(self._audit_path)
+        return self._audit_log
 
     def load(self) -> NarrativeStateSnapshot:
         """Return validated narrative state snapshot; empty snapshot on missing/invalid data."""
@@ -452,7 +472,9 @@ class NarrativeStateStore:
                     f"Cannot update non-existent plot thread: {op.entity_id}"
                 )
 
-    def apply_patch(self, patch: StatePatch) -> NarrativeStateSnapshot:
+    def apply_patch(
+        self, patch: StatePatch, actor: str = "system"
+    ) -> NarrativeStateSnapshot:
         """
         Apply a validated patch to the narrative state.
 
@@ -461,6 +483,7 @@ class NarrativeStateStore:
 
         Args:
             patch: The patch to apply
+            actor: Who/what is applying the patch (for audit trail)
 
         Returns:
             Updated snapshot after applying all operations
@@ -471,10 +494,11 @@ class NarrativeStateStore:
         # Validate first
         self.validate_patch(patch)
 
-        # Load current state
-        snapshot = self.load()
+        # Load current state (for diff computation)
+        old_snapshot = self.load()
 
         # Apply operations
+        snapshot = old_snapshot
         for op in patch.operations:
             if op.entity_type == "character":
                 snapshot = self._apply_character_operation(snapshot, op)
@@ -484,7 +508,7 @@ class NarrativeStateStore:
                 snapshot = self._apply_plot_thread_operation(snapshot, op)
 
         # Update version and timestamp
-        snapshot = NarrativeStateSnapshot(
+        new_snapshot = NarrativeStateSnapshot(
             characters=snapshot.characters,
             locations=snapshot.locations,
             plot_threads=snapshot.plot_threads,
@@ -493,9 +517,29 @@ class NarrativeStateStore:
             last_modified=datetime.now().isoformat(),
         )
 
+        # Compute diff for audit trail
+        changeset: StateChangeset | None = None
+        audit_log = self._get_audit_log()
+        if audit_log is not None:
+            from storycraftr.agent.state_diff import compute_state_diff
+            from storycraftr.agent.state_audit import AuditEntry
+
+            changeset = compute_state_diff(old_snapshot, new_snapshot)
+
+            # Log the patch application
+            entry = AuditEntry(
+                timestamp=new_snapshot.last_modified,
+                operation_type="patch",
+                actor=actor,
+                patch=patch,
+                changeset=changeset,
+                metadata={"version": new_snapshot.version},
+            )
+            audit_log.append_entry(entry)
+
         # Persist
-        self.save(snapshot)
-        return snapshot
+        self.save(new_snapshot)
+        return new_snapshot
 
     def _apply_character_operation(
         self, snapshot: NarrativeStateSnapshot, op: PatchOperation

@@ -2,6 +2,15 @@
 
 ## Change History
 
+### 2026-03-07 — Updated contributor-reference.md with recent runtime contract files
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `docs/contributor-reference.md` "High-Value Runtime Contract Files" section to include recently added modules: `storycraftr/utils/paths.py`, `storycraftr/utils/project_lock.py`, `storycraftr/agent/narrative_state.py`, `storycraftr/agent/story/scene_planner.py`, canon-related files (`canon.py`, `canon_extract.py`, `canon_verify.py`), and their corresponding test files.
+	- Updated descriptions to reflect recent architecture features: Canon Guard, narrative state, adaptive compaction, TUI execution modes, and project write locking.
+	- Added "Recent Architecture Context" subsection to "Notes For AI Agents" section to highlight key architectural additions for quick onboarding.
+	- Enhanced runtime contract file descriptions to mention specific behaviors like fail-closed verification, adaptive compaction heuristics, and diagnostics persistence.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no code changes, only documentation catalog updates).
+
 ### 2026-03-07 — Adaptive compaction + canon diagnostics + structured narrative-state prompts
 - **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
 - **Impact:**

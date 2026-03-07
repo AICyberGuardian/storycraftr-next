@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Updated `docs/contributor-reference.md` with comprehensive runtime contract file catalog reflecting recent architecture: added Canon Guard files (`canon.py`, `canon_extract.py`, `canon_verify.py`), narrative state module (`narrative_state.py`), project locking (`project_lock.py`), path resolution (`paths.py`), scene planner, and their corresponding test files. Enhanced "Notes For AI Agents" with Canon Guard, narrative state, adaptive compaction, TUI execution modes, project write locking, and prompt diagnostics context.
 - Added Phase A Textual TUI ergonomics: `/clear` output reset command, `ctrl+l` focus mode toggle, Up/Down command history navigation, and inline slash-command status markers (`[Running]`, `[Done]`, `[Failed]`).
 - Added TUI workflow guidance commands: `/progress` for file-backed checkpoint status and `/wizard` (`/wizard next`) for canonical next-step recommendations based on project artifacts.
 - Added smart grouped TUI command help (`Writing`, `Planning`, `World`, `Project`) with topic filtering via `/help <topic>`, plus `/pipeline` (`/pipeline next`) as a wizard alias.

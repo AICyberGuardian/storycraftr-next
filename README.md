@@ -239,16 +239,24 @@ You can also launch the minimal terminal-native TUI command center:
 python -m storycraftr.tui.app --book-path /path/to/your/book
 ```
 
-The v0.1 TUI includes a project file tree, a chat/output pane, and a single
-command input with slash-command routing through existing CLI dispatchers.
+The v0.1 TUI is now state-driven: the project tree starts hidden by default,
+the top bar shows a Narrative strip and Scene Timeline strip, and input routes
+through existing CLI dispatchers without changing core agent execution.
 
 Current TUI slash commands include:
 
 - `/help` for a concise command reference
 - `/status` for project/assistant/runtime status
+- `/state` to inspect current narrative context and exact injected prompt block
+- `/toggle-tree` to show/hide the project file tree when needed
+- `/chapter <number>` and `/scene <label>` to set in-memory narrative focus
 - `/session ...` and `/sub-agent ...` passthrough commands
 - `/model-list` to fetch and show current free OpenRouter models
 - `/model-change <model_id>` to switch the active TUI session model safely
+
+For regular prompts, the TUI prepends a read-only narrative state block
+(active chapter/scene/arc and timeline context) before dispatching to the
+existing assistant pipeline.
 
 For help with available commands during the session, simply type:
 

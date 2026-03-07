@@ -389,6 +389,33 @@ exit()
 
 This will gracefully close the chat session and return you to your terminal.
 
+## Step 9: Launch the Textual TUI (Optional)
+
+If you prefer a structured terminal interface, launch the Textual TUI command
+center:
+
+```bash
+python -m storycraftr.tui.app --book-path "/path/to/your/project"
+```
+
+The TUI keeps the same assistant/back-end architecture and adds a narrative
+state header, output pane, and command input with slash commands.
+
+Useful slash commands:
+
+- `/help` shows TUI command reference.
+- `/status` shows project/assistant runtime status.
+- `/state` shows active narrative state plus the exact injected prompt block.
+- `/toggle-tree` shows/hides the project tree (hidden by default).
+- `/chapter <number>` and `/scene <label>` set in-memory narrative focus.
+- `/model-list` fetches current free OpenRouter models.
+- `/model-change <model_id>` switches the active TUI session model.
+- `/session ...` and `/sub-agent ...` route to existing StoryCraftr commands.
+
+Regular prompts are prefixed with a read-only state block (active
+chapter/scene/arc + timeline summary) before dispatching to the existing
+assistant pipeline.
+
 ## Contributor Testing Notes
 
 If you are contributing changes, run the full suite before opening a PR:

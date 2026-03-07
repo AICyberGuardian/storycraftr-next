@@ -11,6 +11,7 @@ Current development target: `v0.16` (`0.16.0-dev`).
 
 StoryCraftr-Next is a local-first writing platform with:
 - Dual Python CLI entrypoints: `storycraftr` and `papercraftr`
+- Textual terminal-native TUI shell (`python -m storycraftr.tui.app`)
 - LangChain-based assistant orchestration
 - Local Chroma vector store for retrieval-augmented generation (RAG)
 - Background sub-agent execution via thread pool
@@ -38,6 +39,9 @@ StoryCraftr-Next is a local-first writing platform with:
 - `storycraftr/llm/embeddings.py`: embedding client construction.
 - `storycraftr/vectorstores/chroma.py`: persistent Chroma setup.
 - `storycraftr/subagents/jobs.py`: sub-agent job manager lifecycle.
+- `storycraftr/tui/app.py`: Textual single-screen command center and slash-command router.
+- `storycraftr/tui/openrouter_models.py`: OpenRouter free-model metadata fetch/filter helper for TUI model controls.
+- `storycraftr/tui/state_engine.py`: read-only narrative state extraction/cache and prompt-prefix formatter.
 - `storycraftr/utils/paths.py`: canonical runtime path resolution.
 - `storycraftr/integrations/vscode.py`: JSONL event emission contract.
 - `src/extension.ts`: VS Code watcher and UI integration.
@@ -83,6 +87,15 @@ Default logical locations:
 - Markdown project files are chunked and indexed for retrieval.
 - Graph output shape includes generated answer text and retrieved documents.
 - Provider `fake` is supported for offline/test flows.
+
+## TUI Command Center
+
+- The TUI is a thin UI layer over existing assistant/chat APIs and does not replace core generation logic.
+- It supports slash-command UX including `/help`, `/status`, `/toggle-tree`, `/chapter <number>`, `/scene <label>`, `/session ...`, `/sub-agent ...`, `/model-list`, and `/model-change <model_id>`.
+- The project tree defaults to hidden and can be shown on-demand for filesystem inspection.
+- `/model-list` uses OpenRouter `/api/v1/models` metadata and filters free models by zero prompt/completion pricing.
+- `/model-change` rebuilds the active TUI assistant via existing safe assistant creation paths with model override, while preserving project and retrieval context and reporting continuity limits explicitly.
+- Normal user prompts are prefixed in the TUI layer with a read-only narrative state block before dispatch to existing assistant execution APIs.
 
 ## Sub-Agent System
 

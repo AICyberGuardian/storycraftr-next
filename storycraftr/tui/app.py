@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import io
 import os
 import shlex
@@ -25,11 +26,12 @@ from storycraftr.agent.agents import (
 from storycraftr.chat.commands import CommandContext, handle_command
 from storycraftr.chat.module_runner import ModuleCommandError, run_module_command
 from storycraftr.chat.session import SessionManager
-from storycraftr.utils.core import BookConfig, load_book_config
 from storycraftr.tui.openrouter_models import (
     OpenRouterModel,
     fetch_free_openrouter_models,
 )
+from storycraftr.tui.state_engine import NarrativeState, NarrativeStateEngine
+from storycraftr.utils.core import BookConfig, load_book_config
 
 
 def _resolve_book_path(book_path: str | None) -> Path:
@@ -53,7 +55,13 @@ class TuiApp(App[None]):
     SUB_TITLE = "v0.1"
     CSS = """
     #title { padding: 0 1; text-style: bold; }
-    #model-status { padding: 0 1; color: $accent; }
+    #state-strips { height: auto; padding: 0 1; }
+    #narrative-strip, #timeline-strip {
+        width: 1fr;
+        padding: 0 1;
+        border: round $surface;
+        color: $text-muted;
+    }
     #body { height: 1fr; }
     .sidebar { width: 25%; border: round $surface; padding: 0 1; }
     .main { width: 75%; border: round $surface; padding: 0 1; }
@@ -64,6 +72,7 @@ class TuiApp(App[None]):
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+p", "command_palette", "Command Palette"),
+        Binding("ctrl+t", "toggle_tree", "Toggle Tree"),
     ]
 
     _FREE_MODEL_CACHE_TTL_SECONDS = 300
@@ -78,12 +87,15 @@ class TuiApp(App[None]):
         self._cached_free_models: list[OpenRouterModel] = []
         self._cached_free_models_at: float = 0.0
         self.transcript: list[dict[str, Any]] = []
+        self.state_engine = NarrativeStateEngine(book_path=str(self.book_path))
         self.session_manager = SessionManager(str(self.book_path))
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield Static("StoryCraftr TUI", id="title")
-        yield Static("", id="model-status")
+        with Horizontal(id="state-strips"):
+            yield Static("Narrative: loading...", id="narrative-strip")
+            yield Static("Timeline: loading...", id="timeline-strip")
         with Horizontal(id="body"):
             with Vertical(classes="sidebar"):
                 yield Label("Project", classes="pane-title")
@@ -109,7 +121,6 @@ class TuiApp(App[None]):
             return
 
         self.model_override = self.config.llm_model
-        self._update_model_status_widget()
         output.write(f"[cyan]Loading assistant for {self.book_path}...[/cyan]")
         try:
             self.assistant = await asyncio.to_thread(
@@ -123,6 +134,8 @@ class TuiApp(App[None]):
         output.write(
             "[green]Ready. Enter prompts or slash commands (e.g. /agents, /outline ...).[/green]"
         )
+        self.query_one(DirectoryTree).display = False
+        await self._refresh_state_strips(force_refresh=True)
 
     @on(Input.Submitted)
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -139,7 +152,8 @@ class TuiApp(App[None]):
                     f"[bold magenta]CLI:[/bold magenta] {await self._dispatch_slash_command(text)}"
                 )
             else:
-                response, streamed = await self._run_assistant_turn(text)
+                prompt = await asyncio.to_thread(self.state_engine.compose_prompt, text)
+                response, streamed = await self._run_assistant_turn(prompt)
                 if not streamed:
                     log.write(f"[bold green]Assistant:[/bold green] {response}")
                 self.transcript.append({"user": text, "answer": response})
@@ -193,6 +207,30 @@ class TuiApp(App[None]):
         if command == "status":
             return await self._build_status_text()
 
+        if command == "state":
+            return await self._build_state_text()
+
+        if command == "toggle-tree":
+            return self._toggle_tree_visibility()
+
+        if command == "chapter":
+            if not args:
+                return "Usage: /chapter <number>"
+            try:
+                chapter_number = int(args[0])
+            except ValueError:
+                return "Usage: /chapter <number>"
+            self.state_engine.set_active_chapter(chapter_number)
+            await self._refresh_state_strips(force_refresh=True)
+            return f"Active chapter focus set to {chapter_number}."
+
+        if command == "scene":
+            if not args:
+                return "Usage: /scene <label>"
+            self.state_engine.set_active_scene(" ".join(args))
+            await self._refresh_state_strips(force_refresh=True)
+            return f"Active scene focus set to: {' '.join(args)}"
+
         if command == "chat":
             return "Already in chat mode."
 
@@ -210,17 +248,6 @@ class TuiApp(App[None]):
                 f":{payload}",
             )
 
-        if command in {"agents", "subagents", "sub-agent"}:
-            if command == "agents":
-                return await asyncio.to_thread(
-                    self._run_chat_command_capture, ":sub-agent !list"
-                )
-            if not args:
-                return "Usage: /sub-agent !list | !status | !<command> [args]"
-            return await asyncio.to_thread(
-                self._run_chat_command_capture, f":sub-agent {' '.join(args)}"
-            )
-
         return await asyncio.to_thread(self._run_module_command_capture, payload)
 
     def _active_model(self) -> str:
@@ -235,23 +262,21 @@ class TuiApp(App[None]):
             return self.config.llm_provider
         return "<unknown>"
 
-    def _update_model_status_widget(self) -> None:
-        self.query_one("#model-status", Static).update(
-            f"Provider: {self._active_provider()} | Model: {self._active_model()}"
-        )
+    def action_toggle_tree(self) -> None:
+        self._toggle_tree_visibility()
 
     def _build_help_text(self) -> str:
         lines = [
             "TUI Slash Commands",
             "- /help - show this command reference",
             "- /status - show project/assistant/runtime status",
+            "- /state - show active narrative state and injected prompt block",
+            "- /toggle-tree - show/hide project file tree",
+            "- /chapter <number> - set active chapter focus for state context",
+            "- /scene <label> - set active scene focus for state context",
             "- /session list",
             "- /session save <name>",
             "- /session load <name>",
-            "- /sub-agent !list",
-            "- /sub-agent !status",
-            "- /sub-agent !<command>",
-            "- /agents - alias for /sub-agent !list",
             "- /model-list - list free OpenRouter models",
             "- /model-change <model_id> - switch active model for this TUI session",
             "- /outline ... /chapters ... /worldbuilding ... - routed to existing CLI module commands",
@@ -259,17 +284,42 @@ class TuiApp(App[None]):
         return "\n".join(lines)
 
     async def _build_status_text(self) -> str:
+        state = await asyncio.to_thread(self.state_engine.get_state)
         lines = [
             "TUI Status",
             f"- Project: {self.book_path}",
             f"- Provider: {self._active_provider()}",
             f"- Model: {self._active_model()}",
+            f"- Active chapter: {state.active_chapter if state.active_chapter is not None else '<none>'}",
+            f"- Active scene: {state.active_scene}",
+            f"- Active arc: {state.active_arc}",
             f"- Thread: {self.thread_id or '<none>'}",
             f"- Transcript turns: {len(self.transcript)}",
         ]
         chat_status = await asyncio.to_thread(self._run_chat_command_capture, ":status")
         if chat_status:
             lines.extend(["", "Assistant Retrieval Status", chat_status])
+        return "\n".join(lines)
+
+    async def _build_state_text(self) -> str:
+        """Show the current state snapshot and prompt block used for injection."""
+
+        state = await asyncio.to_thread(self.state_engine.get_state)
+        block = await asyncio.to_thread(
+            self.state_engine.build_prompt_block,
+            state=state,
+        )
+        lines = [
+            "Narrative State",
+            f"- Active chapter: {state.active_chapter if state.active_chapter is not None else '<none>'}",
+            f"- Active scene: {state.active_scene}",
+            f"- Active arc: {state.active_arc}",
+            f"- Memory strip: {state.memory_strip}",
+            f"- Timeline strip: {state.timeline_strip}",
+            "",
+            "Injected Prompt Block",
+            block,
+        ]
         return "\n".join(lines)
 
     def _openrouter_api_key(self) -> str | None:
@@ -321,22 +371,27 @@ class TuiApp(App[None]):
         if not requested:
             return "Usage: /model-change <model_id>"
 
-        validated = False
         validation_note = ""
-        try:
-            free_models = await asyncio.to_thread(self._get_free_models)
-            if free_models:
-                free_ids = {model.model_id for model in free_models}
-                validated = requested in free_ids
-                if not validated:
-                    return (
-                        "Model is not in the current free OpenRouter model list. "
-                        "Use /model-list to inspect valid IDs."
-                    )
-                validation_note = "Validated against current free OpenRouter list."
-        except Exception as exc:
+        active_provider = self._active_provider()
+        if active_provider == "openrouter":
+            try:
+                free_models = await asyncio.to_thread(self._get_free_models)
+                if free_models:
+                    free_ids = {model.model_id for model in free_models}
+                    if requested not in free_ids:
+                        return (
+                            "Model is not in the current free OpenRouter model list. "
+                            "Use /model-list to inspect valid IDs."
+                        )
+                    validation_note = "Validated against current free OpenRouter list."
+            except Exception as exc:
+                validation_note = (
+                    f"Validation skipped due to model-list fetch failure: {exc}"
+                )
+        else:
             validation_note = (
-                f"Validation skipped due to model-list fetch failure: {exc}"
+                "Validation skipped: current provider is not openrouter; "
+                "model ID was not checked against the OpenRouter free-model list."
             )
 
         previous_model = self._active_model()
@@ -349,17 +404,21 @@ class TuiApp(App[None]):
                 str(self.book_path),
                 requested,
             )
+            if inspect.iscoroutine(new_assistant):
+                new_assistant.close()
+                raise TypeError(
+                    "create_or_get_assistant returned a coroutine; expected "
+                    "a synchronous assistant instance"
+                )
         except Exception as exc:
             self.assistant = previous_assistant
             self.model_override = previous_override
-            self._update_model_status_widget()
             return f"Failed to change model to '{requested}': {exc}"
 
         self.assistant = new_assistant
         self.model_override = requested
         if self.thread_id is None:
             self.thread_id = get_thread(str(self.book_path)).id
-        self._update_model_status_widget()
 
         continuity = f"Retained thread id {self.thread_id} and {len(self.transcript)} transcript turns."
         provider_note = ""
@@ -373,6 +432,46 @@ class TuiApp(App[None]):
             f"Model changed: {previous_model} -> {requested}. "
             f"{validation_note} {continuity}{provider_note}"
         ).strip()
+
+    async def _refresh_state_strips(self, *, force_refresh: bool = False) -> None:
+        """Refresh strip widgets using the read-only narrative state snapshot."""
+
+        state = await asyncio.to_thread(
+            self.state_engine.get_state, force_refresh=force_refresh
+        )
+        self._update_strip_widgets(state)
+
+    def _update_strip_widgets(self, state: NarrativeState) -> None:
+        """Update one-line strip widgets with concise state text."""
+
+        try:
+            self.query_one("#narrative-strip", Static).update(
+                self._truncate_strip(state.memory_strip)
+            )
+            self.query_one("#timeline-strip", Static).update(
+                self._truncate_strip(state.timeline_strip)
+            )
+        except Exception:
+            # Widget queries may fail in unit tests that do not mount the app.
+            return
+
+    def _truncate_strip(self, text: str, *, max_len: int = 110) -> str:
+        """Trim long strip values so the layout remains stable in narrow terminals."""
+
+        if len(text) <= max_len:
+            return text
+        return text[: max_len - 3].rstrip() + "..."
+
+    def _toggle_tree_visibility(self) -> str:
+        """Toggle project tree visibility for focused writing mode."""
+
+        try:
+            tree = self.query_one(DirectoryTree)
+        except Exception:
+            return "Project tree is not available in the current view."
+
+        tree.display = not tree.display
+        return "Project tree shown." if tree.display else "Project tree hidden."
 
     def _run_chat_command_capture(self, command_text: str) -> str:
         stream = io.StringIO()

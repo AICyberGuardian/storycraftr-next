@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -36,9 +37,6 @@ def test_tui_help_includes_required_commands(tmp_path) -> None:
     assert "/session list" in help_text
     assert "/session save <name>" in help_text
     assert "/session load <name>" in help_text
-    assert "/sub-agent !list" in help_text
-    assert "/sub-agent !status" in help_text
-    assert "/sub-agent !<command>" in help_text
     assert "/model-list" in help_text
     assert "/model-change <model_id>" in help_text
 
@@ -92,3 +90,74 @@ def test_dispatch_state_command_returns_state_block(tmp_path) -> None:
 
     assert "Narrative State" in result
     assert "Injected Prompt Block" in result
+
+
+def test_change_model_skips_openrouter_validation_for_non_openrouter_provider(
+    tmp_path, monkeypatch
+) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.config = SimpleNamespace(llm_provider="openai", llm_model="gpt-4o")
+    app.assistant = object()
+
+    called: list[str] = []
+
+    def _fake_create_or_get(book_path, model_id=None):
+        called.append(model_id)
+        return object()
+
+    monkeypatch.setattr(
+        "storycraftr.tui.app.create_or_get_assistant", _fake_create_or_get
+    )
+
+    result = asyncio.run(app._change_model("gpt-4o"))
+
+    assert called == ["gpt-4o"]
+    assert "Model changed" in result
+    assert "Validation skipped: current provider is not openrouter" in result
+
+
+def test_change_model_failure_does_not_raise_attribute_error(
+    tmp_path, monkeypatch
+) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.config = SimpleNamespace(llm_provider="openai", llm_model="gpt-4o")
+    previous_assistant = object()
+    app.assistant = previous_assistant
+    app.model_override = "old-model"
+
+    def _raise_create_error(book_path, model_id=None):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(
+        "storycraftr.tui.app.create_or_get_assistant", _raise_create_error
+    )
+
+    result = asyncio.run(app._change_model("gpt-4o"))
+
+    assert "Failed to change model" in result
+    assert "connection refused" in result
+    assert app.assistant is previous_assistant
+    assert app.model_override == "old-model"
+
+
+def test_change_model_rejects_coroutine_result_from_factory(
+    tmp_path, monkeypatch
+) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.config = SimpleNamespace(llm_provider="openai", llm_model="gpt-4o")
+    app.assistant = object()
+    app.model_override = "old-model"
+
+    async def _bad_factory(book_path, model_id=None):
+        return object()
+
+    monkeypatch.setattr("storycraftr.tui.app.create_or_get_assistant", _bad_factory)
+
+    result = asyncio.run(app._change_model("some-model"))
+
+    assert "Failed to change model" in result
+    assert "returned a coroutine" in result
+    assert app.model_override == "old-model"

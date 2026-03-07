@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import io
 import os
 import shlex
@@ -247,17 +248,6 @@ class TuiApp(App[None]):
                 f":{payload}",
             )
 
-        if command in {"agents", "subagents", "sub-agent"}:
-            if command == "agents":
-                return await asyncio.to_thread(
-                    self._run_chat_command_capture, ":sub-agent !list"
-                )
-            if not args:
-                return "Usage: /sub-agent !list | !status | !<command> [args]"
-            return await asyncio.to_thread(
-                self._run_chat_command_capture, f":sub-agent {' '.join(args)}"
-            )
-
         return await asyncio.to_thread(self._run_module_command_capture, payload)
 
     def _active_model(self) -> str:
@@ -287,10 +277,6 @@ class TuiApp(App[None]):
             "- /session list",
             "- /session save <name>",
             "- /session load <name>",
-            "- /sub-agent !list",
-            "- /sub-agent !status",
-            "- /sub-agent !<command>",
-            "- /agents - alias for /sub-agent !list",
             "- /model-list - list free OpenRouter models",
             "- /model-change <model_id> - switch active model for this TUI session",
             "- /outline ... /chapters ... /worldbuilding ... - routed to existing CLI module commands",
@@ -385,22 +371,27 @@ class TuiApp(App[None]):
         if not requested:
             return "Usage: /model-change <model_id>"
 
-        validated = False
         validation_note = ""
-        try:
-            free_models = await asyncio.to_thread(self._get_free_models)
-            if free_models:
-                free_ids = {model.model_id for model in free_models}
-                validated = requested in free_ids
-                if not validated:
-                    return (
-                        "Model is not in the current free OpenRouter model list. "
-                        "Use /model-list to inspect valid IDs."
-                    )
-                validation_note = "Validated against current free OpenRouter list."
-        except Exception as exc:
+        active_provider = self._active_provider()
+        if active_provider == "openrouter":
+            try:
+                free_models = await asyncio.to_thread(self._get_free_models)
+                if free_models:
+                    free_ids = {model.model_id for model in free_models}
+                    if requested not in free_ids:
+                        return (
+                            "Model is not in the current free OpenRouter model list. "
+                            "Use /model-list to inspect valid IDs."
+                        )
+                    validation_note = "Validated against current free OpenRouter list."
+            except Exception as exc:
+                validation_note = (
+                    f"Validation skipped due to model-list fetch failure: {exc}"
+                )
+        else:
             validation_note = (
-                f"Validation skipped due to model-list fetch failure: {exc}"
+                "Validation skipped: current provider is not openrouter; "
+                "model ID was not checked against the OpenRouter free-model list."
             )
 
         previous_model = self._active_model()
@@ -413,10 +404,15 @@ class TuiApp(App[None]):
                 str(self.book_path),
                 requested,
             )
+            if inspect.iscoroutine(new_assistant):
+                new_assistant.close()
+                raise TypeError(
+                    "create_or_get_assistant returned a coroutine; expected "
+                    "a synchronous assistant instance"
+                )
         except Exception as exc:
             self.assistant = previous_assistant
             self.model_override = previous_override
-            self._update_model_status_widget()
             return f"Failed to change model to '{requested}': {exc}"
 
         self.assistant = new_assistant

@@ -148,3 +148,33 @@ Body
 
     assert state.active_chapter == 1
     assert state.active_scene == "Setup"
+
+
+def test_state_engine_sorts_chapters_numerically(tmp_path) -> None:
+    _write(
+        tmp_path / "chapters" / "chapter-10.md",
+        """---
+scene: Late
+---
+# Chapter 10
+Body
+""",
+    )
+    _write(
+        tmp_path / "chapters" / "chapter-2.md",
+        """---
+scene: Early
+---
+# Chapter 2
+Body
+""",
+    )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+    state = engine.get_state(force_refresh=True)
+
+    assert "Ch2 Early" in state.timeline_strip
+    assert "Ch10 Late" in state.timeline_strip
+    assert state.timeline_strip.index("Ch2 Early") < state.timeline_strip.index(
+        "Ch10 Late"
+    )

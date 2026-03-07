@@ -405,21 +405,27 @@ Useful slash commands:
 
 - `/help` shows TUI command reference.
 - `/status` shows project/assistant runtime status.
+- `/mode <manual|hybrid|autopilot>` sets the execution mode control layer for TUI workflows.
+- `/autopilot <steps> <prompt>` runs bounded autonomous turns when mode is `autopilot`.
 - `/state` shows active narrative state plus the exact injected prompt block, including `[Active Constraints]` when canon facts exist.
 - `/progress` shows canonical writing-pipeline checkpoint completion.
 - `/wizard` and `/wizard next` provide guided next-step workflow recommendations.
 - `/pipeline` and `/pipeline next` are aliases for wizard-guided flow.
 - `/wizard set <field> <value>`, `/wizard show`, `/wizard plan`, `/wizard reset` build profile-driven advisory plans.
-- `/canon`, `/canon show [chapter]`, `/canon add <fact>`, `/canon add <chapter> :: <fact>`, `/canon clear [confirm]` manage chapter-scoped writer-approved canon constraints.
+- `/canon`, `/canon show [chapter]`, `/canon add <fact>`, `/canon add <chapter> :: <fact>`, `/canon pending`, `/canon accept <n[,m,...]>`, `/canon reject [n[,m,...]]`, `/canon clear [confirm]` manage chapter-scoped writer-approved canon constraints and hybrid extraction approvals.
 - `/toggle-tree` shows/hides the project tree (hidden by default).
 - `/chapter <number>` and `/scene <label>` set in-memory narrative focus.
 - `/model-list` fetches current free OpenRouter models.
 - `/model-change <model_id>` switches the active TUI session model.
 - `/session ...` and `/sub-agent ...` route to existing StoryCraftr commands.
 
-Regular prompts are prefixed with a read-only state block (active
-chapter/scene/arc + timeline summary) before dispatching to the existing
-assistant pipeline.
+Regular prompts are prefixed with a scene-scoped context block (scene
+Goal/Conflict/Outcome + active chapter constraints + compact state summary)
+before dispatching to the existing assistant pipeline.
+
+In `autopilot` mode, extracted canon candidates are conflict-verified against
+accepted chapter facts before commit; duplicate or contradiction-like
+candidates are skipped to keep canon updates fail-closed.
 
 ## Contributor Testing Notes
 

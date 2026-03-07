@@ -98,6 +98,27 @@ def test_session_manager_save_uses_project_write_lock(monkeypatch, tmp_path):
     assert calls[0][1] is not None
 
 
+def test_session_manager_runtime_state_round_trip(tmp_path):
+    _write_config(tmp_path)
+
+    sessions = SessionManager(str(tmp_path))
+    state_path = sessions.save_runtime_state({"execution_mode": "hybrid"})
+    loaded = sessions.load_runtime_state()
+
+    assert state_path.name == "session.json"
+    assert loaded["execution_mode"] == "hybrid"
+
+
+def test_list_sessions_ignores_runtime_state_file(tmp_path):
+    _write_config(tmp_path)
+
+    sessions = SessionManager(str(tmp_path))
+    sessions.save("draft", [{"role": "user", "content": "hello"}])
+    sessions.save_runtime_state({"execution_mode": "manual"})
+
+    assert sessions.list_sessions() == ["draft"]
+
+
 def test_build_chroma_store_uses_project_write_lock(monkeypatch, tmp_path):
     _write_config(tmp_path)
     calls: list[str] = []

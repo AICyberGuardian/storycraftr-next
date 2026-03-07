@@ -41,6 +41,16 @@ StoryCraftr-Next is a local-first AI writing system consisting of:
 - JSONL event stream for editor integration
 - VS Code extension written in TypeScript
 
+Recent architecture additions (must be treated as current behavior):
+
+- Textual TUI execution modes: `manual`, `hybrid`, `autopilot` (`/mode ...`)
+- Bounded autonomous loop command: `/autopilot <steps> <prompt>`
+- Canon Guard ledger: chapter-scoped facts in `outline/canon.yml`
+- Hybrid canon candidate extraction + explicit approval workflow (`/canon pending|accept|reject`)
+- Fail-closed canon verification before commit (duplicate/conflict checks)
+- Scene-scoped prompt assembly (`[Scene Plan]` + `[Scoped Context]`) to reduce token bloat
+- Runtime TUI mode persistence in `.storycraftr/sessions/session.json`
+
 Primary workflows include:
 
 - project initialization
@@ -54,7 +64,7 @@ Primary workflows include:
 Architecturally the system is a layered monolith with:
 
 ```
-CLI → Command Handlers → Agent Orchestration → LLM Provider → Vector Store → Filesystem
+CLI/TUI → Command Handlers → Agent Orchestration/State Engine → LLM Provider → Vector Store + Canon Ledger → Filesystem
 ```
 
 The VS Code extension reads events from a JSONL file emitted by the CLI.
@@ -79,6 +89,39 @@ The VS Code extension reads events from a JSONL file emitted by the CLI.
 10. Use `resolve_project_paths(...)` for internal project paths; avoid hardcoded `.storycraftr` literals.
 11. Any repository change must update `docs/CHANGE_IMPACT_CHECKLIST.md` with reviewed section(s) and impact/no-impact rationale.
 12. Preserve config parity for Story and Paper modes (`storycraftr.json` and `papercraftr.json`).
+13. Preserve TUI execution safety gates: autonomous flows must remain mode-gated and bounded.
+14. Canon writes from candidate flows must remain fail-closed (verification first, commit second).
+15. Keep retrieval and memory contracts explicit: vector recall (`vector_store`) plus canon constraints (`outline/canon.yml`) plus session metadata (`.storycraftr/sessions/session.json`).
+16. Use Context7 for external library/framework behavior that is version-sensitive; do not use it to infer repository-local behavior that can be read directly from this codebase.
+
+### Context7 Usage Contract (Mandatory)
+
+When researching third-party libraries, follow this sequence exactly:
+
+1. Resolve library ID first with `mcp_context7_resolve-library-id`.
+2. Query docs with `mcp_context7_query-docs` using that resolved ID.
+3. Do not exceed 3 Context7 queries per user question.
+
+Allowed shortcut:
+- Skip resolve only when the user explicitly provides a Context7 ID (`/org/project` or `/org/project/version`).
+
+Required behavior:
+- Prefer codebase-first confirmation for local contracts (paths, config schema, event payloads, commands).
+- Use Context7 to validate API signatures, migration notes, and best-practice usage for external dependencies.
+- Include concrete API names in queries (class/function/interface/contribution point).
+- Prefer version-specific IDs when dependency versions matter.
+
+Context7 should be used proactively when touching these areas in this repository:
+
+- LangChain/LangChain Core/LCEL graph semantics (`langchain`, `langchain-core`)
+- Chroma vector store integration (`langchain-chroma`, `chromadb`)
+- Textual UI patterns (`textual`)
+- VS Code extension APIs and contribution behavior (plus local event-contract alignment)
+
+Do not use Context7 for:
+
+- Internal module behavior (`storycraftr/*`, `src/*`) that is already available in the repository
+- Checklist/invariant decisions that are governed by `AGENTS.md`, `.github/copilot-instructions.md`, and `docs/CHANGE_IMPACT_CHECKLIST.md`
 
 ---
 
@@ -107,6 +150,8 @@ Investigate potential causes such as:
 - outdated libraries
 - misuse of LangChain abstractions
 
+For third-party uncertainty, run a brief Context7 pass before implementing fixes.
+
 ### PHASE 3 — Design a Safe Fix
 
 Before writing code:
@@ -117,10 +162,13 @@ Before writing code:
 4. Ensure compatibility with:
 
    - CLI workflows
+   - TUI execution modes (`manual`/`hybrid`/`autopilot`)
+   - Canon Guard commands and ledger semantics
    - sub-agents
    - vector store
    - VS Code extension integration
 5. Confirm checklist/documentation impact requirements before implementation is considered complete.
+6. If third-party APIs are involved, cite the Context7-backed API behavior used for the design.
 
 ### PHASE 4 — Implement the Change
 
@@ -149,6 +197,22 @@ Use repository-consistent validation commands when applicable:
 poetry run pytest
 poetry run pre-commit run --all-files
 ```
+
+For scoped validation of current TUI architecture changes, prefer focused suites first:
+
+```bash
+poetry run pytest tests/unit/test_tui_app.py
+poetry run pytest tests/unit/test_tui_state_engine.py
+poetry run pytest tests/unit/test_tui_context_builder.py
+poetry run pytest tests/unit/test_tui_canon_extract.py
+poetry run pytest tests/unit/test_tui_canon_verify.py
+```
+
+When Context7 was used, add a short "External API validation" note in your response that states:
+
+- library ID used
+- API surface validated
+- any version-sensitive caveat applied
 
 For CI parity checks (optional):
 
@@ -195,6 +259,7 @@ Examples:
 - thread safety
 - cache invalidation
 - sub-agent job isolation
+- TUI execution mode persistence and mode-gated autonomy
 
 ### 3. Performance bottlenecks
 
@@ -204,6 +269,7 @@ Examples:
 - repeated vector store rebuilds
 - large prompt assembly
 - unnecessary LLM calls
+- unbounded autonomous loops or unconstrained context injection
 
 ### 4. Reliability and error handling
 
@@ -213,6 +279,7 @@ Examples:
 - inconsistent exception types
 - fragile filesystem assumptions
 - partial writes
+- unsafe canon commits without verification
 
 ### 5. Developer experience
 
@@ -231,6 +298,17 @@ Examples:
 - missing `CHANGE_IMPACT_CHECKLIST.md` updates
 - Story/Paper config parity drift
 - hardcoded internal paths instead of `resolve_project_paths`
+- TUI command/docs drift (`/mode`, `/autopilot`, `/canon` contract)
+- VS Code event contract drift (`session.*`, `chat.*`, `sub_agent.*`)
+
+### 7. Memory and recall integrity
+
+Examples:
+
+- vector recall freshness (hydration/rebuild rules)
+- canon ledger consistency across chapters
+- scoped prompt context quality (`Scene Plan` and `Scoped Context`)
+- session/runtime metadata persistence behavior
 
 ---
 

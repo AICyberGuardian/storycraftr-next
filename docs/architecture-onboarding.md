@@ -43,7 +43,11 @@ Config note:
 - `storycraftr/integrations/vscode.py`: JSONL event emission.
 - `storycraftr/tui/app.py`: Textual terminal command center with slash-command UX and model controls.
 - `storycraftr/tui/canon.py`: chapter-scoped canon ledger helpers for writer-approved constraints.
-- `storycraftr/tui/state_engine.py`: read-only narrative state extraction and prompt-prefix context builder.
+- `storycraftr/tui/canon_extract.py`: conservative canon-candidate extraction for hybrid review.
+- `storycraftr/tui/canon_verify.py`: fail-closed canon candidate verification for duplicate/conflict checks in autopilot commits.
+- `storycraftr/tui/context_builder.py`: scene-scoped prompt assembly with bounded constraints/context sections.
+- `storycraftr/tui/state_engine.py`: read-only narrative state extraction and scoped-context orchestration.
+- `storycraftr/agent/story/scene_planner.py`: deterministic scene Goal/Conflict/Outcome planning helper.
 - `src/extension.ts`: VS Code event stream watcher and UI integration.
 - `src/event-contract.ts`: typed event parser and contract for extension event payloads.
 - `src/event-contract.test.ts`: event-contract regression tests.
@@ -58,7 +62,13 @@ At project level:
 Internal state (resolved via `resolve_project_paths`):
 - `.storycraftr/subagents/`
 - `.storycraftr/sessions/`
+   - `session.json` stores lightweight runtime metadata (for example, TUI execution mode).
 - `.storycraftr/vscode-events.jsonl`
+
+TUI autonomy note:
+- `/mode` controls manual/hybrid/autopilot execution behavior.
+- `/autopilot` only runs when mode is `autopilot` and performs bounded steps.
+- Canon commits in autopilot flow are verified against accepted chapter facts and skip duplicate/conflicting candidates.
 
 Do not hardcode these paths; use `storycraftr/utils/paths.py`.
 

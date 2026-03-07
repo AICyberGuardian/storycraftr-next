@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Mapping
+from typing import Any, List, Mapping
 
 from storycraftr.utils.core import load_book_config
 from storycraftr.utils.paths import resolve_project_paths
@@ -34,7 +34,9 @@ class SessionManager:
         self._directory = storage_root
 
     def list_sessions(self) -> List[str]:
-        return sorted(p.stem for p in self._directory.glob("*.json"))
+        return sorted(
+            p.stem for p in self._directory.glob("*.json") if p.name != "session.json"
+        )
 
     def _path_for(self, name: str) -> Path:
         safe_name = name.strip().replace("/", "-")
@@ -58,3 +60,36 @@ class SessionManager:
 
     def autosave(self, transcript: List[Mapping]) -> None:
         self.save(self.autosave_name, transcript)
+
+    def load_runtime_state(self) -> dict[str, Any]:
+        """Load runtime session metadata from sessions/session.json."""
+
+        path = self._directory / "session.json"
+        if not path.exists():
+            return {}
+
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError:
+            return {}
+
+        if not raw.strip():
+            return {}
+
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+
+        if not isinstance(parsed, dict):
+            return {}
+        return parsed
+
+    def save_runtime_state(self, state: Mapping[str, Any]) -> Path:
+        """Persist runtime session metadata to sessions/session.json."""
+
+        path = self._directory / "session.json"
+        with project_write_lock(self.book_path, config=self._config):
+            with path.open("w", encoding="utf-8") as fh:
+                json.dump(dict(state), fh, ensure_ascii=False, indent=2)
+        return path

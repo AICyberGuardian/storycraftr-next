@@ -41,8 +41,12 @@ StoryCraftr-Next is a local-first writing platform with:
 - `storycraftr/subagents/jobs.py`: sub-agent job manager lifecycle.
 - `storycraftr/tui/app.py`: Textual single-screen command center and slash-command router.
 - `storycraftr/tui/canon.py`: chapter-scoped canon ledger (`outline/canon.yml`) read/write helpers used by TUI canon commands.
+- `storycraftr/tui/canon_extract.py`: conservative canon-candidate extraction from assistant responses in hybrid mode.
+- `storycraftr/tui/canon_verify.py`: fail-closed verifier for duplicate/negation-conflict checks before autopilot canon commit.
+- `storycraftr/tui/context_builder.py`: token-scoped prompt block builder combining scene plan, constraints, and bounded relevant context.
 - `storycraftr/tui/openrouter_models.py`: OpenRouter free-model metadata fetch/filter helper for TUI model controls.
-- `storycraftr/tui/state_engine.py`: read-only narrative state extraction/cache and prompt-prefix formatter.
+- `storycraftr/tui/state_engine.py`: read-only narrative state extraction/cache and scoped-context formatter.
+- `storycraftr/agent/story/scene_planner.py`: deterministic scene Goal/Conflict/Outcome planner used before generation.
 - `storycraftr/utils/paths.py`: canonical runtime path resolution.
 - `storycraftr/integrations/vscode.py`: JSONL event emission contract.
 - `src/extension.ts`: VS Code watcher and UI integration.
@@ -92,12 +96,16 @@ Default logical locations:
 ## TUI Command Center
 
 - The TUI is a thin UI layer over existing assistant/chat APIs and does not replace core generation logic.
-- It supports slash-command UX including `/help`, `/status`, `/state`, `/progress`, `/wizard`, `/pipeline`, `/canon`, `/toggle-tree`, `/chapter <number>`, `/scene <label>`, `/session ...`, `/sub-agent ...`, `/model-list`, and `/model-change <model_id>`.
+- It supports slash-command UX including `/help`, `/status`, `/mode <manual|hybrid|autopilot>`, `/autopilot <steps> <prompt>`, `/state`, `/progress`, `/wizard`, `/pipeline`, `/canon`, `/toggle-tree`, `/chapter <number>`, `/scene <label>`, `/session ...`, `/sub-agent ...`, `/model-list`, and `/model-change <model_id>`.
 - The project tree defaults to hidden and can be shown on-demand for filesystem inspection.
 - `/model-list` uses OpenRouter `/api/v1/models` metadata and filters free models by zero prompt/completion pricing.
 - `/model-change` rebuilds the active TUI assistant via existing safe assistant creation paths with model override, while preserving project and retrieval context and reporting continuity limits explicitly.
 - `/canon` commands persist chapter-scoped accepted constraints in `outline/canon.yml`; state-engine prompt assembly injects these as `[Active Constraints]` for the active chapter.
-- Normal user prompts are prefixed in the TUI layer with a read-only narrative state block before dispatch to existing assistant execution APIs.
+- In `hybrid` mode, assistant outputs are heuristically mined for pending canon candidates on the `SubAgentJobManager` worker pool and must be explicitly approved (`/canon accept ...`) before ledger commit.
+- In `autopilot` mode, `/autopilot` runs bounded assistant turns and verifies extracted canon candidates before commit; duplicates and contradiction-like candidates are skipped (fail-closed).
+- Prompt construction is scene-scoped to control token usage: state engine composes `[Scene Plan]` + `[Scoped Context]` blocks and limits constraints/retrieval snippets before appending user input.
+- `/mode` persists execution control state to `sessions/session.json` and drives a visible footer-region mode indicator (`[ MODE: ... ]`) to avoid accidental autonomy escalation.
+- Normal user prompts are prefixed in the TUI layer with a compact scene-scoped block before dispatch to existing assistant execution APIs.
 
 ## Sub-Agent System
 

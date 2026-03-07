@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **DSVL Phase 1A: Validated Narrative State Schema** — Added Pydantic-based validation models (`CharacterState`, `LocationState`, `PlotThreadState`) with strict field validation, model-level invariant enforcement, and cross-entity reference validation. Replaced unvalidated dict-based state with type-safe models while maintaining backward compatibility with legacy "world" field. Comprehensive test suite with 30 validation tests ensures schema integrity and rejection of invalid state transitions.
+
 ### Changed
 
 - Updated `docs/contributor-reference.md` with comprehensive runtime contract file catalog reflecting recent architecture: added Canon Guard files (`canon.py`, `canon_extract.py`, `canon_verify.py`), narrative state module (`narrative_state.py`), project locking (`project_lock.py`), path resolution (`paths.py`), scene planner, and their corresponding test files. Enhanced "Notes For AI Agents" with Canon Guard, narrative state, adaptive compaction, TUI execution modes, project write locking, and prompt diagnostics context.

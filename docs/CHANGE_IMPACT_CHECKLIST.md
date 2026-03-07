@@ -2,6 +2,20 @@
 
 ## Change History
 
+### 2026-03-07 — DSVL Phase 1A: Validated narrative state schema models
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added Pydantic validation models in `storycraftr/agent/narrative_state.py`: `CharacterState`, `LocationState`, `PlotThreadState` with field validators and model validators.
+	- Replaced frozen dataclass `NarrativeStateSnapshot` with validated Pydantic model supporting `characters`, `locations`, `plot_threads`, and legacy `world` fields.
+	- Updated `NarrativeStateStore.load()` with validation-first loading and legacy fallback migration via `_load_legacy()`.
+	- Updated `NarrativeStateStore.save()` to serialize Pydantic models using `model_dump()`.
+	- Updated `NarrativeStateStore.upsert_character()` with validation and graceful failure handling.
+	- Updated `NarrativeStateStore.render_prompt_block()` to serialize validated models.
+	- Created `tests/unit/test_narrative_state_validation.py` with 30 comprehensive validation tests.
+	- Updated existing tests in `tests/unit/test_narrative_state.py` to work with Pydantic models.
+	- Updated `CHANGELOG.md` with DSVL Phase 1A entry.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no LLM provider changes, no sub-agent lifecycle changes, no vector-store changes, no VS Code event schema changes, and no security-tooling policy changes). Maintained backward compatibility with existing narrative state files through legacy loading support.
+
 ### 2026-03-07 — Updated contributor-reference.md with recent runtime contract files
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

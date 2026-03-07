@@ -2,6 +2,21 @@
 
 ## Change History
 
+### 2026-03-07 — DSVL Phase 2A: Persistent audit trail logging
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Created `storycraftr/agent/state_audit.py` with `AuditEntry` frozen dataclass and `StateAuditLog` class.
+	- `AuditEntry` contains: timestamp, operation_type (Literal), actor, patch (optional), changeset (optional), metadata.
+	- `StateAuditLog` provides append-only JSONL persistence in `{book_path}/outline/narrative_audit.jsonl`.
+	- Implemented `append_entry()` for atomic line append (thread-safe on POSIX).
+	- Implemented `query_entries()` with filters: entity_id, entity_type, operation_type, after, before, limit.
+	- Integrated audit logging into `NarrativeStateStore.apply_patch()` with lazy initialization.
+	- Added `enable_audit` flag to `NarrativeStateStore.__init__()` (default: True).
+	- Added `actor` parameter to `apply_patch()` for audit trail attribution.
+	- Created `tests/unit/test_state_audit.py` with 16 comprehensive tests including integration tests.
+	- Updated `CHANGELOG.md` with DSVL Phase 2A entry.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no LLM provider changes, no sub-agent lifecycle changes, no vector-store changes, no VS Code event schema changes, and no security-tooling policy changes). Audit logging is opt-in (enabled by default) and logs to project-local JSONL files with no external dependencies.
+
 ### 2026-03-07 — DSVL Phase 1C: Rule-governed patch validation and application
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

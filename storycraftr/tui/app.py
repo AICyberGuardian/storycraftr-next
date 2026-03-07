@@ -33,6 +33,7 @@ from storycraftr.tui.openrouter_models import (
     OpenRouterModel,
     fetch_free_openrouter_models,
 )
+from storycraftr.tui.canon import add_fact, clear_chapter_facts, list_facts
 from storycraftr.tui.state_engine import NarrativeState, NarrativeStateEngine
 from storycraftr.utils.core import BookConfig, load_book_config
 
@@ -250,6 +251,9 @@ class TuiApp(App[None]):
         if command == "state":
             return await self._build_state_text()
 
+        if command == "canon":
+            return await asyncio.to_thread(self._handle_canon_command, args)
+
         if command == "progress":
             return await asyncio.to_thread(self._build_progress_text)
 
@@ -356,6 +360,11 @@ class TuiApp(App[None]):
                 "/wizard plan",
                 "/wizard reset",
                 "/progress",
+                "/canon",
+                "/canon show [chapter]",
+                "/canon add <fact>",
+                "/canon add <chapter> :: <fact>",
+                "/canon clear [confirm]",
                 '/outline general-outline "..."',
                 '/outline chapter-synopsis "..."',
             ],
@@ -429,9 +438,22 @@ class TuiApp(App[None]):
         """Show the current state snapshot and prompt block used for injection."""
 
         state = await asyncio.to_thread(self.state_engine.get_state)
-        block = await asyncio.to_thread(
+        narrative_block = await asyncio.to_thread(
             self.state_engine.build_prompt_block,
             state=state,
+        )
+        canon_facts = await asyncio.to_thread(
+            self.state_engine.get_active_canon_facts,
+            state=state,
+        )
+        canon_block = await asyncio.to_thread(
+            self.state_engine.build_canon_block,
+            canon_facts,
+        )
+        block = (
+            narrative_block
+            if not canon_block
+            else f"{narrative_block}\n\n{canon_block}"
         )
         lines = [
             "Narrative State",
@@ -462,6 +484,109 @@ class TuiApp(App[None]):
         chapter_count = len(self._chapter_numbers())
         lines.append(f"- Chapters drafted: {chapter_count}")
         lines.append(f"- Completion: {completed}/{len(checkpoints)} checkpoints")
+        return "\n".join(lines)
+
+    def _active_chapter_for_canon(self) -> int:
+        """Resolve active chapter for canon operations, defaulting to chapter 1."""
+
+        state = self.state_engine.get_state()
+        if state.active_chapter is None:
+            return 1
+        return max(1, int(state.active_chapter))
+
+    def _handle_canon_command(self, args: list[str]) -> str:
+        """Handle chapter-scoped canon ledger commands."""
+
+        active_chapter = self._active_chapter_for_canon()
+
+        try:
+            if not args:
+                return self._render_canon_summary(active_chapter)
+
+            mode = args[0].lower()
+            if mode == "show":
+                chapter = active_chapter
+                if len(args) >= 2:
+                    try:
+                        chapter = max(1, int(args[1]))
+                    except ValueError:
+                        return "Usage: /canon show [chapter_number]"
+                return self._render_canon_verbose(chapter)
+
+            if mode == "add":
+                return self._canon_add_fact(args[1:], active_chapter)
+
+            if mode in {"clear", "reset"}:
+                if len(args) >= 2 and args[1].lower() == "confirm":
+                    removed = clear_chapter_facts(str(self.book_path), active_chapter)
+                    return f"[Done] Cleared {removed} canon fact(s) for chapter {active_chapter}."
+                return (
+                    f"About to clear canon facts for chapter {active_chapter}. "
+                    "Run /canon clear confirm to proceed."
+                )
+        except RuntimeError as exc:
+            return f"Canon Guard error: {exc}"
+
+        return (
+            "Usage: /canon [show [chapter]] | /canon add <fact> | "
+            "/canon add <chapter> :: <fact> | /canon clear [confirm]"
+        )
+
+    def _canon_add_fact(self, args: list[str], active_chapter: int) -> str:
+        """Parse add command and append one canon fact."""
+
+        if not args:
+            return "Usage: /canon add <fact> OR /canon add <chapter> :: <fact>"
+
+        raw = " ".join(args).strip()
+        chapter = active_chapter
+        text = raw
+
+        if "::" in raw:
+            prefix, suffix = raw.split("::", maxsplit=1)
+            prefix = prefix.strip()
+            text = suffix.strip()
+            if not text:
+                return "Canon fact text cannot be empty."
+            try:
+                chapter = max(1, int(prefix))
+            except ValueError:
+                return "Usage: /canon add <chapter> :: <fact>"
+
+        fact = add_fact(str(self.book_path), chapter=chapter, text=text)
+        return f"[Done] Canon fact added to chapter {fact.chapter}:\n{fact.text}"
+
+    def _render_canon_summary(self, chapter: int) -> str:
+        """Render compact chapter-level canon summary."""
+
+        facts = list_facts(str(self.book_path), chapter=chapter)
+        lines = [
+            "Canon Guard",
+            f"Active chapter: {chapter}",
+            f"Accepted facts: {len(facts)}",
+        ]
+
+        if not facts:
+            lines.append("No canon facts recorded for this chapter yet.")
+            return "\n".join(lines)
+
+        lines.append("")
+        lines.extend(f"{idx}. {fact.text}" for idx, fact in enumerate(facts, start=1))
+        return "\n".join(lines)
+
+    def _render_canon_verbose(self, chapter: int) -> str:
+        """Render verbose chapter-level canon facts with metadata."""
+
+        facts = list_facts(str(self.book_path), chapter=chapter)
+        lines = ["Canon Guard", f"Chapter: {chapter}", ""]
+
+        if not facts:
+            lines.append("No canon facts recorded for this chapter yet.")
+            return "\n".join(lines)
+
+        lines.extend(
+            f"- [{fact.type}] {fact.text} (source={fact.source})" for fact in facts
+        )
         return "\n".join(lines)
 
     def _build_wizard_text(self, args: list[str]) -> str:

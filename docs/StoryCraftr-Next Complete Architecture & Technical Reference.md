@@ -40,6 +40,7 @@ StoryCraftr-Next is a local-first writing platform with:
 - `storycraftr/vectorstores/chroma.py`: persistent Chroma setup.
 - `storycraftr/subagents/jobs.py`: sub-agent job manager lifecycle.
 - `storycraftr/tui/app.py`: Textual single-screen command center and slash-command router.
+- `storycraftr/tui/canon.py`: chapter-scoped canon ledger (`outline/canon.yml`) read/write helpers used by TUI canon commands.
 - `storycraftr/tui/openrouter_models.py`: OpenRouter free-model metadata fetch/filter helper for TUI model controls.
 - `storycraftr/tui/state_engine.py`: read-only narrative state extraction/cache and prompt-prefix formatter.
 - `storycraftr/utils/paths.py`: canonical runtime path resolution.
@@ -91,10 +92,11 @@ Default logical locations:
 ## TUI Command Center
 
 - The TUI is a thin UI layer over existing assistant/chat APIs and does not replace core generation logic.
-- It supports slash-command UX including `/help`, `/status`, `/toggle-tree`, `/chapter <number>`, `/scene <label>`, `/session ...`, `/sub-agent ...`, `/model-list`, and `/model-change <model_id>`.
+- It supports slash-command UX including `/help`, `/status`, `/state`, `/progress`, `/wizard`, `/pipeline`, `/canon`, `/toggle-tree`, `/chapter <number>`, `/scene <label>`, `/session ...`, `/sub-agent ...`, `/model-list`, and `/model-change <model_id>`.
 - The project tree defaults to hidden and can be shown on-demand for filesystem inspection.
 - `/model-list` uses OpenRouter `/api/v1/models` metadata and filters free models by zero prompt/completion pricing.
 - `/model-change` rebuilds the active TUI assistant via existing safe assistant creation paths with model override, while preserving project and retrieval context and reporting continuity limits explicitly.
+- `/canon` commands persist chapter-scoped accepted constraints in `outline/canon.yml`; state-engine prompt assembly injects these as `[Active Constraints]` for the active chapter.
 - Normal user prompts are prefixed in the TUI layer with a read-only narrative state block before dispatch to existing assistant execution APIs.
 
 ## Sub-Agent System

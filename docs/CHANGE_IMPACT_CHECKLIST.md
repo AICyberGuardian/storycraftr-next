@@ -2,6 +2,17 @@
 
 ## Change History
 
+### 2026-03-07 — Canon Guard Phase 1: manual canon ledger and prompt constraints
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/tui/canon.py` with chapter-scoped canonical fact storage in `outline/canon.yml` (`load`, `save`, `list`, `add`, `clear`) and malformed-YAML safety errors.
+	- Integrated Canon Guard into `storycraftr/tui/app.py` with `/canon` command group:
+	  - `/canon`, `/canon show [chapter]`, `/canon add <fact>`, `/canon add <chapter> :: <fact>`, `/canon clear [confirm]`.
+	- Integrated chapter-scoped canon constraints in `storycraftr/tui/state_engine.py` prompt composition via `[Active Constraints]` block (capped injection, current chapter only).
+	- Added/updated unit tests in `tests/unit/test_tui_canon.py`, `tests/unit/test_tui_state_engine.py`, and `tests/unit/test_tui_app.py`.
+	- Synced user-facing docs in `README.md`, `docs/chat.md`, `docs/getting_started.md`, `release_notes.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1–7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — TUI guided planning enhancement: profile-driven /wizard plan
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

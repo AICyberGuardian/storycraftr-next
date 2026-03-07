@@ -190,3 +190,104 @@ Body
     assert state.timeline_strip.index("Ch2 Early") < state.timeline_strip.index(
         "Ch10 Late"
     )
+
+
+def test_compose_prompt_includes_active_constraints_when_canon_exists(tmp_path) -> None:
+    _write(
+        tmp_path / "chapters" / "chapter-1.md",
+        """---
+title: Arrival
+scene: Setup
+arc: Act I
+---
+# Chapter 1
+Body
+""",
+    )
+    _write(
+        tmp_path / "outline" / "canon.yml",
+        """version: 1
+chapters:
+    "1":
+        facts:
+            - id: fact-001
+              text: "Alex is the POV character."
+              type: pov
+              source: manual
+""",
+    )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+    prompt = engine.compose_prompt("Continue the chapter.")
+
+    assert "[Active Constraints]" in prompt
+    assert "- Alex is the POV character." in prompt
+
+
+def test_compose_prompt_omits_constraints_when_no_canon_facts(tmp_path) -> None:
+    _write(
+        tmp_path / "chapters" / "chapter-1.md",
+        """---
+title: Arrival
+scene: Setup
+arc: Act I
+---
+# Chapter 1
+Body
+""",
+    )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+    prompt = engine.compose_prompt("Continue the chapter.")
+
+    assert "[Active Constraints]" not in prompt
+
+
+def test_compose_prompt_uses_only_active_chapter_canon_facts(tmp_path) -> None:
+    _write(
+        tmp_path / "chapters" / "chapter-1.md",
+        """---
+title: Arrival
+scene: Setup
+arc: Act I
+---
+# Chapter 1
+Body
+""",
+    )
+    _write(
+        tmp_path / "chapters" / "chapter-2.md",
+        """---
+title: Collision
+scene: Twist
+arc: Act II
+---
+# Chapter 2
+Body
+""",
+    )
+    _write(
+        tmp_path / "outline" / "canon.yml",
+        """version: 1
+chapters:
+    "1":
+        facts:
+            - id: fact-001
+              text: "Chapter one fact."
+              type: event
+              source: manual
+    "2":
+        facts:
+            - id: fact-002
+              text: "Chapter two fact."
+              type: event
+              source: manual
+""",
+    )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+    engine.set_active_chapter(2)
+    prompt = engine.compose_prompt("Continue the chapter.")
+
+    assert "Chapter two fact." in prompt
+    assert "Chapter one fact." not in prompt

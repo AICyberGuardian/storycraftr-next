@@ -405,7 +405,12 @@ Useful slash commands:
 
 - `/help` shows TUI command reference.
 - `/status` shows project/assistant runtime status.
-- `/state` shows active narrative state plus the exact injected prompt block.
+- `/state` shows active narrative state plus the exact injected prompt block, including `[Active Constraints]` when canon facts exist.
+- `/progress` shows canonical writing-pipeline checkpoint completion.
+- `/wizard` and `/wizard next` provide guided next-step workflow recommendations.
+- `/pipeline` and `/pipeline next` are aliases for wizard-guided flow.
+- `/wizard set <field> <value>`, `/wizard show`, `/wizard plan`, `/wizard reset` build profile-driven advisory plans.
+- `/canon`, `/canon show [chapter]`, `/canon add <fact>`, `/canon add <chapter> :: <fact>`, `/canon clear [confirm]` manage chapter-scoped writer-approved canon constraints.
 - `/toggle-tree` shows/hides the project tree (hidden by default).
 - `/chapter <number>` and `/scene <label>` set in-memory narrative focus.
 - `/model-list` fetches current free OpenRouter models.

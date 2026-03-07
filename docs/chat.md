@@ -67,6 +67,9 @@ assistant/backend flow.
 - `/pipeline` and `/pipeline next` — Alias for wizard-guided pipeline flow.
 - `/wizard set <field> <value>`, `/wizard show`, `/wizard plan`, `/wizard reset`
   — Build and revise a guided command plan from writer inputs.
+- `/canon`, `/canon show [chapter]`, `/canon add <fact>`,
+  `/canon add <chapter> :: <fact>`, `/canon clear [confirm]`
+  — Manage writer-approved chapter canon facts used as prompt constraints.
 - `/clear` — Clear the output pane while keeping current session context.
 - `/toggle-tree` — Show/hide the project file tree (hidden by default).
 - `/chapter <number>` and `/scene <label>` — Set active narrative focus.

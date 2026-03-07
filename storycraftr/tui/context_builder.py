@@ -34,6 +34,16 @@ class PromptBudget:
     model_source: str
 
 
+@dataclass(frozen=True)
+class PromptDiagnostics:
+    """Inspection metadata for prompt composition and pruning decisions."""
+
+    included_sections: tuple[str, ...]
+    pruned_sections: tuple[str, ...]
+    truncated_sections: tuple[str, ...]
+    estimated_tokens: dict[str, int]
+
+
 _CHARS_PER_TOKEN_ESTIMATE = 4
 
 
@@ -62,6 +72,7 @@ def build_scoped_context_block(
     scene_plan: ScenePlan,
     canon_facts: list[str],
     retrieved_context: list[str] | None = None,
+    narrative_state_json: str | None = None,
     max_facts: int = 5,
     max_retrieval_chunks: int = 3,
 ) -> str:
@@ -98,12 +109,17 @@ def build_scoped_context_block(
     ]
 
     if scoped.canon_facts:
-        lines.append("[Active Constraints]")
+        lines.append("[Canon Constraints]")
         lines.extend(f"- {fact}" for fact in scoped.canon_facts)
 
     if scoped.retrieved_context:
         lines.append("[Relevant Context]")
         lines.extend(f"- {item}" for item in scoped.retrieved_context)
+
+    if narrative_state_json:
+        lines.append("[Structured Narrative State]")
+        lines.append(narrative_state_json)
+        lines.append("[/Structured Narrative State]")
 
     lines.append("[/Scoped Context]")
     return "\n".join(lines)
@@ -120,11 +136,48 @@ def compose_budgeted_prompt(
     output_reserve_tokens: int | None,
     retrieved_context: list[str] | None = None,
     recent_turns: list[str] | None = None,
+    narrative_state_json: str | None = None,
     max_facts: int = 5,
     max_retrieval_chunks: int = 3,
     max_recent_turns: int = 3,
 ) -> tuple[str, PromptBudget]:
     """Compose a model-budgeted prompt with deterministic priority pruning."""
+
+    prompt, budget, _ = compose_budgeted_prompt_with_diagnostics(
+        state=state,
+        scene_plan=scene_plan,
+        canon_facts=canon_facts,
+        user_prompt=user_prompt,
+        provider=provider,
+        model_id=model_id,
+        output_reserve_tokens=output_reserve_tokens,
+        retrieved_context=retrieved_context,
+        recent_turns=recent_turns,
+        narrative_state_json=narrative_state_json,
+        max_facts=max_facts,
+        max_retrieval_chunks=max_retrieval_chunks,
+        max_recent_turns=max_recent_turns,
+    )
+    return prompt, budget
+
+
+def compose_budgeted_prompt_with_diagnostics(
+    *,
+    state: "NarrativeState",
+    scene_plan: ScenePlan,
+    canon_facts: list[str],
+    user_prompt: str,
+    provider: str,
+    model_id: str,
+    output_reserve_tokens: int | None,
+    retrieved_context: list[str] | None = None,
+    recent_turns: list[str] | None = None,
+    narrative_state_json: str | None = None,
+    max_facts: int = 5,
+    max_retrieval_chunks: int = 3,
+    max_recent_turns: int = 3,
+) -> tuple[str, PromptBudget, PromptDiagnostics]:
+    """Compose a model-budgeted prompt plus diagnostics for observability views."""
 
     model_spec = resolve_model_context(provider, model_id)
     input_budget_tokens = compute_input_budget_tokens(
@@ -148,12 +201,21 @@ def compose_budgeted_prompt(
     include_timeline_strip = True
     # Priority-4: retrieval chunks.
     active_rag = list(rag_items)
-    # Priority-3: minimal recent turns.
-    active_recent = list(recent_items)
+    # Priority-3: compacted summary + recent dialogue.
+    summary_text = ""
+    dialogue_items: list[str] = []
+    for item in recent_items:
+        if item.startswith("Session Summary:") and not summary_text:
+            summary_text = item.split(":", 1)[1].strip()
+            continue
+        dialogue_items.append(item)
+    active_recent = list(dialogue_items)
+    include_summary_section = bool(summary_text)
     # Priority-2: scene/scoped context details.
     include_arc_line = True
     include_scene_conflict = True
     include_scene_outcome = True
+    include_narrative_state = bool((narrative_state_json or "").strip())
     # Priority-1 (highest): canon constraints.
     active_canon = list(canon_items)
 
@@ -180,22 +242,33 @@ def compose_budgeted_prompt(
             lines.append(f"Scene Timeline: {state.timeline_strip}")
 
         if active_canon:
-            lines.append("[Active Constraints]")
+            lines.append("[Canon Constraints]")
             lines.extend(f"- {fact}" for fact in active_canon)
 
         if active_rag:
             lines.append("[Relevant Context]")
             lines.extend(f"- {item}" for item in active_rag)
 
+        if include_narrative_state and narrative_state_json:
+            lines.append("[Structured Narrative State]")
+            lines.append(narrative_state_json)
+            lines.append("[/Structured Narrative State]")
+
         lines.append("[/Scoped Context]")
+
+        if include_summary_section and summary_text:
+            lines.append("")
+            lines.append("[Session Summary]")
+            lines.append(summary_text)
+            lines.append("[/Session Summary]")
 
         if active_recent:
             lines.append("")
-            lines.append("[Recent Turns]")
+            lines.append("[Recent Dialogue]")
             lines.extend(f"- {turn}" for turn in active_recent)
-            lines.append("[/Recent Turns]")
+            lines.append("[/Recent Dialogue]")
 
-        lines.extend(["", "[User Prompt]", cleaned_user_prompt])
+        lines.extend(["", "[User Instruction]", cleaned_user_prompt])
         return "\n".join(lines)
 
     prompt = _render_prompt()
@@ -214,22 +287,136 @@ def compose_budgeted_prompt(
             include_scene_outcome = False
         elif include_scene_conflict:
             include_scene_conflict = False
+        elif include_narrative_state:
+            include_narrative_state = False
+        elif include_summary_section:
+            include_summary_section = False
         elif active_canon:
             active_canon.pop()
         else:
             # Last-resort overflow guard: keep a bounded user prompt instead of hard-failing.
             scoped_without_user = _render_prompt().rsplit(
-                "\n[User Prompt]\n", maxsplit=1
+                "\n[User Instruction]\n", maxsplit=1
             )
             non_user = scoped_without_user[0] if scoped_without_user else ""
-            used_tokens = _estimate_tokens(non_user + "\n[User Prompt]\n")
+            used_tokens = _estimate_tokens(non_user + "\n[User Instruction]\n")
             remaining = max(16, input_budget_tokens - used_tokens)
             cleaned_user_prompt = _trim_to_budget(cleaned_user_prompt, remaining)
             break
 
         prompt = _render_prompt()
 
-    return prompt, budget
+    has_canon_section = bool(canon_items)
+    has_retrieval_section = bool(rag_items)
+    has_recent_section = bool(dialogue_items)
+    has_summary_section = bool(summary_text)
+    has_narrative_state = include_narrative_state or bool(
+        (narrative_state_json or "").strip()
+    )
+
+    included_sections = [
+        "scene_plan",
+        "scoped_context",
+        "user_instruction",
+    ]
+    pruned_sections: list[str] = []
+    truncated_sections: list[str] = []
+
+    if active_canon:
+        included_sections.append("canon_constraints")
+    elif has_canon_section:
+        pruned_sections.append("canon_constraints")
+
+    if active_rag:
+        included_sections.append("retrieved_context")
+        if len(active_rag) < len(rag_items):
+            truncated_sections.append("retrieved_context")
+    elif has_retrieval_section:
+        pruned_sections.append("retrieved_context")
+
+    if active_recent:
+        included_sections.append("recent_dialogue")
+        if len(active_recent) < len(dialogue_items):
+            truncated_sections.append("recent_dialogue")
+    elif has_recent_section:
+        pruned_sections.append("recent_dialogue")
+
+    if include_summary_section and has_summary_section:
+        included_sections.append("summary")
+    elif has_summary_section:
+        pruned_sections.append("summary")
+
+    if include_narrative_state and has_narrative_state:
+        included_sections.append("narrative_state")
+    elif has_narrative_state:
+        pruned_sections.append("narrative_state")
+
+    if not include_memory_strip:
+        pruned_sections.append("memory_strip")
+    else:
+        included_sections.append("memory_strip")
+
+    if not include_timeline_strip:
+        pruned_sections.append("timeline_strip")
+    else:
+        included_sections.append("timeline_strip")
+
+    if not include_arc_line:
+        pruned_sections.append("arc_line")
+    else:
+        included_sections.append("arc_line")
+
+    if not include_scene_conflict:
+        pruned_sections.append("scene_conflict")
+    else:
+        included_sections.append("scene_conflict")
+
+    if not include_scene_outcome:
+        pruned_sections.append("scene_outcome")
+    else:
+        included_sections.append("scene_outcome")
+
+    estimated_tokens = {
+        "canon": _estimate_tokens("\n".join(active_canon)),
+        "retrieved_context": _estimate_tokens("\n".join(active_rag)),
+        "recent_dialogue": _estimate_tokens("\n".join(active_recent)),
+        "scene_plan": _estimate_tokens(
+            "\n".join(
+                [
+                    scene_plan.goal,
+                    scene_plan.conflict if include_scene_conflict else "",
+                    scene_plan.outcome if include_scene_outcome else "",
+                ]
+            )
+        ),
+        "scoped_context": _estimate_tokens(
+            "\n".join(
+                [
+                    f"chapter={state.active_chapter}",
+                    f"scene={state.active_scene}",
+                    state.active_arc if include_arc_line else "",
+                    state.memory_strip if include_memory_strip else "",
+                    state.timeline_strip if include_timeline_strip else "",
+                ]
+            )
+        ),
+        "user_instruction": _estimate_tokens(cleaned_user_prompt),
+        "summary": _estimate_tokens(summary_text if include_summary_section else ""),
+        "narrative_state": _estimate_tokens(
+            narrative_state_json
+            if include_narrative_state and narrative_state_json
+            else ""
+        ),
+        "full_prompt": _estimate_tokens(prompt),
+    }
+
+    diagnostics = PromptDiagnostics(
+        included_sections=tuple(included_sections),
+        pruned_sections=tuple(pruned_sections),
+        truncated_sections=tuple(truncated_sections),
+        estimated_tokens=estimated_tokens,
+    )
+    return prompt, budget, diagnostics
 
 
 def _clean_items(values: list[str], *, limit: int) -> list[str]:

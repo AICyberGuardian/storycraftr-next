@@ -106,7 +106,7 @@ Body
     assert "[Scoped Context]" in prompt
     assert "Active Chapter: 3" in prompt
     assert "Active Scene: Reveal" in prompt
-    assert "[User Prompt]" in prompt
+    assert "[User Instruction]" in prompt
     assert "Draft the next scene with sharper tension." in prompt
 
 
@@ -222,7 +222,7 @@ chapters:
     engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
     prompt = engine.compose_prompt("Continue the chapter.")
 
-    assert "[Active Constraints]" in prompt
+    assert "[Canon Constraints]" in prompt
     assert "- Alex is the POV character." in prompt
 
 
@@ -242,7 +242,7 @@ Body
     engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
     prompt = engine.compose_prompt("Continue the chapter.")
 
-    assert "[Active Constraints]" not in prompt
+    assert "[Canon Constraints]" not in prompt
 
 
 def test_compose_prompt_uses_only_active_chapter_canon_facts(tmp_path) -> None:
@@ -320,5 +320,57 @@ Body
         ],
     )
 
-    assert "[Recent Turns]" in prompt
+    assert "[Recent Dialogue]" in prompt
     assert "User: tighten POV" in prompt
+
+
+def test_compose_prompt_with_diagnostics_persists_last_budget_metadata(
+    tmp_path,
+) -> None:
+    _write(
+        tmp_path / "chapters" / "chapter-1.md",
+        """---
+title: Arrival
+scene: Setup
+arc: Act I
+---
+# Chapter 1
+Body
+""",
+    )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+    prompt, budget, diagnostics = engine.compose_prompt_with_diagnostics(
+        "Continue the chapter."
+    )
+
+    assert "[User Instruction]" in prompt
+    assert engine.last_budget_metadata == budget
+    assert engine.last_prompt_diagnostics == diagnostics
+
+
+def test_compose_prompt_includes_structured_narrative_state_when_available(
+    tmp_path,
+) -> None:
+    _write(
+        tmp_path / "chapters" / "chapter-1.md",
+        """---
+title: Arrival
+scene: Setup
+arc: Act I
+---
+# Chapter 1
+Body
+""",
+    )
+    _write(
+        tmp_path / "outline" / "narrative_state.json",
+        '{"characters": {"Mira": {"status": "injured"}}, "world": {"Bridge": {"integrity": "critical"}}}',
+    )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+    prompt = engine.compose_prompt("Continue the chapter.")
+
+    assert "[Structured Narrative State]" in prompt
+    assert '"Mira"' in prompt
+    assert '"integrity": "critical"' in prompt

@@ -36,7 +36,7 @@ StoryCraftr-Next is a local-first writing platform with:
 - `storycraftr/agent/vector_hydration.py`: vector-store refresh/hydration and markdown ingestion helpers.
 - `storycraftr/graph/assistant_graph.py`: LCEL graph composition (`answer` + `documents`).
 - `storycraftr/llm/factory.py`: provider/model/endpoint validation, chat model construction, and OpenRouter retry/backoff/fallback resilience wrapper.
-- `storycraftr/llm/openrouter_discovery.py`: dynamic OpenRouter model discovery, free-model filtering, limits extraction, and user-local catalog caching.
+- `storycraftr/llm/openrouter_discovery.py`: dynamic OpenRouter model discovery, free-model filtering, limits extraction, cache metadata, and user-local catalog caching.
 - `storycraftr/llm/model_context.py`: dynamic-first model limit resolution for budgeting (OpenRouter) plus conservative in-repo fallback registry.
 - `storycraftr/llm/credentials.py`: credential resolution order and keyring helper.
 - `storycraftr/llm/embeddings.py`: embedding client construction.
@@ -46,9 +46,9 @@ StoryCraftr-Next is a local-first writing platform with:
 - `storycraftr/tui/canon.py`: chapter-scoped canon ledger (`outline/canon.yml`) read/write helpers used by TUI canon commands.
 - `storycraftr/tui/canon_extract.py`: conservative canon-candidate extraction from assistant responses in hybrid mode.
 - `storycraftr/tui/canon_verify.py`: fail-closed verifier for duplicate/negation-conflict checks before autopilot canon commit.
-- `storycraftr/tui/context_builder.py`: token-scoped prompt block builder combining scene plan, constraints, and bounded relevant context.
+- `storycraftr/tui/context_builder.py`: token-scoped prompt block builder with model-aware budgeting, deterministic pruning, and diagnostics metadata.
 - `storycraftr/tui/openrouter_models.py`: OpenRouter free-model metadata fetch/filter helper for TUI model controls.
-- `storycraftr/tui/state_engine.py`: read-only narrative state extraction/cache and scoped-context formatter.
+- `storycraftr/tui/state_engine.py`: read-only narrative state extraction/cache and prompt orchestration with diagnostics output.
 - `storycraftr/agent/story/scene_planner.py`: deterministic scene Goal/Conflict/Outcome planner used before generation.
 - `storycraftr/utils/paths.py`: canonical runtime path resolution.
 - `storycraftr/integrations/vscode.py`: JSONL event emission contract.
@@ -99,7 +99,7 @@ Default logical locations:
 ## TUI Command Center
 
 - The TUI is a thin UI layer over existing assistant/chat APIs and does not replace core generation logic.
-- It supports slash-command UX including `/help`, `/status`, `/mode <manual|hybrid|autopilot>`, `/autopilot <steps> <prompt>`, `/state`, `/summary [clear]`, `/context`, `/progress`, `/wizard`, `/pipeline`, `/canon`, `/toggle-tree`, `/chapter <number>`, `/scene <label>`, `/session ...`, `/sub-agent ...`, `/model-list`, and `/model-change <model_id>`.
+- It supports slash-command UX including `/help`, `/status`, `/mode <manual|hybrid|autopilot>`, `/autopilot <steps> <prompt>`, `/state`, `/summary [clear]`, `/context [summary|budget|models|clear-summary|refresh-models]`, `/progress`, `/wizard`, `/pipeline`, `/canon`, `/toggle-tree`, `/chapter <number>`, `/scene <label>`, `/session ...`, `/sub-agent ...`, `/model-list`, and `/model-change <model_id>`.
 - The project tree defaults to hidden and can be shown on-demand for filesystem inspection.
 - `/model-list` reads from dynamic OpenRouter free-model discovery cache and supports `/model-list refresh` to force catalog refresh.
 - `/model-change` rebuilds the active TUI assistant via existing safe assistant creation paths with model override, while preserving project and retrieval context and reporting continuity limits explicitly.
@@ -109,7 +109,7 @@ Default logical locations:
 - Prompt construction is scene-scoped to control token usage: state engine composes `[Scene Plan]` + `[Scoped Context]` blocks and limits constraints/retrieval snippets before appending user input.
 - Prompt budgeting is model-aware: context builder resolves model context window + output reserve (including discovered max completion limits for OpenRouter models) and applies deterministic pruning order under budget pressure.
 - `/mode` persists execution control state to `sessions/session.json` and drives a visible footer-region mode indicator (`[ MODE: ... ]`) to avoid accidental autonomy escalation.
-- Rolling session compaction persists compacted summary state to `sessions/session.json`; `/summary` and `/context` provide writer-visible diagnostics for summary/tail prompt context.
+- Rolling session compaction persists compacted summary state to `sessions/session.json`; `/summary` and `/context` provide writer-visible diagnostics for summary state, prompt budget/pruning, and OpenRouter model-cache metadata.
 - Normal user prompts are prefixed in the TUI layer with a compact scene-scoped block before dispatch to existing assistant execution APIs.
 
 ## Sub-Agent System

@@ -55,7 +55,7 @@ explicit attributes.
 - `storycraftr/agent/vector_hydration.py`: vector-store refresh/hydration and markdown ingestion helpers.
 - `storycraftr/graph/assistant_graph.py`: LCEL retrieval plus answer graph.
 - `storycraftr/llm/factory.py`: provider selection/validation plus OpenRouter retry/backoff/fallback wrapper.
-- `storycraftr/llm/openrouter_discovery.py`: dynamic OpenRouter free-model discovery, limits metadata, and user-local cached catalog.
+- `storycraftr/llm/openrouter_discovery.py`: dynamic OpenRouter free-model discovery, limits metadata, cache diagnostics, and user-local cached catalog.
 - `storycraftr/llm/model_context.py`: dynamic-first model-limit resolution (OpenRouter) plus conservative fallback registry and input-budget computation helpers.
 - `storycraftr/llm/credentials.py`: env -> keyring -> legacy fallback credential lookup.
 - `storycraftr/llm/embeddings.py`: embedding model creation.
@@ -67,8 +67,8 @@ explicit attributes.
 - `storycraftr/tui/canon.py`: chapter-scoped canon ledger helpers for writer-approved constraints.
 - `storycraftr/tui/canon_extract.py`: conservative canon-candidate extraction for hybrid review.
 - `storycraftr/tui/canon_verify.py`: fail-closed canon candidate verification for autopilot commits.
-- `storycraftr/tui/context_builder.py`: scene-scoped prompt assembly with bounded constraints and context sections.
-- `storycraftr/tui/state_engine.py`: read-only narrative state extraction and scoped-context orchestration.
+- `storycraftr/tui/context_builder.py`: scene-scoped prompt assembly, model-aware budgeting, deterministic pruning, and diagnostics metadata.
+- `storycraftr/tui/state_engine.py`: read-only narrative state extraction and prompt orchestration with diagnostics output.
 - `storycraftr/agent/story/scene_planner.py`: deterministic scene Goal/Conflict/Outcome planning helper.
 - `src/extension.ts`: VS Code event stream watcher and UI integration.
 - `src/event-contract.ts`: typed event parser and contract for extension event payloads.
@@ -91,7 +91,7 @@ TUI autonomy note:
 - `/mode` controls manual, hybrid, and autopilot execution behavior.
 - `/autopilot` only runs when mode is `autopilot` and performs bounded steps.
 - Canon commits in autopilot flow are verified against accepted chapter facts and skip duplicate or conflicting candidates.
-- `/summary` and `/context` expose compaction and prompt-context diagnostics to keep model-aware pruning visible to writers.
+- `/summary` and `/context` expose compaction, prompt-budget, pruning, and OpenRouter model-cache diagnostics to keep model-aware pruning visible to writers.
 - Sub-agent workers checkpoint transient provider exhaustion as `model_exhausted`, apply bounded cooldown, and retry once before terminal failure.
 
 Do not hardcode these paths; use `storycraftr/utils/paths.py`.

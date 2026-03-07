@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from rich.markup import render
 
+from storycraftr.tui.canon import add_fact
 from storycraftr.tui.canon_extract import CanonCandidate
 
 
@@ -186,13 +187,165 @@ def test_dispatch_context_reports_summary_and_recent_line_counts(tmp_path) -> No
         {"user": "U2", "answer": "A2"},
         {"user": "U3", "answer": "A3"},
     ]
+    app._last_prompt_budget = SimpleNamespace(
+        context_window_tokens=32768,
+        output_reserve_tokens=4096,
+        input_budget_tokens=28672,
+        model_source="openrouter-live-discovery",
+    )
+    app._last_prompt_diagnostics = SimpleNamespace(
+        included_sections=(
+            "scene_plan",
+            "scoped_context",
+            "canon_constraints",
+            "user_instruction",
+            "recent_dialogue",
+            "summary",
+        ),
+        pruned_sections=("retrieved_context",),
+        truncated_sections=(),
+        estimated_tokens={
+            "canon": 24,
+            "scene_plan": 32,
+            "scoped_context": 64,
+            "recent_dialogue": 40,
+            "retrieved_context": 0,
+            "user_instruction": 12,
+            "summary": 8,
+            "full_prompt": 220,
+        },
+    )
 
     result = asyncio.run(app._dispatch_slash_command("/context"))
 
-    assert "Prompt Context Diagnostics" in result
-    assert "Summary present: yes" in result
-    assert "Compacted turns: 3" in result
-    assert "Recent prompt lines:" in result
+    assert "Runtime Context Snapshot" in result
+    assert "Prompt Composition Breakdown" in result
+    assert "Session Summary: active" in result
+    assert "Context snapshot" in result
+
+
+def test_dispatch_context_summary_shows_full_summary(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app._session_summary = "Earlier planning and constraints."
+    app._session_compacted_turns = 4
+
+    result = asyncio.run(app._dispatch_slash_command("/context summary"))
+
+    assert "Session Summary" in result
+    assert "Status: active" in result
+    assert "Compacted turns: 4" in result
+    assert "Earlier planning and constraints." in result
+
+
+def test_dispatch_context_clear_summary_alias(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.transcript = [{"user": "u", "answer": "a"}] * 3
+    app._session_summary = "To be cleared"
+    app._session_compacted_turns = 1
+
+    result = asyncio.run(app._dispatch_slash_command("/context clear-summary"))
+
+    assert result == "Session summary cleared."
+    assert app._session_summary == ""
+
+
+def test_dispatch_context_budget_reports_unavailable_before_prompt(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    result = asyncio.run(app._dispatch_slash_command("/context budget"))
+
+    assert "Prompt Budget" in result
+    assert "Status: unavailable" in result
+
+
+def test_dispatch_context_budget_reports_latest_diagnostics(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app._last_prompt_provider = "openrouter"
+    app._last_prompt_model = "openrouter/free"
+    app._last_prompt_budget = SimpleNamespace(
+        context_window_tokens=32768,
+        output_reserve_tokens=4096,
+        input_budget_tokens=28672,
+        model_source="openrouter-live-discovery",
+    )
+    app._last_prompt_diagnostics = SimpleNamespace(
+        included_sections=("canon_constraints", "scene_plan", "recent_dialogue"),
+        pruned_sections=("retrieved_context",),
+        truncated_sections=("recent_dialogue",),
+        estimated_tokens={
+            "canon": 64,
+            "full_prompt": 2048,
+            "recent_dialogue": 512,
+            "retrieved_context": 0,
+            "scene_plan": 96,
+            "scoped_context": 256,
+            "user_instruction": 128,
+            "summary": 128,
+        },
+    )
+
+    result = asyncio.run(app._dispatch_slash_command("/context budget"))
+
+    assert "Prompt Budget" in result
+    assert "Provider: openrouter" in result
+    assert "Context Window: 32768" in result
+    assert "[~] Recent Dialogue" in result
+    assert "[ ] Retrieved Context" in result
+
+
+def test_dispatch_context_models_routes_to_renderer(tmp_path, monkeypatch) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    observed: list[bool] = []
+
+    def _fake_models(force_refresh: bool) -> str:
+        observed.append(force_refresh)
+        return "models-ok"
+
+    monkeypatch.setattr(app, "_build_context_models_text", _fake_models)
+
+    result = asyncio.run(app._dispatch_slash_command("/context models"))
+    refreshed = asyncio.run(app._dispatch_slash_command("/context refresh-models"))
+
+    assert result == "models-ok"
+    assert refreshed == "models-ok"
+    assert observed == [False, True]
+
+
+def test_dispatch_context_conflicts_reports_latest_conflict_snapshot(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app._last_canon_conflict_report = {
+        "chapter": 2,
+        "checked_candidates": 3,
+        "duplicate_count": 1,
+        "negation_conflict_count": 1,
+        "conflicts": [
+            {
+                "reason": "duplicate canon fact",
+                "candidate": "Mira is the ship navigator.",
+                "conflicting_fact": "",
+            },
+            {
+                "reason": "negation conflict",
+                "candidate": "Mira is not the ship navigator.",
+                "conflicting_fact": "Mira is the ship navigator.",
+            },
+        ],
+    }
+
+    result = asyncio.run(app._dispatch_slash_command("/context conflicts"))
+
+    assert "Canon Conflict Diagnostics" in result
+    assert "Chapter: 2" in result
+    assert "Duplicates: 1" in result
+    assert "Negation conflicts: 1" in result
+    assert "Mira is not the ship navigator." in result
 
 
 def test_dispatch_mode_sets_and_reports_execution_mode(tmp_path) -> None:
@@ -261,7 +414,7 @@ def test_autopilot_commits_verified_candidates_only(tmp_path, monkeypatch) -> No
     assert "Mira is not the ship navigator." not in show
 
 
-def test_state_output_includes_active_constraints_when_canon_exists(tmp_path) -> None:
+def test_state_output_includes_canon_constraints_when_canon_exists(tmp_path) -> None:
     TuiApp = _load_tui_app()
     app = TuiApp(book_path=str(tmp_path))
     app.state_engine.set_active_chapter(1)
@@ -269,7 +422,7 @@ def test_state_output_includes_active_constraints_when_canon_exists(tmp_path) ->
     asyncio.run(app._dispatch_slash_command("/canon add Alex is the active POV."))
     result = asyncio.run(app._dispatch_slash_command("/state"))
 
-    assert "[Active Constraints]" in result
+    assert "[Canon Constraints]" in result
     assert "Alex is the active POV." in result
 
 
@@ -374,6 +527,22 @@ def test_dispatch_canon_accept_skips_conflicting_candidate(tmp_path) -> None:
     assert "Skipped 1 due to verification" in accept_result
     assert "No pending canon candidates" in pending_result
     assert "Mira is not the pilot." not in show_result
+
+
+def test_dispatch_canon_check_last_runs_conflict_scan(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    asyncio.run(app._dispatch_slash_command("/canon add 1 :: Mira is the pilot."))
+    app._last_assistant_response = "Mira is not the pilot."
+
+    result = asyncio.run(app._dispatch_slash_command("/canon check-last"))
+    diagnostics = asyncio.run(app._dispatch_slash_command("/context conflicts"))
+
+    assert "Canon check complete" in result
+    assert "Conflicts: 1" in result
+    assert "negation conflict" in result
+    assert "Negation conflicts: 1" in diagnostics
 
 
 def test_dispatch_canon_reject_clears_pending_candidates(tmp_path) -> None:
@@ -819,6 +988,79 @@ def test_error_output_is_markup_safe_when_exception_contains_brackets(
     assert "bad [/Narrative State] [not-a-style]" in combined
 
 
+def test_on_input_submitted_warns_on_canon_conflicts(tmp_path, monkeypatch) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.config = SimpleNamespace(
+        llm_provider="openrouter",
+        llm_model="openrouter/free",
+        max_tokens=4096,
+    )
+    add_fact(str(tmp_path), chapter=1, text="Mira is the ship navigator.")
+
+    class _FakeInput:
+        def __init__(self, value: str) -> None:
+            self.value = value
+            self.disabled = False
+
+        def focus(self) -> None:
+            return
+
+    class _CaptureLog:
+        def __init__(self) -> None:
+            self.rendered_plain: list[str] = []
+
+        def write(self, value) -> None:
+            if isinstance(value, str):
+                self.rendered_plain.append(render(value).plain)
+            else:
+                self.rendered_plain.append(str(value))
+
+    fake_log = _CaptureLog()
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: fake_log)
+    monkeypatch.setattr(
+        app.state_engine,
+        "compose_prompt_with_diagnostics",
+        lambda *_args, **_kwargs: (
+            "[User Instruction]\nKeep continuity.",
+            SimpleNamespace(
+                context_window_tokens=32768,
+                output_reserve_tokens=4096,
+                input_budget_tokens=28672,
+                model_source="test",
+            ),
+            SimpleNamespace(
+                included_sections=("canon_constraints",),
+                pruned_sections=(),
+                truncated_sections=(),
+                estimated_tokens={
+                    "canon": 10,
+                    "scene_plan": 5,
+                    "scoped_context": 10,
+                    "recent_dialogue": 0,
+                    "retrieved_context": 0,
+                    "user_instruction": 5,
+                    "summary": 0,
+                    "full_prompt": 30,
+                },
+            ),
+        ),
+    )
+
+    async def _fake_turn(_prompt: str) -> tuple[str, bool]:
+        return "Mira is not the ship navigator.", False
+
+    monkeypatch.setattr(app, "_run_assistant_turn", _fake_turn)
+
+    event = SimpleNamespace(input=_FakeInput("Continue scene"), value="Continue scene")
+    asyncio.run(app.on_input_submitted(event))
+
+    combined = "\n".join(fake_log.rendered_plain)
+    assert "Potential Canon Conflicts" in combined
+    assert "negation conflict" in combined
+    assert "Mira is not the ship navigator." in combined
+
+
 def test_recent_turns_include_session_summary_and_tail(tmp_path) -> None:
     TuiApp = _load_tui_app()
     app = TuiApp(book_path=str(tmp_path))
@@ -838,6 +1080,29 @@ def test_recent_turns_include_session_summary_and_tail(tmp_path) -> None:
     assert recent[0].startswith("Session Summary: ")
     assert "User: User turn 9" in recent
     assert "Assistant: Assistant response 9" in recent
+
+
+def test_adaptive_summary_retains_priority_turn_markers(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    app.transcript = [
+        {
+            "user": "Outline scene transition to the bridge.",
+            "answer": "Scene cut to the bridge as alarms trigger.",
+        },
+        {
+            "user": "Maintain canon continuity for Mira.",
+            "answer": "Mira remains the active pilot per canon facts.",
+        },
+        {
+            "user": "Introduce a new character named Sol.",
+            "answer": "Sol arrives carrying a damaged artifact.",
+        },
+    ]
+    adaptive = app._summarize_turn_slice_adaptive(app.transcript)
+
+    assert "P-U:" in adaptive or "P-A:" in adaptive
 
 
 def test_mode_persistence_keeps_existing_session_summary(tmp_path) -> None:

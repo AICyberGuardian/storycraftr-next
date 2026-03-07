@@ -148,3 +148,31 @@ Body
 
     assert state.active_chapter == 1
     assert state.active_scene == "Setup"
+
+
+def test_state_engine_sorts_double_digit_chapters_numerically(tmp_path) -> None:
+    """chapter-10.md must come after chapter-9.md, not between chapter-1.md and chapter-2.md."""
+
+    for n in [1, 2, 9, 10, 11]:
+        _write(
+            tmp_path / "chapters" / f"chapter-{n}.md",
+            f"""---
+title: Chapter {n} Title
+scene: Scene {n}
+arc: Act I
+---
+# Chapter {n}
+Body
+""",
+        )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+    state = engine.get_state(force_refresh=True)
+
+    chapter_numbers = [c.number for c in state.chapters]
+    assert chapter_numbers == sorted(chapter_numbers), (
+        f"Chapters must be in numeric order, got: {chapter_numbers}"
+    )
+    # Last chapter should be 11, not 9 (which lexicographic sort would give after 1)
+    assert state.active_chapter == 11
+    assert "Ch11" in state.timeline_strip

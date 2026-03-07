@@ -25,6 +25,7 @@ from storycraftr.agent.agents import (
 from storycraftr.chat.commands import CommandContext, handle_command
 from storycraftr.chat.module_runner import ModuleCommandError, run_module_command
 from storycraftr.chat.session import SessionManager
+from storycraftr.subagents.jobs import SubAgentJobManager
 from storycraftr.tui.openrouter_models import (
     OpenRouterModel,
     fetch_free_openrouter_models,
@@ -86,6 +87,7 @@ class TuiApp(App[None]):
         self._cached_free_models: list[OpenRouterModel] = []
         self._cached_free_models_at: float = 0.0
         self.transcript: list[dict[str, Any]] = []
+        self._job_manager: SubAgentJobManager | None = None
         self.state_engine = NarrativeStateEngine(book_path=str(self.book_path))
         self.session_manager = SessionManager(str(self.book_path))
 
@@ -120,6 +122,16 @@ class TuiApp(App[None]):
             return
 
         self.model_override = self.config.llm_model
+        try:
+            self._job_manager = SubAgentJobManager(
+                str(self.book_path),
+                console=Console(stderr=True, no_color=True),
+            )
+        except Exception as exc:  # pragma: no cover
+            output.write(
+                f"[yellow]Sub-agent support unavailable (init error: {exc}).[/yellow]"
+            )
+
         output.write(f"[cyan]Loading assistant for {self.book_path}...[/cyan]")
         try:
             self.assistant = await asyncio.to_thread(
@@ -135,6 +147,12 @@ class TuiApp(App[None]):
         )
         self.query_one(DirectoryTree).display = False
         await self._refresh_state_strips(force_refresh=True)
+
+    async def on_unmount(self) -> None:
+        """Shut down the sub-agent job manager on exit to avoid dangling threads."""
+
+        if self._job_manager is not None:
+            await asyncio.to_thread(self._job_manager.shutdown, False)
 
     @on(Input.Submitted)
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -385,22 +403,27 @@ class TuiApp(App[None]):
         if not requested:
             return "Usage: /model-change <model_id>"
 
-        validated = False
         validation_note = ""
-        try:
-            free_models = await asyncio.to_thread(self._get_free_models)
-            if free_models:
-                free_ids = {model.model_id for model in free_models}
-                validated = requested in free_ids
-                if not validated:
-                    return (
-                        "Model is not in the current free OpenRouter model list. "
-                        "Use /model-list to inspect valid IDs."
-                    )
-                validation_note = "Validated against current free OpenRouter list."
-        except Exception as exc:
+        active_provider = self._active_provider()
+        if active_provider == "openrouter":
+            try:
+                free_models = await asyncio.to_thread(self._get_free_models)
+                if free_models:
+                    free_ids = {model.model_id for model in free_models}
+                    if requested not in free_ids:
+                        return (
+                            "Model is not in the current free OpenRouter model list. "
+                            "Use /model-list to inspect valid IDs."
+                        )
+                    validation_note = "Validated against current free OpenRouter list."
+            except Exception as exc:
+                validation_note = (
+                    f"Validation skipped due to model-list fetch failure: {exc}"
+                )
+        else:
             validation_note = (
-                f"Validation skipped due to model-list fetch failure: {exc}"
+                "Validation skipped: current provider is not openrouter; "
+                "model ID was not checked against the OpenRouter free-model list."
             )
 
         previous_model = self._active_model()
@@ -416,7 +439,6 @@ class TuiApp(App[None]):
         except Exception as exc:
             self.assistant = previous_assistant
             self.model_override = previous_override
-            self._update_model_status_widget()
             return f"Failed to change model to '{requested}': {exc}"
 
         self.assistant = new_assistant
@@ -426,7 +448,7 @@ class TuiApp(App[None]):
 
         continuity = f"Retained thread id {self.thread_id} and {len(self.transcript)} transcript turns."
         provider_note = ""
-        if self._active_provider() != "openrouter":
+        if active_provider != "openrouter":
             provider_note = (
                 " Current provider is not openrouter; this override still applies "
                 "for the active TUI assistant session."
@@ -486,6 +508,7 @@ class TuiApp(App[None]):
             transcript=self.transcript,
             assistant=self.assistant,
             book_path=str(self.book_path),
+            job_manager=self._job_manager,
         )
         result = handle_command(command_text, ctx)
         if isinstance(result, list):

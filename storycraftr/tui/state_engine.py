@@ -130,7 +130,7 @@ class NarrativeStateEngine:
         if not chapters_dir.exists():
             return chapter_states
 
-        for chapter_file in sorted(chapters_dir.glob("chapter-*.md")):
+        for chapter_file in chapters_dir.glob("chapter-*.md"):
             chapter = self._parse_chapter_file(chapter_file)
             if chapter is None:
                 continue
@@ -144,7 +144,7 @@ class NarrativeStateEngine:
                 )
             chapter_states.append(chapter)
 
-        return chapter_states
+        return sorted(chapter_states, key=lambda c: c.number)
 
     def _parse_chapter_file(self, chapter_file: Path) -> ChapterState | None:
         """Parse one chapter markdown file into a normalized chapter state object."""

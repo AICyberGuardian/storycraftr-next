@@ -92,3 +92,53 @@ def test_dispatch_state_command_returns_state_block(tmp_path) -> None:
 
     assert "Narrative State" in result
     assert "Injected Prompt Block" in result
+
+
+def test_change_model_skips_openrouter_validation_for_non_openrouter_provider(
+    tmp_path, monkeypatch
+) -> None:
+    """_change_model must not block non-openrouter providers against the free-model list."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    # Simulate a non-openrouter config (e.g. openai)
+    monkeypatch.setattr(app, "_active_provider", lambda: "openai")
+
+    called = []
+
+    async def _fake_create_or_get(book_path, model_id=None):
+        called.append(model_id)
+        return object()
+
+    import storycraftr.tui.app as tui_app_module
+
+    monkeypatch.setattr(tui_app_module, "create_or_get_assistant", _fake_create_or_get)
+    monkeypatch.setattr(tui_app_module, "get_thread", lambda bp: type("T", (), {"id": "t1"})())
+
+    result = asyncio.run(app._change_model("gpt-4o"))
+
+    # Should succeed (not blocked by OpenRouter validation)
+    assert "gpt-4o" in result
+    assert called == ["gpt-4o"]
+    # Should include validation-skip note
+    assert "current provider is not openrouter" in result
+
+
+def test_change_model_failure_does_not_raise_attribute_error(
+    tmp_path, monkeypatch
+) -> None:
+    """_change_model failure path must not call undefined _update_model_status_widget."""
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    monkeypatch.setattr(app, "_active_provider", lambda: "openai")
+
+    import storycraftr.tui.app as tui_app_module
+
+    async def _always_fail(book_path, model_id=None):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(tui_app_module, "create_or_get_assistant", _always_fail)
+
+    result = asyncio.run(app._change_model("some-model"))
+
+    assert "Failed to change model" in result
+    assert "connection refused" in result

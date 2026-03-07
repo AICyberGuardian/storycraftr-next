@@ -44,7 +44,8 @@ Body
     assert state.active_chapter == 2
     assert state.active_scene == "Confrontation"
     assert state.active_arc == "Act II"
-    assert "Chapter=2: Chapter 2" in state.memory_strip
+    assert "Chapter 2 - Chapter 2" in state.memory_strip
+    assert "Arc: Act II" in state.memory_strip
     assert "Ch1 Setup" in state.timeline_strip
     assert "Ch2 Confrontation" in state.timeline_strip
 
@@ -125,6 +126,8 @@ Body
     assert state.active_chapter == 4
     assert state.active_scene == "Unknown"
     assert state.active_arc == "Unknown"
+    assert "Arc unknown" in state.memory_strip
+    assert state.timeline_strip == "Timeline: Chapter metadata incomplete"
 
 
 def test_state_engine_skips_invalid_outline_yaml(tmp_path) -> None:
@@ -148,6 +151,15 @@ Body
 
     assert state.active_chapter == 1
     assert state.active_scene == "Setup"
+
+
+def test_state_engine_uses_placeholder_when_no_chapters(tmp_path) -> None:
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+
+    state = engine.get_state(force_refresh=True)
+
+    assert state.memory_strip == "Narrative: Chapter context unavailable"
+    assert state.timeline_strip == "Timeline: No scene map yet"
 
 
 def test_state_engine_sorts_chapters_numerically(tmp_path) -> None:

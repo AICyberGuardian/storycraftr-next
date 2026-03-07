@@ -92,6 +92,46 @@ def test_dispatch_state_command_returns_state_block(tmp_path) -> None:
     assert "Injected Prompt Block" in result
 
 
+def test_toggle_tree_hides_sidebar_container(tmp_path, monkeypatch) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    class _Sidebar:
+        def __init__(self) -> None:
+            self.display = True
+
+    sidebar = _Sidebar()
+
+    def _query_one(selector, _type=None):
+        assert selector == "#sidebar"
+        return sidebar
+
+    monkeypatch.setattr(app, "query_one", _query_one)
+
+    hidden_message = app._toggle_tree_visibility()
+    shown_message = app._toggle_tree_visibility()
+
+    assert hidden_message == "Project tree hidden."
+    assert shown_message == "Project tree shown."
+
+
+def test_toggle_tree_returns_unavailable_when_sidebar_missing(
+    tmp_path, monkeypatch
+) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    def _query_one(_selector, _type=None):
+        raise RuntimeError("no sidebar")
+
+    monkeypatch.setattr(app, "query_one", _query_one)
+
+    assert (
+        app._toggle_tree_visibility()
+        == "Project tree is not available in the current view."
+    )
+
+
 def test_change_model_skips_openrouter_validation_for_non_openrouter_provider(
     tmp_path, monkeypatch
 ) -> None:

@@ -2,6 +2,16 @@
 
 ## Change History
 
+### 2026-03-06 — TUI focus layout fix: collapsible sidebar container and softer strip fallbacks
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/app.py` layout IDs and toggle behavior so `/toggle-tree` and `ctrl+t` hide/show the full sidebar container (`#sidebar`) instead of only the `DirectoryTree` widget, allowing the main pane (`#main-pane`) to reclaim full width.
+	- Ensured writer-first default view remains consistent by hiding the full sidebar container on mount.
+	- Refined startup prompt guidance to list supported commands (`/help`, `/outline`) and removed stale `/agents` example text.
+	- Updated `storycraftr/tui/state_engine.py` strip text fallbacks to reduce noisy `Unknown` output (`Timeline: No scene map yet`, `Timeline: Chapter metadata incomplete`, and chapter-first narrative strip formatting).
+	- Added/updated TUI regressions in `tests/unit/test_tui_app.py` and `tests/unit/test_tui_state_engine.py` for sidebar toggle behavior and low-confidence strip placeholders.
+- **No impact:** sections 1–7 (no dependency/lockfile changes, no Story/Paper config contract changes, no LLM provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code IPC contract changes, and no security-tooling policy changes).
+
 ### 2026-03-06 — State-driven TUI UX and read-only narrative state engine
 - **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
 - **Impact:**

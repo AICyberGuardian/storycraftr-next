@@ -61,6 +61,7 @@ configuration examples, or public workflow descriptions.
 | File | Summary | Update When |
 | --- | --- | --- |
 | `storycraftr/cmd/control_plane.py` | Grouped Click commands for automation/headless workflows (tui/state/canon/mode/models). | Control-plane command behavior, Click group structure, or runtime service integration changes. |
+| `storycraftr/services/control_plane.py` | Shared control-plane service implementations (`mode_show_impl`, `mode_set_impl`, `state_audit_impl`, `canon_check_impl`) used by both CLI and TUI. | Any changes to runtime mode persistence, canon-check semantics, or state-audit query behavior that must stay consistent across CLI/TUI. |
 | `storycraftr/llm/factory.py` | Provider validation plus OpenRouter retry, backoff, and fallback behavior. | Provider startup, model validation, retry logic, or fallback chain behavior changes. |
 | `storycraftr/llm/openrouter_discovery.py` | Dynamic OpenRouter free-model discovery, user-local cache, cache metadata, and forced refresh helpers. | OpenRouter catalog fetch, cache TTL/fallback, or model discovery diagnostics change. |
 | `storycraftr/llm/model_context.py` | Model context-window and completion-limit resolution used by prompt budgeting. | Budget computation, registry defaults, or discovery-driven context resolution changes. |

@@ -4,7 +4,7 @@ Current development target: `v0.16` (`0.16.0-dev`).
 
 ### Highlights
 
-- **Added Click control-plane command groups** for automation and headless workflows (`storycraftr/cmd/control_plane.py`): `storycraftr tui`, `storycraftr state show|validate|audit`, `storycraftr canon check`, `storycraftr mode show|set|stop`, and `storycraftr models list|refresh`. These grouped commands reuse existing runtime services (`NarrativeStateStore`, canon verification, session metadata, OpenRouter discovery) to provide first-class CLI surfaces that stay aligned with TUI behavior.
+- **Added Click control-plane command groups** for automation and headless workflows (`storycraftr/cmd/control_plane.py`): `storycraftr tui`, `storycraftr state show|validate|audit`, `storycraftr canon check`, `storycraftr mode show|set|stop`, and `storycraftr models list|refresh`. These grouped commands now route through a shared service layer (`storycraftr/services/control_plane.py`) used by both CLI and TUI for consistent mode/audit/canon behavior.
 - Added dynamic OpenRouter free-model discovery (`storycraftr/llm/openrouter_discovery.py`) using `GET https://openrouter.ai/api/v1/models`, with user-local cache at `~/.storycraftr/openrouter-models-cache.json`, default 6-hour TTL, stale-cache fallback, and a minimal emergency fallback profile.
 - Added strict free-only OpenRouter startup validation in `storycraftr/llm/factory.py`: paid/unknown/unavailable model IDs are rejected before provider initialization for both primary and fallback models.
 - Updated model-aware prompt budgeting in the TUI prompt path to use live-discovered OpenRouter limits first (context length + max completion), with conservative in-repo fallback defaults in `storycraftr/llm/model_context.py`.

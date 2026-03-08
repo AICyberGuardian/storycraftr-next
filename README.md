@@ -252,6 +252,8 @@ Control-plane CLI groups are also available for scripting and CI workflows:
 - `storycraftr mode show|set|stop`
 - `storycraftr models list|refresh`
 
+These control-plane surfaces now share a single implementation layer (`storycraftr/services/control_plane.py`) used by both CLI and TUI to keep runtime behavior consistent.
+
 The v0.1 TUI is now state-driven: the project tree starts hidden by default,
 the top bar shows a Narrative strip and Scene Timeline strip, and input routes
 through existing CLI dispatchers without changing core agent execution.

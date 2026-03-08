@@ -360,6 +360,35 @@ def test_dispatch_mode_sets_and_reports_execution_mode(tmp_path) -> None:
     assert "Execution mode: hybrid" in show_result
 
 
+def test_dispatch_mode_calls_shared_service_impl(tmp_path, monkeypatch) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    calls: dict[str, object] = {}
+
+    class _FakeModeConfig:
+        mode = SimpleNamespace(value="hybrid")
+        max_autopilot_turns = 3
+
+    class _FakeSessionState:
+        mode_config = _FakeModeConfig()
+        autopilot_turns_remaining = 0
+
+    def _fake_mode_set(book_path, mode_name, *, turns=None):
+        calls["book_path"] = book_path
+        calls["mode_name"] = mode_name
+        calls["turns"] = turns
+        return _FakeSessionState()
+
+    monkeypatch.setattr("storycraftr.tui.app.mode_set_impl", _fake_mode_set)
+
+    result = asyncio.run(app._dispatch_slash_command("/mode hybrid"))
+
+    assert "Execution mode set to hybrid." in result
+    assert calls["mode_name"] == "hybrid"
+    assert str(tmp_path) in str(calls["book_path"])
+
+
 def test_dispatch_mode_autopilot_accepts_turn_limit(tmp_path) -> None:
     TuiApp = _load_tui_app()
     app = TuiApp(book_path=str(tmp_path))

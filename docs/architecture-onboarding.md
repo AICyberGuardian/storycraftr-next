@@ -51,6 +51,7 @@ explicit attributes.
 - `storycraftr/cli.py`: dual-mode command routing and bootstrap.
 - `storycraftr/cmd/`: command handlers for story, paper, and chat.
 - `storycraftr/cmd/control_plane.py`: grouped Click commands for automation and headless workflows (tui/state/canon/mode/models).
+- `storycraftr/services/control_plane.py`: shared control-plane service layer used by both CLI commands and TUI slash commands for mode, canon-check, and state-audit operations.
 - `storycraftr/agent/agents.py`: assistant lifecycle, message creation, orchestration glue.
 - `storycraftr/agent/assistant_cache.py`: assistant cache keying and lock-guarded cache state.
 - `storycraftr/agent/vector_hydration.py`: vector-store refresh/hydration and markdown ingestion helpers.

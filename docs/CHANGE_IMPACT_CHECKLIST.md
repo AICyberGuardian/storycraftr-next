@@ -2,6 +2,16 @@
 
 ## Change History
 
+### 2026-03-07 — Phase 2B: CLI/TUI service unification for control-plane runtime logic
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/services/control_plane.py` with shared implementations: `mode_show_impl`, `mode_set_impl`, `state_audit_impl`, and `canon_check_impl`.
+	- Refactored `storycraftr/cmd/control_plane.py` to delegate mode, canon-check, and state-audit behavior to the shared service layer.
+	- Refactored `storycraftr/tui/app.py` slash-command paths (`/mode`, `/stop`, `/state audit`, canon conflict analysis) to call the same service implementations used by CLI commands.
+	- Added regression tests for the shared service layer (`tests/unit/test_control_plane_service.py`) and delegation-path assertions in `tests/test_cli.py` and `tests/unit/test_tui_app.py`.
+	- Updated user and architecture documentation (`README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/contributor-reference.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `release_notes.md`, and `CHANGELOG.md`).
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema updates, no provider contract changes, no sub-agent lifecycle model changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Click control-plane command surface (tui/state/canon/mode/models)
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

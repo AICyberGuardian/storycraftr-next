@@ -29,7 +29,6 @@ from storycraftr.agent.agents import (
 from storycraftr.agent.execution_mode import (
     ExecutionMode,
     ModeConfig,
-    parse_execution_mode,
 )
 from storycraftr.chat.commands import CommandContext, handle_command
 from storycraftr.chat.module_runner import ModuleCommandError, run_module_command
@@ -37,6 +36,12 @@ from storycraftr.chat.session import SessionManager
 from storycraftr.llm.model_context import resolve_model_context
 from storycraftr.llm.openrouter_discovery import get_cache_metadata
 from storycraftr.subagents import SubAgentJobManager
+from storycraftr.services.control_plane import (
+    canon_check_impl,
+    mode_set_impl,
+    mode_show_impl,
+    state_audit_impl,
+)
 from storycraftr.tui.openrouter_models import (
     OpenRouterModel,
     fetch_free_openrouter_models,
@@ -803,20 +808,17 @@ class TuiApp(App[None]):
                 else:
                     return f"Unknown filter: {key}"
 
-        # Access audit log through narrative state store
         try:
-            store = self.state_engine.narrative_state_store
-            audit_log = store._get_audit_log()
-
-            if audit_log is None:
-                return "Audit logging is disabled for this project."
-
-            # Query with filters
-            entries = audit_log.query_entries(
-                entity_id=entity_id,
+            result = state_audit_impl(
+                str(self.book_path),
                 entity_type=entity_type,
+                entity_id=entity_id,
                 limit=limit,
+                store=self.state_engine.narrative_state_store,
             )
+            if not result.enabled:
+                return "Audit logging is disabled for this project."
+            entries = result.entries
 
             if not entries:
                 return "No audit entries found matching the specified filters."
@@ -1328,6 +1330,9 @@ class TuiApp(App[None]):
         """Show or update execution mode state for TUI workflows."""
 
         if not args:
+            state = mode_show_impl(str(self.book_path))
+            self.mode_config = state.mode_config
+            self.autopilot_turns_remaining = state.autopilot_turns_remaining
             return (
                 f"Execution mode: {self.execution_mode.value}\n"
                 f"Max autopilot turns: {self.mode_config.max_autopilot_turns}\n"
@@ -1335,28 +1340,29 @@ class TuiApp(App[None]):
                 "Usage: /mode [manual|hybrid|autopilot [max_turns]]"
             )
 
-        requested = parse_execution_mode(args[0])
-        if requested is None:
+        requested_mode = args[0].lower().strip()
+        if requested_mode not in {"manual", "hybrid", "autopilot"}:
             return "Usage: /mode [manual|hybrid|autopilot [max_turns]]"
 
-        config = self.mode_config.with_mode(requested)
-        if requested is ExecutionMode.AUTOPILOT:
-            if len(args) > 1:
-                if not args[1].isdigit():
-                    return "Usage: /mode autopilot [max_turns]"
-                config = config.with_autopilot_limit(int(args[1]))
-            self.autopilot_turns_remaining = config.max_autopilot_turns
-        else:
-            self.autopilot_turns_remaining = 0
+        turns: int | None = None
+        if requested_mode == "autopilot" and len(args) > 1:
+            if not args[1].isdigit():
+                return "Usage: /mode autopilot [max_turns]"
+            turns = int(args[1])
 
-        self.mode_config = config
         try:
-            self._persist_mode_session_state()
+            updated = mode_set_impl(
+                str(self.book_path),
+                requested_mode,
+                turns=turns,
+            )
         except Exception as exc:
-            return f"Failed to persist execution mode: {exc}"
+            return f"Failed to persist execution mode: {str(exc)}"
 
+        self.mode_config = updated.mode_config
+        self.autopilot_turns_remaining = updated.autopilot_turns_remaining
         self._refresh_mode_indicator()
-        if requested is ExecutionMode.AUTOPILOT:
+        if updated.mode_config.mode is ExecutionMode.AUTOPILOT:
             return (
                 f"Execution mode set to {self.execution_mode.value} "
                 f"({self.autopilot_turns_remaining} turns available)."
@@ -1366,17 +1372,24 @@ class TuiApp(App[None]):
     def _handle_stop_command(self) -> str:
         """Force manual mode and stop any further autonomous generation turns."""
 
-        self.mode_config = self.mode_config.with_mode(ExecutionMode.MANUAL)
-        self.autopilot_turns_remaining = 0
-        self._persist_mode_session_state()
+        try:
+            updated = mode_set_impl(
+                str(self.book_path),
+                ExecutionMode.MANUAL.value,
+                turns=0,
+            )
+        except Exception as exc:
+            return f"Failed to persist execution mode: {str(exc)}"
+
+        self.mode_config = updated.mode_config
+        self.autopilot_turns_remaining = updated.autopilot_turns_remaining
         self._refresh_mode_indicator()
         return "Execution stopped. Mode set to manual."
 
     def _load_mode_session_state(self) -> None:
         """Restore mode configuration and counters from runtime session metadata."""
 
-        state = self.session_manager.load_runtime_state()
-        session_state = TuiSessionState.from_dict(state)
+        session_state = mode_show_impl(str(self.book_path))
         self.mode_config = session_state.mode_config
         self.autopilot_turns_remaining = session_state.autopilot_turns_remaining
 
@@ -1503,44 +1516,39 @@ class TuiApp(App[None]):
     ) -> dict[str, Any]:
         """Analyze response against canon and return structured conflict report."""
 
-        candidates = await asyncio.to_thread(
-            extract_canon_candidates,
-            response,
+        result = await asyncio.to_thread(
+            canon_check_impl,
+            str(self.book_path),
             chapter=chapter,
+            text=response,
             max_candidates=5,
         )
         conflicts: list[dict[str, str]] = []
         duplicate_count = 0
         negation_count = 0
-        for candidate in candidates:
-            result = await asyncio.to_thread(
-                verify_candidate_against_canon,
-                book_path=str(self.book_path),
-                chapter=chapter,
-                candidate_text=candidate.text,
-            )
-            if result.reason == "negation-conflict":
+        for row in result.rows:
+            if row.reason == "negation-conflict":
                 negation_count += 1
                 conflicts.append(
                     {
                         "reason": "negation conflict",
-                        "candidate": candidate.text,
-                        "conflicting_fact": result.conflicting_fact or "",
+                        "candidate": row.candidate,
+                        "conflicting_fact": row.conflicting_fact or "",
                     }
                 )
-            elif result.reason == "duplicate":
+            elif row.reason == "duplicate":
                 duplicate_count += 1
                 conflicts.append(
                     {
                         "reason": "duplicate canon fact",
-                        "candidate": candidate.text,
+                        "candidate": row.candidate,
                         "conflicting_fact": "",
                     }
                 )
 
         return {
             "chapter": chapter,
-            "checked_candidates": len(candidates),
+            "checked_candidates": result.checked_candidates,
             "duplicate_count": duplicate_count,
             "negation_conflict_count": negation_count,
             "conflicts": conflicts,

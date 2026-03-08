@@ -336,6 +336,41 @@ def test_mode_command_set_show_stop_round_trip(tmp_path) -> None:
     assert "autopilot_turns_remaining: 0" in show_after_stop.output
 
 
+def test_mode_set_command_uses_shared_service_impl(tmp_path, monkeypatch) -> None:
+    runner = CliRunner()
+    project = tmp_path / "demo"
+    project.mkdir()
+
+    calls: dict[str, object] = {}
+
+    class _FakeModeConfig:
+        mode = SimpleNamespace(value="hybrid")
+
+    class _FakeState:
+        mode_config = _FakeModeConfig()
+        autopilot_turns_remaining = 0
+
+    def _fake_mode_set(book_path, mode_name, *, turns=None):
+        calls["book_path"] = book_path
+        calls["mode_name"] = mode_name
+        calls["turns"] = turns
+        return _FakeState()
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.control_plane.mode_set_impl",
+        _fake_mode_set,
+    )
+
+    result = runner.invoke(
+        cli,
+        ["mode", "set", "hybrid", "--book-path", str(project)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls["mode_name"] == "hybrid"
+    assert str(project) in str(calls["book_path"])
+
+
 def test_models_group_list_outputs_rows(monkeypatch) -> None:
     runner = CliRunner()
     model = SimpleNamespace(

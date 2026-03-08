@@ -100,6 +100,8 @@ assistant/backend flow.
 - `storycraftr mode show|set|stop` — Inspect or mutate persisted execution mode state.
 - `storycraftr models list|refresh` — List or refresh free OpenRouter discovery results.
 
+The control-plane runtime logic is centralized in `storycraftr/services/control_plane.py` and shared by both Click commands and TUI slash commands to avoid feature drift.
+
 ### Keyboard Shortcuts
 
 - `Ctrl+L` — Toggle focus mode (hide/show sidebar and state strips).

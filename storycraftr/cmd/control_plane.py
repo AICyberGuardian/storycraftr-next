@@ -4,19 +4,20 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 import click
 from rich.console import Console
 from rich.table import Table
 
-from storycraftr.agent.execution_mode import ExecutionMode, parse_execution_mode
+from storycraftr.agent.execution_mode import parse_execution_mode
 from storycraftr.agent.narrative_state import NarrativeStateStore
-from storycraftr.chat.session import SessionManager
 from storycraftr.llm.openrouter_discovery import get_free_models, refresh_free_models
-from storycraftr.tui.canon_extract import extract_canon_candidates
-from storycraftr.tui.canon_verify import verify_candidate_against_canon
-from storycraftr.tui.session import TuiSessionState
+from storycraftr.services.control_plane import (
+    canon_check_impl,
+    mode_set_impl,
+    mode_show_impl,
+    state_audit_impl,
+)
 
 console = Console()
 
@@ -70,16 +71,15 @@ def state_audit(
 ) -> None:
     """Display narrative state audit entries."""
 
-    store = NarrativeStateStore(_resolve_book_path(book_path))
-    audit_log = store._get_audit_log()
-    if audit_log is None:
-        raise click.ClickException("State audit logging is disabled.")
-
-    entries = audit_log.query_entries(
+    result = state_audit_impl(
+        _resolve_book_path(book_path),
         entity_type=entity_type,
         entity_id=entity_id,
-        limit=max(1, limit),
+        limit=limit,
     )
+    if not result.enabled:
+        raise click.ClickException("State audit logging is disabled.")
+    entries = result.entries
 
     if output_format == "json":
         click.echo(json.dumps([entry.to_dict() for entry in entries], indent=2))
@@ -188,50 +188,27 @@ def canon_check(
     if not payload:
         raise click.ClickException("Provide --text, --file, or piped input.")
 
-    candidates = extract_canon_candidates(
-        payload, chapter=max(1, chapter), max_candidates=12
+    result = canon_check_impl(
+        _resolve_book_path(book_path),
+        chapter=max(1, chapter),
+        text=payload,
     )
-    if not candidates:
-        candidates = [
-            type(
-                "Candidate", (), {"text": payload.strip(), "chapter": max(1, chapter)}
-            )()
-        ]
 
-    rows: list[dict[str, Any]] = []
-    failures = 0
-    for candidate in candidates:
-        result = verify_candidate_against_canon(
-            book_path=_resolve_book_path(book_path),
-            chapter=max(1, chapter),
-            candidate_text=candidate.text,
-        )
-        if not result.allowed:
-            failures += 1
-        rows.append(
-            {
-                "candidate": candidate.text,
-                "allowed": result.allowed,
-                "reason": result.reason,
-                "conflicting_fact": result.conflicting_fact,
-            }
-        )
-
-    table = Table(title=f"Canon Verification (chapter {max(1, chapter)})")
+    table = Table(title=f"Canon Verification (chapter {result.chapter})")
     table.add_column("Candidate", style="white")
     table.add_column("Allowed", style="green")
     table.add_column("Reason", style="yellow")
     table.add_column("Conflict", style="red")
-    for row in rows:
+    for row in result.rows:
         table.add_row(
-            row["candidate"],
-            "yes" if row["allowed"] else "no",
-            row["reason"],
-            row["conflicting_fact"] or "-",
+            row.candidate,
+            "yes" if row.allowed else "no",
+            row.reason,
+            row.conflicting_fact or "-",
         )
     console.print(table)
 
-    if failures:
+    if result.failures:
         sys.exit(1)
 
 
@@ -240,18 +217,12 @@ def mode() -> None:
     """Execution mode controls for runtime metadata."""
 
 
-def _load_mode_state(book_path: str | None) -> tuple[SessionManager, TuiSessionState]:
-    manager = SessionManager(_resolve_book_path(book_path))
-    runtime_state = manager.load_runtime_state()
-    return manager, TuiSessionState.from_dict(runtime_state)
-
-
 @mode.command(name="show")
 @click.option("--book-path", type=click.Path(), required=False)
 def mode_show(book_path: str | None) -> None:
     """Display persisted execution mode state."""
 
-    _manager, state = _load_mode_state(book_path)
+    state = mode_show_impl(_resolve_book_path(book_path))
     lines = [
         f"mode: {state.mode_config.mode.value}",
         f"max_autopilot_turns: {state.mode_config.max_autopilot_turns}",
@@ -275,20 +246,14 @@ def mode_set(mode_name: str, book_path: str | None, turns: int | None) -> None:
     if requested is None:
         raise click.ClickException("Unsupported execution mode.")
 
-    manager, state = _load_mode_state(book_path)
-    config = state.mode_config.with_mode(requested)
-    if requested is ExecutionMode.AUTOPILOT:
-        if turns is not None:
-            config = config.with_autopilot_limit(turns)
-        remaining = config.max_autopilot_turns
-    else:
-        remaining = 0
-
-    updated = TuiSessionState(
-        mode_config=config,
-        autopilot_turns_remaining=remaining,
-    )
-    manager.save_runtime_state(updated.to_dict())
+    try:
+        updated = mode_set_impl(
+            _resolve_book_path(book_path),
+            mode_name,
+            turns=turns,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
 
     click.echo(
         f"Execution mode set to {updated.mode_config.mode.value} "
@@ -301,12 +266,14 @@ def mode_set(mode_name: str, book_path: str | None, turns: int | None) -> None:
 def mode_stop(book_path: str | None) -> None:
     """Stop autonomous execution and force manual mode."""
 
-    manager, state = _load_mode_state(book_path)
-    updated = TuiSessionState(
-        mode_config=state.mode_config.with_mode(ExecutionMode.MANUAL),
-        autopilot_turns_remaining=0,
-    )
-    manager.save_runtime_state(updated.to_dict())
+    try:
+        mode_set_impl(
+            _resolve_book_path(book_path),
+            "manual",
+            turns=0,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     click.echo("Execution stopped. Mode set to manual.")
 
 

@@ -5,6 +5,8 @@
 
 Welcome to [**StoryCraftr**](https://storycraftr.app), the open-source project designed to revolutionize how books are written. With the power of AI and a streamlined command-line interface (CLI), StoryCraftr helps you craft your story, manage worldbuilding, structure your book, and generate chapters — all while keeping you in full control.
 
+StoryCraftr uses a **sequential scene generation pipeline** that separates planning, drafting, and editing into distinct stages. This architecture reduces instruction dilution and improves narrative quality by giving each stage focused responsibilities: the planner builds scene directives, the drafter writes initial prose, and the editor revises for consistency and craft quality.
+
 ---
 
 ## What's New? Discover AI Craftr 🌐

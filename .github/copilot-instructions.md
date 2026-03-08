@@ -25,7 +25,8 @@ storycraftr/          # Python package (all core logic)
     assistant_cache.py # Assistant cache keying/locking helpers
     vector_hydration.py # Vector-store refresh/hydration helpers
     retrieval.py      # Document retrieval helpers
-    story/            # Story-specific generation: chapters, outline, worldbuilding, iterate
+    generation_pipeline.py # Sequential planner → drafter → editor pipeline with bounded repair
+    story/            # Story-specific generation: chapters, outline, worldbuilding, iterate, scene_planner
     paper/            # Paper-specific generation: abstract, generate_section, etc.
   chat/               # Interactive REPL: session.py, module_runner.py, commands.py, render.py
   cmd/                # Click command groups
@@ -35,6 +36,8 @@ storycraftr/          # Python package (all core logic)
   graph/              # LangChain LCEL graph (assistant_graph.py)
   llm/                # LLM abstraction: factory.py (build_chat_model), embeddings.py, credentials.py
   prompts/            # Prompt strings for story/ and paper/ flows; permute.py for date injection
+                      # planner_rules.md, drafter_rules.md, editor_rules.md: static craft rules
+                      # craft_rules.py: deterministic loader for static prompt fragments
   subagents/          # Background sub-agent system: models.py, defaults.py, storage.py, jobs.py
   templates/          # Python-side LaTeX/folder templates for project scaffolding
   tui/                # Textual terminal UI shell (command center + model controls)

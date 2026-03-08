@@ -44,6 +44,30 @@ def test_build_scoped_context_block_includes_plan_constraints_and_retrieval() ->
     assert "Bridge logs confirm sabotage." in block
 
 
+def test_build_scoped_context_block_includes_role_rules_when_provided() -> None:
+    block = build_scoped_context_block(
+        state=_state(),
+        scene_plan=ScenePlan(
+            goal="Escalate the standoff.",
+            conflict="Trust is collapsing.",
+            stakes="A failed negotiation fractures the alliance.",
+            outcome="End with a hard choice.",
+            ending_beat="Close on a vote that splits the bridge crew.",
+        ),
+        canon_facts=[],
+        planner_rules="Macro beats must progress.",
+        drafter_rules="Every paragraph keeps tension.",
+        editor_rules="Reject luck-based resolution.",
+    )
+
+    assert "[Planner Rules]" in block
+    assert "Macro beats must progress." in block
+    assert "[Drafter Rules]" in block
+    assert "Every paragraph keeps tension." in block
+    assert "[Editor Rules]" in block
+    assert "Reject luck-based resolution." in block
+
+
 def test_build_scoped_context_block_dedupes_and_caps_inputs() -> None:
     long_value = "A" * 260
     block = build_scoped_context_block(

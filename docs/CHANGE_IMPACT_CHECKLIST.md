@@ -2,6 +2,21 @@
 
 ## Change History
 
+### 2026-03-08 — Static craft-rule prompt injection + DSVL schema extension
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Extended `storycraftr/agent/narrative_state.py` DSVL models with Story Engine character fields (`ghost`, `character_lie`, `external_want`, `internal_need`) and added validated `SceneDirective` schema (`goal`, `conflict`, `stakes`, `outcome`).
+	- Updated `storycraftr/agent/story/scene_planner.py` to validate generated scene directives against DSVL `SceneDirective` before prompt assembly.
+	- Added `storycraftr/agent/generation_pipeline.py` and wired TUI generation in `storycraftr/tui/app.py` through role-isolated planner -> drafter -> editor passes with bounded planner JSON repair.
+	- Added planner directive debug controls in `storycraftr/tui/app.py` via `/context prompt debug [on|off]`, including explicit planner directive logging in runtime output.
+	- Hardened fail-closed planner behavior in `storycraftr/tui/app.py`: if planner JSON parsing fails after bounded repair, runtime reuses the last validated `SceneDirective` when available and emits a warning.
+	- Added static corpus-derived craft-rule fragments: `storycraftr/prompts/planner_rules.md`, `storycraftr/prompts/drafter_rules.md`, and `storycraftr/prompts/editor_rules.md`.
+	- Added deterministic loader `storycraftr/prompts/craft_rules.py` and wired it into `storycraftr/tui/state_engine.py` startup/prompt composition.
+	- Updated `storycraftr/tui/context_builder.py` and `storycraftr/tui/app.py` to expose stage-aware prompt diagnostics, including new `/context prompt` output and planner/drafter/editor section telemetry in budget breakdown.
+	- Added/updated tests in `tests/unit/test_generation_pipeline.py`, `tests/unit/test_narrative_state.py`, `tests/unit/test_tui_app.py`, `tests/unit/test_tui_context_builder.py`, and `tests/unit/test_tui_state_engine.py`, including an integration-style TUI turn test covering sequential pipeline output + state extraction + canon warning.
+	- Synced docs in `docs/chat.md` and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile updates, no Story/Paper config schema file changes, no provider routing changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-08 — Development target bump to v0.19 (`0.19.0-dev`)
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

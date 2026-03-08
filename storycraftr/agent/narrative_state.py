@@ -35,6 +35,10 @@ class CharacterState(BaseModel):
     inventory: list[str] = Field(default_factory=list, max_length=50)
     first_appearance_chapter: int | None = Field(None, ge=1)
     notes: str = Field(default="", max_length=1000)
+    ghost: str | None = Field(default=None, max_length=500)
+    character_lie: str | None = Field(default=None, max_length=500)
+    external_want: str | None = Field(default=None, max_length=500)
+    internal_need: str | None = Field(default=None, max_length=500)
 
     @field_validator("location")
     @classmethod
@@ -85,6 +89,15 @@ class PlotThreadState(BaseModel):
         if self.status == "open" and self.resolved_chapter is not None:
             raise ValueError("Open threads cannot have resolved_chapter")
         return self
+
+
+class SceneDirective(BaseModel):
+    """Validated scene directive used by planning and prompt composition."""
+
+    goal: str = Field(min_length=1, max_length=500)
+    conflict: str = Field(min_length=1, max_length=500)
+    outcome: str = Field(min_length=1, max_length=500)
+    stakes: str = Field(min_length=1, max_length=500)
 
 
 class NarrativeStateSnapshot(BaseModel):

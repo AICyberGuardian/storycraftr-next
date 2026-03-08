@@ -4,7 +4,7 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from yaml import YAMLError
@@ -12,6 +12,7 @@ from yaml import YAMLError
 from storycraftr.agent.narrative_state import NarrativeStateStore
 from storycraftr.agent.memory_manager import NarrativeMemoryManager
 from storycraftr.agent.story.scene_planner import plan_next_scene
+from storycraftr.prompts.craft_rules import CraftRuleSet, load_craft_rule_set
 from storycraftr.tui.canon import list_facts
 from storycraftr.tui.context_builder import (
     build_scoped_context_block,
@@ -61,12 +62,19 @@ class NarrativeStateEngine:
         self.narrative_state_store = NarrativeStateStore(str(self.book_path))
         self._runtime_config: Any | None = None
         self.memory_manager = NarrativeMemoryManager(book_path=str(self.book_path))
+        # Static craft rules are loaded once and reused every turn.
+        self._craft_rules: CraftRuleSet = load_craft_rule_set()
 
     def configure(self, config: Any | None) -> None:
         """Apply runtime config updates for path-aware collaborators."""
 
         self._runtime_config = config
         self.memory_manager.configure(config)
+
+    def get_craft_rules(self) -> CraftRuleSet:
+        """Return cached static craft-rule fragments used for prompt assembly."""
+
+        return self._craft_rules
 
     def refresh_memory_runtime(self) -> dict[str, Any]:
         """Reinitialize memory runtime and return refreshed diagnostics."""
@@ -133,6 +141,7 @@ class NarrativeStateEngine:
         output_reserve_tokens: int | None = None,
         retrieved_context: list[str] | None = None,
         recent_turns: list[str] | None = None,
+        rule_profile: Literal["all", "planner", "drafter", "editor", "none"] = "all",
     ) -> str:
         """Compose a model-budgeted prompt with deterministic context pruning."""
 
@@ -143,6 +152,7 @@ class NarrativeStateEngine:
             output_reserve_tokens=output_reserve_tokens,
             retrieved_context=retrieved_context,
             recent_turns=recent_turns,
+            rule_profile=rule_profile,
         )
         return prompt
 
@@ -155,6 +165,7 @@ class NarrativeStateEngine:
         output_reserve_tokens: int | None = None,
         retrieved_context: list[str] | None = None,
         recent_turns: list[str] | None = None,
+        rule_profile: Literal["all", "planner", "drafter", "editor", "none"] = "all",
     ) -> tuple[str, PromptBudget, PromptDiagnostics]:
         """Compose prompt and return diagnostics for TUI observability commands."""
 
@@ -171,6 +182,9 @@ class NarrativeStateEngine:
             active_arc=state.active_arc,
             user_prompt=user_prompt,
         )
+        planner_rules, drafter_rules, editor_rules = self._select_craft_rules(
+            rule_profile
+        )
         prompt, budget, diagnostics = compose_budgeted_prompt_with_diagnostics(
             state=state,
             scene_plan=scene_plan,
@@ -182,6 +196,9 @@ class NarrativeStateEngine:
             retrieved_context=merged_retrieved_context,
             recent_turns=recent_turns,
             narrative_state_json=self.narrative_state_store.render_prompt_block(),
+            planner_rules=planner_rules,
+            drafter_rules=drafter_rules,
+            editor_rules=editor_rules,
         )
         self.last_budget_metadata = budget
         self.last_prompt_diagnostics = diagnostics
@@ -192,6 +209,7 @@ class NarrativeStateEngine:
         user_prompt: str,
         *,
         retrieved_context: list[str] | None = None,
+        rule_profile: Literal["all", "planner", "drafter", "editor", "none"] = "all",
     ) -> str:
         """Build token-scoped context block with scene plan and constraints."""
 
@@ -207,12 +225,38 @@ class NarrativeStateEngine:
             active_arc=state.active_arc,
             user_prompt=user_prompt,
         )
+        planner_rules, drafter_rules, editor_rules = self._select_craft_rules(
+            rule_profile
+        )
         return build_scoped_context_block(
             state=state,
             scene_plan=scene_plan,
             canon_facts=canon_facts,
             retrieved_context=merged_retrieved_context,
             narrative_state_json=self.narrative_state_store.render_prompt_block(),
+            planner_rules=planner_rules,
+            drafter_rules=drafter_rules,
+            editor_rules=editor_rules,
+        )
+
+    def _select_craft_rules(
+        self,
+        rule_profile: Literal["all", "planner", "drafter", "editor", "none"],
+    ) -> tuple[str, str, str]:
+        """Select which static craft-rule fragments to include in prompt assembly."""
+
+        if rule_profile == "planner":
+            return self._craft_rules.planner, "", ""
+        if rule_profile == "drafter":
+            return "", self._craft_rules.drafter, ""
+        if rule_profile == "editor":
+            return "", "", self._craft_rules.editor
+        if rule_profile == "none":
+            return "", "", ""
+        return (
+            self._craft_rules.planner,
+            self._craft_rules.drafter,
+            self._craft_rules.editor,
         )
 
     def record_turn_memory(self, *, user_prompt: str, assistant_response: str) -> bool:

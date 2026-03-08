@@ -2,6 +2,19 @@
 
 ## Change History
 
+### 2026-03-07 — Execution Mode Control Plane (manual/hybrid/autopilot)
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/agent/execution_mode.py` with shared `ExecutionMode` enum, `ModeConfig` policy model, and policy helpers (`allows_background_agents`, `allows_autopilot_loop`, `should_auto_regenerate_on_conflict`).
+	- Added `storycraftr/tui/session.py` with `TuiSessionState` serialization (`to_dict`/`from_dict`) for `mode_config` and `autopilot_turns_remaining`, including backward-compatible support for legacy `execution_mode` runtime key.
+	- Updated `storycraftr/tui/app.py` generation flow to use mode-aware gates via `_generate_with_mode_awareness()` and `_post_generation_hooks()`.
+	- Updated `/mode` command to support optional autopilot limit (`/mode autopilot <max_turns>`) and added `/stop` command to force manual mode and clear remaining autopilot turns.
+	- Updated autopilot loop execution to consume persisted turn budget and report remaining turns after each run.
+	- Added `tests/unit/test_execution_mode.py` (6 tests) covering mode enum values, parsing, policy gates, autopilot limit clamping, and TUI session-state serialization compatibility.
+	- Expanded `tests/unit/test_tui_app.py` coverage for mode command updates (`/mode autopilot <max_turns>`, `/stop`, updated help/usage strings).
+	- Updated user/dev docs: `README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/contributor-reference.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 5, 6, and 7 (no dependency/lockfile updates, no Story/Paper config schema changes, no LLM provider contracts changed, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Documentation parity sync for DSVL Phase 2A/2B/2C
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

@@ -61,7 +61,8 @@ assistant/backend flow.
 
 - `/help` — Show available TUI slash commands.
 - `/status` — Show active project/provider/model and assistant retrieval status.
-- `/mode <manual|hybrid|autopilot>` — Set execution mode for manual, assisted, or autopilot workflows.
+- `/mode [manual|hybrid|autopilot [max_turns]]` — Set execution mode and optional autopilot turn limits.
+- `/stop` — Force manual mode and clear remaining autopilot turns.
 - `/autopilot <steps> <prompt>` — Run bounded autonomous turns when execution mode is `autopilot`.
 - `/state` — Show active narrative state snapshot with version and timestamp metadata.
 - `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]` — Query append-only state audit history with optional filters.

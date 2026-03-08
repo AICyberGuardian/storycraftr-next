@@ -53,7 +53,8 @@ def test_tui_help_includes_required_commands(tmp_path) -> None:
     assert "/session list" in help_text
     assert "/session save <name>" in help_text
     assert "/session load <name>" in help_text
-    assert "/mode <manual|hybrid|autopilot>" in help_text
+    assert "/mode [manual|hybrid|autopilot [max_turns]]" in help_text
+    assert "/stop" in help_text
     assert "/summary [clear]" in help_text
     assert "/context" in help_text
     assert "/model-list" in help_text
@@ -359,13 +360,40 @@ def test_dispatch_mode_sets_and_reports_execution_mode(tmp_path) -> None:
     assert "Execution mode: hybrid" in show_result
 
 
+def test_dispatch_mode_autopilot_accepts_turn_limit(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    result = asyncio.run(app._dispatch_slash_command("/mode autopilot 5"))
+    show = asyncio.run(app._dispatch_slash_command("/mode"))
+
+    assert "Execution mode set to autopilot" in result
+    assert "turns available" in result
+    assert "Execution mode: autopilot" in show
+    assert "Max autopilot turns: 5" in show
+    assert "Autopilot turns remaining: 5" in show
+
+
+def test_dispatch_stop_forces_manual_mode(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    asyncio.run(app._dispatch_slash_command("/mode autopilot 3"))
+    stop_result = asyncio.run(app._dispatch_slash_command("/stop"))
+    show = asyncio.run(app._dispatch_slash_command("/mode"))
+
+    assert stop_result == "Execution stopped. Mode set to manual."
+    assert "Execution mode: manual" in show
+    assert "Autopilot turns remaining: 0" in show
+
+
 def test_dispatch_mode_rejects_invalid_value(tmp_path) -> None:
     TuiApp = _load_tui_app()
     app = TuiApp(book_path=str(tmp_path))
 
     result = asyncio.run(app._dispatch_slash_command("/mode unknown"))
 
-    assert result == "Usage: /mode <manual|hybrid|autopilot>"
+    assert result == "Usage: /mode [manual|hybrid|autopilot [max_turns]]"
 
 
 def test_status_includes_execution_mode(tmp_path) -> None:

@@ -1,4 +1,7 @@
 from unittest import mock
+from types import SimpleNamespace
+
+import json
 
 import pytest
 
@@ -7,6 +10,8 @@ from storycraftr.llm.factory import (
     LLMConfigurationError,
     LLMInitializationError,
     LLMSettings,
+    _load_openrouter_rankings,
+    _rankings_fallback_models_for_batch,
     build_chat_model,
 )
 from storycraftr.utils.core import llm_settings_from_config
@@ -437,6 +442,118 @@ def test_openrouter_timeout_error_is_actionable_and_redacts_key(monkeypatch):
     assert "endpoint 'https://router.example/v1'" in message
     assert "Retry with a higher request_timeout" in message
     assert secret not in message
+
+
+def _valid_rankings_payload(*, prose_primary: str = "z-ai/glm-4.5-air:free") -> dict:
+    return {
+        "batch_planning": {
+            "primary": "meta-llama/llama-3.3-70b-instruct:free",
+            "fallbacks": ["stepfun/step-3.5-flash:free"],
+            "why": "Planner model provides stable long-context behavior.",
+        },
+        "batch_prose": {
+            "primary": prose_primary,
+            "fallbacks": ["meta-llama/llama-3.3-70b-instruct:free"],
+            "why": "Prose model remains creative with controlled fallback behavior.",
+        },
+        "batch_editing": {
+            "primary": "google/gemma-3-27b-it:free",
+            "fallbacks": ["z-ai/glm-4.5-air:free"],
+            "why": "Editing role prioritizes precise, reliable rewrites.",
+        },
+        "repair_json": {
+            "primary": "google/gemma-3-27b-it:free",
+            "fallbacks": ["stepfun/step-3.5-flash:free"],
+            "why": "Repair role enforces strict format compliance for JSON output.",
+        },
+        "coherence_check": {
+            "primary": "stepfun/step-3.5-flash:free",
+            "fallbacks": ["openai/gpt-oss-120b:free"],
+            "context_limit": 200000,
+            "why": "Coherence gate scans long chapter context for contradictions.",
+        },
+    }
+
+
+def test_openrouter_rankings_loader_accepts_strict_payload(monkeypatch, tmp_path):
+    rankings_path = tmp_path / "rankings.json"
+    rankings_path.write_text(
+        json.dumps(_valid_rankings_payload(), indent=2),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "storycraftr.llm.factory._OPENROUTER_RANKINGS_PATH", rankings_path
+    )
+    monkeypatch.setattr("storycraftr.llm.factory.is_model_free", lambda model_id: True)
+    monkeypatch.setattr(
+        "storycraftr.llm.factory.get_model_limits",
+        lambda model_id: SimpleNamespace(context_length=300000),
+    )
+
+    loaded = _load_openrouter_rankings()
+
+    assert loaded["batch_planning"]["fallbacks"] == ["stepfun/step-3.5-flash:free"]
+    assert loaded["coherence_check"]["context_limit"] == 200000
+
+
+def test_openrouter_rankings_loader_rejects_legacy_fallback_key(monkeypatch, tmp_path):
+    rankings_path = tmp_path / "rankings.json"
+    invalid_payload = _valid_rankings_payload()
+    invalid_payload["batch_planning"]["fallback"] = invalid_payload[
+        "batch_planning"
+    ].pop("fallbacks")
+    rankings_path.write_text(json.dumps(invalid_payload, indent=2), encoding="utf-8")
+    monkeypatch.setattr(
+        "storycraftr.llm.factory._OPENROUTER_RANKINGS_PATH", rankings_path
+    )
+    monkeypatch.setattr("storycraftr.llm.factory.is_model_free", lambda model_id: True)
+    monkeypatch.setattr(
+        "storycraftr.llm.factory.get_model_limits",
+        lambda model_id: SimpleNamespace(context_length=300000),
+    )
+
+    assert _load_openrouter_rankings() == {}
+
+
+def test_openrouter_rankings_restricts_openrouter_free_in_prose(monkeypatch, tmp_path):
+    rankings_path = tmp_path / "rankings.json"
+    rankings_path.write_text(
+        json.dumps(_valid_rankings_payload(prose_primary="openrouter/free"), indent=2),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "storycraftr.llm.factory._OPENROUTER_RANKINGS_PATH", rankings_path
+    )
+    monkeypatch.setattr("storycraftr.llm.factory.is_model_free", lambda model_id: True)
+    monkeypatch.setattr(
+        "storycraftr.llm.factory.get_model_limits",
+        lambda model_id: SimpleNamespace(context_length=300000),
+    )
+    monkeypatch.delenv("STORYCRAFTR_ALLOW_OPENROUTER_FREE_PROSE", raising=False)
+
+    assert _load_openrouter_rankings() == {}
+
+    monkeypatch.setenv("STORYCRAFTR_ALLOW_OPENROUTER_FREE_PROSE", "1")
+    assert _load_openrouter_rankings()["batch_prose"]["primary"] == "openrouter/free"
+
+
+def test_rankings_fallback_models_for_batch_reads_fallbacks(monkeypatch, tmp_path):
+    rankings_path = tmp_path / "rankings.json"
+    rankings_path.write_text(
+        json.dumps(_valid_rankings_payload(), indent=2),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "storycraftr.llm.factory._OPENROUTER_RANKINGS_PATH", rankings_path
+    )
+    monkeypatch.setattr("storycraftr.llm.factory.is_model_free", lambda model_id: True)
+    monkeypatch.setattr(
+        "storycraftr.llm.factory.get_model_limits",
+        lambda model_id: SimpleNamespace(context_length=300000),
+    )
+
+    fallbacks = _rankings_fallback_models_for_batch("batch_planning")
+    assert fallbacks == ["stepfun/step-3.5-flash:free"]
 
 
 def test_ollama_connection_error_is_actionable(monkeypatch):

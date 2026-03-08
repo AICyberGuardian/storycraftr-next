@@ -88,6 +88,17 @@ Body
 
 def test_compose_prompt_injects_state_block(tmp_path) -> None:
     _write(
+        tmp_path / "chapters" / "chapter-1.md",
+        """---
+title: Anchor Chapter
+scene: Setup
+arc: Act I
+---
+# Chapter 1
+This opening chapter establishes the long-term objective.
+""",
+    )
+    _write(
         tmp_path / "chapters" / "chapter-3.md",
         """---
 title: Turning Point
@@ -108,6 +119,8 @@ Body
     assert "[Planner Rules]" in prompt
     assert "[Drafter Rules]" in prompt
     assert "[Editor Rules]" in prompt
+    assert "[Global Story Anchor]" in prompt
+    assert "Chapter 1 Anchor: Anchor Chapter" in prompt
     assert "Active Chapter: 3" in prompt
     assert "Active Scene: Reveal" in prompt
     assert "[User Instruction]" in prompt

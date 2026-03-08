@@ -171,6 +171,31 @@ storycraftr init "La purga de los dioses" \
 storycraftr outline general-outline "Summarize the overall plot of a dystopian science fiction where advanced technology, resembling magic, has led to the fall of humanity’s elite and the rise of a manipulative villain who seeks to destroy both the ruling class and the workers."
 ```
 
+### Run the disciplined multi-chapter book loop from a seed:
+
+```bash
+storycraftr book --seed seed.md --chapters 3 --yes
+```
+
+### Book Generation Quick Start
+
+Use this command from your project root:
+
+```bash
+storycraftr book --seed seed.md --chapters 3 --yes
+```
+
+Expected output structure after a successful run:
+
+```text
+<project>/
+  .storycraftr/
+  chapters/
+  outline/canon.yml
+```
+
+Operational note: for live OpenRouter runs, buy at least $10 in credits to avoid the free-tier 1000 req/day cap during repeated smoke or soak testing.
+
 ## 💬 Introducing Chat!!! – A Simple Yet Powerful Tool to Supercharge Your Conversations! 💥
 
 Whether you're brainstorming ideas, refining your story, or just need a little creative spark, Chat!!! is here to help. It's a straightforward, easy-to-use feature that lets you dive deep into meaningful discussions, unlock new insights, and get your thoughts flowing effortlessly.
@@ -253,7 +278,7 @@ Control-plane CLI groups are also available for scripting and CI workflows:
 - `storycraftr state extract --text "..." [--apply]` with verification status (`passed` vs `adjusted`), dropped-operation count, and surfaced verification issues.
 - `storycraftr canon check --chapter <n> --text "..."`
 - `storycraftr mode show|set|stop`
-- `storycraftr models list|refresh`
+- `storycraftr models list|refresh|validate-rankings`
 - `storycraftr memory status|search|remember`
 
 Memory diagnostics examples:
@@ -310,6 +335,7 @@ CLI model discovery:
 - `storycraftr model-list` lists free OpenRouter models with discovered limits (`context_length`, `max_completion_tokens`).
 - `storycraftr model-list --refresh` forces a live catalog refresh before rendering.
 - `storycraftr models list` and `storycraftr models refresh` expose the same discovery flow under the grouped control-plane surface.
+- `storycraftr models validate-rankings [--refresh] [--format text|json]` validates `storycraftr/config/rankings.json` fail-closed against strict runtime rules (role keys, `fallbacks`, model-id format, live free-model availability, and coherence context limits).
 
 Keyboard ergonomics:
 

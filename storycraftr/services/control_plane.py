@@ -89,7 +89,7 @@ def _verify_patch_operations(
 
     known_locations = set(snapshot.locations.keys())
     known_characters = set(snapshot.characters.keys())
-    known_plot_threads = set(snapshot.plot_threads.keys())
+    known_plot_threads = {thread.id for thread in snapshot.plot_threads}
     character_locations = {
         key: character.location for key, character in snapshot.characters.items()
     }

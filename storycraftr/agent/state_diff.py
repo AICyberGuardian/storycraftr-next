@@ -206,7 +206,9 @@ def compute_state_diff(
         "location", old_state.locations, new_state.locations
     )
     plot_thread_diffs = _compute_entity_diffs(
-        "plot_thread", old_state.plot_threads, new_state.plot_threads
+        "plot_thread",
+        _plot_threads_map(old_state.plot_threads),
+        _plot_threads_map(new_state.plot_threads),
     )
 
     # Check if world dict changed
@@ -218,3 +220,18 @@ def compute_state_diff(
         plot_thread_diffs=plot_thread_diffs,
         world_changed=world_changed,
     )
+
+
+def _plot_threads_map(plot_threads: Any) -> dict[str, Any]:
+    """Normalize plot thread containers into a dict keyed by thread ID."""
+    if isinstance(plot_threads, dict):
+        return plot_threads
+    if isinstance(plot_threads, list):
+        normalized: dict[str, Any] = {}
+        for item in plot_threads:
+            if hasattr(item, "id"):
+                normalized[str(item.id)] = item
+            elif isinstance(item, dict) and "id" in item:
+                normalized[str(item["id"])] = item
+        return normalized
+    return {}

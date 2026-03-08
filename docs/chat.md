@@ -105,6 +105,7 @@ assistant/backend flow.
 - `storycraftr canon check --chapter <n> --text "..."` — Verify candidate facts against accepted chapter canon.
 - `storycraftr mode show|set|stop` — Inspect or mutate persisted execution mode state.
 - `storycraftr models list|refresh` — List or refresh free OpenRouter discovery results.
+- `storycraftr models validate-rankings [--refresh] [--format text|json]` — Fail-closed validation for `storycraftr/config/rankings.json` using strict schema/runtime checks and live free-model compatibility rules.
 - `storycraftr memory status [--format text|json]` — Show long-term memory runtime status and provider diagnostics.
 - `storycraftr memory search --query "..." [--chapter N] [--limit K] [--format table|json|ndjson]` — Search persisted memory recalls.
 - `storycraftr memory remember --user "..." --assistant "..." [--chapter N] [--scene LABEL]` — Persist one explicit memory turn.

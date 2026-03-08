@@ -49,6 +49,7 @@ from storycraftr.cmd.story.worldbuilding import worldbuilding as story_worldbuil
 from storycraftr.cmd.story.outline import outline as story_outline
 from storycraftr.cmd.story.chapters import chapters as story_chapters
 from storycraftr.cmd.story.iterate import iterate as story_iterate
+from storycraftr.cmd.story.book import book as story_book
 
 # Imports PaperCraftr in storycraftr.cmd.paper
 from storycraftr.cmd.paper.organize_lit import organize_lit as paper_organize_lit
@@ -486,6 +487,7 @@ if cli_name == "storycraftr":
     cli.add_command(story_outline)
     cli.add_command(story_chapters)
     cli.add_command(story_iterate)
+    cli.add_command(story_book)
     cli.add_command(publish)
     cli.add_command(chat)
     cli.add_command(reload_files)

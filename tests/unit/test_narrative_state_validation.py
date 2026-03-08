@@ -168,7 +168,8 @@ def test_plot_thread_requires_resolved_chapter_when_resolved():
         PlotThreadState(
             id="rebellion",
             description="Resistance movement",
-            status="resolved",
+            status="CLOSED",
+            introduced_chapter=1,
             resolved_chapter=None,
         )
 
@@ -181,7 +182,8 @@ def test_plot_thread_rejects_resolved_chapter_when_open():
         PlotThreadState(
             id="rebellion",
             description="Resistance movement",
-            status="open",
+            status="OPEN",
+            introduced_chapter=1,
             resolved_chapter=5,
         )
 
@@ -193,10 +195,11 @@ def test_plot_thread_accepts_valid_resolved():
     thread = PlotThreadState(
         id="rebellion",
         description="Resistance movement",
-        status="resolved",
+        status="CLOSED",
+        introduced_chapter=1,
         resolved_chapter=5,
     )
-    assert thread.status == "resolved"
+    assert thread.status == "CLOSED"
     assert thread.resolved_chapter == 5
 
 
@@ -205,9 +208,10 @@ def test_plot_thread_accepts_valid_open():
     thread = PlotThreadState(
         id="rebellion",
         description="Resistance movement",
-        status="open",
+        status="OPEN",
+        introduced_chapter=1,
     )
-    assert thread.status == "open"
+    assert thread.status == "OPEN"
     assert thread.resolved_chapter is None
 
 
@@ -217,6 +221,7 @@ def test_plot_thread_rejects_invalid_id_format():
         PlotThreadState(
             id="Rebellion Thread!",
             description="Resistance movement",
+            introduced_chapter=1,
         )
 
     assert "id" in str(exc_info.value)
@@ -227,6 +232,7 @@ def test_plot_thread_accepts_valid_id_format():
     thread = PlotThreadState(
         id="rebellion_001",
         description="Resistance movement",
+        introduced_chapter=1,
     )
     assert thread.id == "rebellion_001"
 

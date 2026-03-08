@@ -113,6 +113,42 @@ class NarrativeMemoryManager:
             return False
         return True
 
+    def add_memory(self, *, text: str, metadata: dict[str, Any] | None = None) -> bool:
+        """Persist one memory entry explicitly for operational call sites.
+
+        This supports direct soft-canon writes (for example chapter atmosphere/flavor)
+        without requiring a synthetic user/assistant turn payload.
+        """
+
+        memory = self._ensure_client()
+        if memory is None:
+            return False
+
+        cleaned = " ".join(text.split()).strip()
+        if not cleaned:
+            return False
+
+        payload_metadata = dict(metadata or {})
+        payload_metadata.setdefault("category", "narrative_turn")
+        payload_metadata.setdefault("type", "memory")
+
+        try:
+            memory.add(
+                [{"role": "assistant", "content": cleaned}],
+                user_id=self.story_id,
+                metadata=payload_metadata,
+                enable_graph=True,
+            )
+        except TypeError:
+            memory.add(
+                [{"role": "assistant", "content": cleaned}],
+                user_id=self.story_id,
+                metadata=payload_metadata,
+            )
+        except Exception:
+            return False
+        return True
+
     def get_context_items(
         self,
         *,

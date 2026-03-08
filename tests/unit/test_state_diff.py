@@ -208,7 +208,10 @@ def test_adding_plot_thread_detected():
     """Adding a plot thread should be detected as ADDED."""
     old_state = NarrativeStateSnapshot()
     new_thread = PlotThreadState(
-        id="rebellion", description="Resistance movement", status="open"
+        id="rebellion",
+        description="Resistance movement",
+        status="OPEN",
+        introduced_chapter=1,
     )
     new_state = NarrativeStateSnapshot(plot_threads={"rebellion": new_thread})
 
@@ -228,13 +231,13 @@ def test_resolving_plot_thread_detected():
     old_thread = PlotThreadState(
         id="rebellion",
         description="Resistance movement",
-        status="open",
+        status="OPEN",
         introduced_chapter=1,
     )
     new_thread = PlotThreadState(
         id="rebellion",
         description="Resistance movement",
-        status="resolved",
+        status="CLOSED",
         introduced_chapter=1,
         resolved_chapter=5,
     )
@@ -380,7 +383,10 @@ def test_complex_multi_entity_diff():
         locations={"Bridge": LocationState(name="Bridge", status="normal")},
         plot_threads={
             "rebellion": PlotThreadState(
-                id="rebellion", description="Resistance", status="open"
+                id="rebellion",
+                description="Resistance",
+                status="OPEN",
+                introduced_chapter=1,
             )
         },
         world={"tech_level": {"value": "advanced"}},
@@ -393,7 +399,8 @@ def test_complex_multi_entity_diff():
             "rebellion": PlotThreadState(
                 id="rebellion",
                 description="Resistance",
-                status="resolved",
+                status="CLOSED",
+                introduced_chapter=1,
                 resolved_chapter=5,
             )
         },

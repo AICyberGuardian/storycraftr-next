@@ -11,6 +11,10 @@ from rich.table import Table
 
 from storycraftr.agent.execution_mode import parse_execution_mode
 from storycraftr.agent.narrative_state import NarrativeStateStore
+from storycraftr.llm.factory import (
+    LLMConfigurationError,
+    validate_openrouter_rankings_config,
+)
 from storycraftr.llm.openrouter_discovery import get_free_models, refresh_free_models
 from storycraftr.services.control_plane import (
     canon_check_impl,
@@ -124,10 +128,10 @@ def state_validate(book_path: str | None) -> None:
                 f"Character '{character.name}' references unknown location '{character.location}'."
             )
 
-    for thread in snapshot.plot_threads.values():
-        if thread.status == "resolved" and thread.resolved_chapter is None:
+    for thread in snapshot.plot_threads:
+        if thread.status in {"CLOSED", "ABANDONED"} and thread.resolved_chapter is None:
             issues.append(
-                f"Plot thread '{thread.id}' is resolved without resolved_chapter."
+                f"Plot thread '{thread.id}' is {thread.status} without resolved_chapter."
             )
 
     if issues:
@@ -432,3 +436,51 @@ def models_refresh() -> None:
 
     refreshed = refresh_free_models()
     click.echo(f"Refreshed {len(refreshed)} free model(s).")
+
+
+@models.command(name="validate-rankings")
+@click.option(
+    "--refresh",
+    is_flag=True,
+    default=False,
+    help="Refresh free-model discovery before validation.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+)
+def models_validate_rankings(refresh: bool, output_format: str) -> None:
+    """Validate strict OpenRouter rankings config and print normalized output."""
+
+    if refresh:
+        refresh_free_models()
+
+    try:
+        rankings = validate_openrouter_rankings_config()
+    except LLMConfigurationError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if output_format == "json":
+        click.echo(json.dumps(rankings, indent=2))
+        return
+
+    table = Table(title="OpenRouter Rankings Validation")
+    table.add_column("Role", style="cyan")
+    table.add_column("Primary", style="green")
+    table.add_column("Fallbacks", style="yellow")
+    table.add_column("Context Limit", style="white")
+
+    for role in sorted(rankings.keys()):
+        entry = rankings[role]
+        context_limit = str(entry.get("context_limit", "-"))
+        table.add_row(
+            role,
+            str(entry.get("primary", "")),
+            str(len(entry.get("fallbacks", []))),
+            context_limit,
+        )
+
+    console.print(table)
+    click.echo("Rankings configuration is valid.")

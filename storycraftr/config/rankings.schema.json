@@ -1,0 +1,100 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://storycraftr-next.local/schemas/rankings.schema.json",
+    "title": "StoryCraftr Rankings Configuration",
+    "description": "Strict role-to-model routing config for StoryCraftr free-tier OpenRouter orchestration.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "batch_planning",
+        "batch_prose",
+        "batch_editing",
+        "repair_json",
+        "coherence_check"
+    ],
+    "properties": {
+        "batch_planning": {
+            "$ref": "#/$defs/rankingEntry"
+        },
+        "batch_prose": {
+            "$ref": "#/$defs/rankingEntry"
+        },
+        "batch_editing": {
+            "$ref": "#/$defs/rankingEntry"
+        },
+        "repair_json": {
+            "$ref": "#/$defs/rankingEntry"
+        },
+        "coherence_check": {
+            "$ref": "#/$defs/coherenceEntry"
+        }
+    },
+    "$defs": {
+        "modelId": {
+            "type": "string",
+            "description": "Pinned OpenRouter free model ID or free router.",
+            "pattern": "^(openrouter\\/free|[a-z0-9][a-z0-9._-]*\\/[a-z0-9][a-z0-9._-]*(?::free))$"
+        },
+        "fallbackList": {
+            "type": "array",
+            "description": "Ordered fallback chain. First entry is first retry target.",
+            "items": {
+                "$ref": "#/$defs/modelId"
+            },
+            "minItems": 1,
+            "maxItems": 5,
+            "uniqueItems": true
+        },
+        "whyText": {
+            "type": "string",
+            "description": "Human-readable rationale for the roster choice.",
+            "minLength": 12,
+            "maxLength": 500
+        },
+        "rankingEntry": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "primary",
+                "fallbacks",
+                "why"
+            ],
+            "properties": {
+                "primary": {
+                    "$ref": "#/$defs/modelId"
+                },
+                "fallbacks": {
+                    "$ref": "#/$defs/fallbackList"
+                },
+                "why": {
+                    "$ref": "#/$defs/whyText"
+                }
+            }
+        },
+        "coherenceEntry": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "primary",
+                "fallbacks",
+                "why"
+            ],
+            "properties": {
+                "primary": {
+                    "$ref": "#/$defs/modelId"
+                },
+                "fallbacks": {
+                    "$ref": "#/$defs/fallbackList"
+                },
+                "why": {
+                    "$ref": "#/$defs/whyText"
+                },
+                "context_limit": {
+                    "type": "integer",
+                    "minimum": 4096,
+                    "maximum": 2000000
+                }
+            }
+        }
+    }
+}

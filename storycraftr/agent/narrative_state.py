@@ -77,17 +77,45 @@ class PlotThreadState(BaseModel):
 
     id: str = Field(min_length=1, max_length=50, pattern=r"^[a-z0-9_-]+$")
     description: str = Field(min_length=1, max_length=500)
-    status: Literal["open", "resolved"] = "open"
-    introduced_chapter: int | None = Field(None, ge=1)
+    status: Literal["OPEN", "CLOSED", "ABANDONED"] = "OPEN"
+    introduced_chapter: int = Field(ge=1)
+    must_resolve_by_chapter: int | None = Field(None, ge=1)
     resolved_chapter: int | None = Field(None, ge=1)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_legacy_statuses(cls, value: Any) -> Any:
+        """Normalize legacy lowercase statuses into the new uppercase enum."""
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip().upper()
+        if normalized == "RESOLVED":
+            return "CLOSED"
+        if normalized == "OPEN":
+            return "OPEN"
+        return normalized
 
     @model_validator(mode="after")
     def validate_resolution_logic(self) -> PlotThreadState:
-        """Resolved threads must have resolved_chapter."""
-        if self.status == "resolved" and self.resolved_chapter is None:
-            raise ValueError("Resolved threads must have resolved_chapter")
-        if self.status == "open" and self.resolved_chapter is not None:
+        """Enforce chapter ordering and resolution constraints."""
+        if self.status == "OPEN" and self.resolved_chapter is not None:
             raise ValueError("Open threads cannot have resolved_chapter")
+        if self.status in {"CLOSED", "ABANDONED"} and self.resolved_chapter is None:
+            raise ValueError("Closed or abandoned threads must have resolved_chapter")
+        if (
+            self.resolved_chapter is not None
+            and self.resolved_chapter < self.introduced_chapter
+        ):
+            raise ValueError(
+                "resolved_chapter cannot be earlier than introduced_chapter"
+            )
+        if (
+            self.must_resolve_by_chapter is not None
+            and self.must_resolve_by_chapter < self.introduced_chapter
+        ):
+            raise ValueError(
+                "must_resolve_by_chapter cannot be earlier than introduced_chapter"
+            )
         return self
 
 
@@ -105,10 +133,30 @@ class NarrativeStateSnapshot(BaseModel):
 
     characters: dict[str, CharacterState] = Field(default_factory=dict)
     locations: dict[str, LocationState] = Field(default_factory=dict)
-    plot_threads: dict[str, PlotThreadState] = Field(default_factory=dict)
+    plot_threads: list[PlotThreadState] = Field(default_factory=list)
     world: dict[str, dict[str, Any]] = Field(default_factory=dict)  # Legacy support
     version: int = Field(default=1, ge=1)
     last_modified: str = Field(default_factory=lambda: datetime.now().isoformat())
+
+    @field_validator("plot_threads", mode="before")
+    @classmethod
+    def normalize_plot_threads(
+        cls, value: Any
+    ) -> list[PlotThreadState] | list[dict[str, Any]] | Any:
+        """Accept both legacy dict and new list payloads for plot threads."""
+        if isinstance(value, dict):
+            normalized: list[dict[str, Any]] = []
+            for thread_id, thread_data in value.items():
+                if hasattr(thread_data, "model_dump"):
+                    item = dict(thread_data.model_dump())
+                    item.setdefault("id", str(thread_id))
+                    normalized.append(item)
+                elif isinstance(thread_data, dict):
+                    item = dict(thread_data)
+                    item.setdefault("id", str(thread_id))
+                    normalized.append(item)
+            return normalized
+        return value
 
     @model_validator(mode="after")
     def validate_cross_references(self) -> NarrativeStateSnapshot:
@@ -120,6 +168,9 @@ class NarrativeStateSnapshot(BaseModel):
                 logger.warning(
                     f"Character {char_name} references unknown location: {char.location}"
                 )
+        thread_ids = [thread.id for thread in self.plot_threads]
+        if len(thread_ids) != len(set(thread_ids)):
+            raise ValueError("Duplicate plot thread IDs are not allowed")
         return self
 
 
@@ -258,11 +309,20 @@ class NarrativeStateStore:
                     plot_threads_validated[thread_id] = PlotThreadState(**thread_data)
                 except Exception as e:
                     logger.warning(f"Skipping invalid plot thread {thread_id}: {e}")
+        elif isinstance(plot_threads_raw, list):
+            for thread_data in plot_threads_raw:
+                if not isinstance(thread_data, dict):
+                    continue
+                try:
+                    thread = PlotThreadState(**thread_data)
+                    plot_threads_validated[thread.id] = thread
+                except Exception as e:
+                    logger.warning(f"Skipping invalid plot thread entry: {e}")
 
         return NarrativeStateSnapshot(
             characters=characters_validated,
             locations=locations_validated,
-            plot_threads=plot_threads_validated,
+            plot_threads=_plot_threads_from_map(plot_threads_validated),
             world=world,
             version=payload.get("version", 1),
             last_modified=payload.get("last_modified", datetime.now().isoformat()),
@@ -277,9 +337,7 @@ class NarrativeStateStore:
         payload = {
             "characters": {k: v.model_dump() for k, v in snapshot.characters.items()},
             "locations": {k: v.model_dump() for k, v in snapshot.locations.items()},
-            "plot_threads": {
-                k: v.model_dump() for k, v in snapshot.plot_threads.items()
-            },
+            "plot_threads": [thread.model_dump() for thread in snapshot.plot_threads],
             "world": snapshot.world,
             "version": snapshot.version,
             "last_modified": snapshot.last_modified,
@@ -388,9 +446,7 @@ class NarrativeStateStore:
         payload = {
             "characters": {k: v.model_dump() for k, v in snapshot.characters.items()},
             "locations": {k: v.model_dump() for k, v in snapshot.locations.items()},
-            "plot_threads": {
-                k: v.model_dump() for k, v in snapshot.plot_threads.items()
-            },
+            "plot_threads": [thread.model_dump() for thread in snapshot.plot_threads],
             "world": snapshot.world,
         }
 
@@ -495,8 +551,9 @@ class NarrativeStateStore:
         self, snapshot: NarrativeStateSnapshot, op: PatchOperation
     ) -> None:
         """Validate plot thread-specific business rules."""
+        plot_threads = _plot_threads_to_map(snapshot.plot_threads)
         if op.operation == "update":
-            if op.entity_id not in snapshot.plot_threads:
+            if op.entity_id not in plot_threads:
                 raise StateValidationError(
                     f"Cannot update non-existent plot thread: {op.entity_id}"
                 )
@@ -626,7 +683,7 @@ class NarrativeStateStore:
         self, snapshot: NarrativeStateSnapshot, op: PatchOperation
     ) -> NarrativeStateSnapshot:
         """Apply a plot thread operation."""
-        plot_threads = dict(snapshot.plot_threads)
+        plot_threads = _plot_threads_to_map(snapshot.plot_threads)
 
         if op.operation == "add":
             if op.data:
@@ -643,10 +700,24 @@ class NarrativeStateStore:
         return NarrativeStateSnapshot(
             characters=snapshot.characters,
             locations=snapshot.locations,
-            plot_threads=plot_threads,
+            plot_threads=_plot_threads_from_map(plot_threads),
             world=snapshot.world,
             version=snapshot.version,
         )
+
+
+def _plot_threads_to_map(
+    plot_threads: list[PlotThreadState],
+) -> dict[str, PlotThreadState]:
+    """Return a mapping view keyed by plot thread ID."""
+    return {thread.id: thread for thread in plot_threads}
+
+
+def _plot_threads_from_map(
+    plot_threads: dict[str, PlotThreadState],
+) -> list[PlotThreadState]:
+    """Return plot threads as a deterministic list sorted by ID."""
+    return [plot_threads[key] for key in sorted(plot_threads.keys())]
 
 
 def _normalize_mapping(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:

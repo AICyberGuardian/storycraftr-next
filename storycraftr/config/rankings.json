@@ -1,0 +1,41 @@
+{
+    "batch_planning": {
+        "primary": "meta-llama/llama-3.3-70b-instruct:free",
+        "fallbacks": [
+            "stepfun/step-3.5-flash:free",
+            "google/gemma-3-27b-it:free"
+        ],
+        "why": "Stable long-context planner with strong instruction following and controlled reasoning-oriented fallbacks."
+    },
+    "batch_prose": {
+        "primary": "z-ai/glm-4.5-air:free",
+        "fallbacks": [
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "google/gemma-3-27b-it:free"
+        ],
+        "why": "Primary prose model favors creative long-form output with stylistically consistent and reliable fallback alternatives."
+    },
+    "batch_editing": {
+        "primary": "google/gemma-3-27b-it:free",
+        "fallbacks": [
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "z-ai/glm-4.5-air:free"
+        ],
+        "why": "Editing prefers instruction precision and dependable rewrite behavior while retaining high-quality backup models."
+    },
+    "repair_json": {
+        "primary": "google/gemma-3-27b-it:free",
+        "fallbacks": [
+            "stepfun/step-3.5-flash:free"
+        ],
+        "why": "JSON repair prioritizes strict format compliance and deterministic structured output behavior."
+    },
+    "coherence_check": {
+        "primary": "stepfun/step-3.5-flash:free",
+        "fallbacks": [
+            "openai/gpt-oss-120b:free"
+        ],
+        "context_limit": 256000,
+        "why": "Coherence checking prioritizes long-context reasoning for contradiction detection across chapter-scale context."
+    }
+}

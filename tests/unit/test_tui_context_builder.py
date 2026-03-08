@@ -68,6 +68,24 @@ def test_build_scoped_context_block_includes_role_rules_when_provided() -> None:
     assert "Reject luck-based resolution." in block
 
 
+def test_build_scoped_context_block_includes_global_story_anchor() -> None:
+    block = build_scoped_context_block(
+        state=_state(),
+        scene_plan=ScenePlan(
+            goal="Escalate the standoff.",
+            conflict="Trust is collapsing.",
+            stakes="A failed negotiation fractures the alliance.",
+            outcome="End with a hard choice.",
+            ending_beat="Close on a vote that splits the bridge crew.",
+        ),
+        canon_facts=[],
+        global_story_anchor="Chapter 1 Anchor: Arrival at the station.",
+    )
+
+    assert "[Global Story Anchor]" in block
+    assert "Chapter 1 Anchor: Arrival at the station." in block
+
+
 def test_build_scoped_context_block_dedupes_and_caps_inputs() -> None:
     long_value = "A" * 260
     block = build_scoped_context_block(

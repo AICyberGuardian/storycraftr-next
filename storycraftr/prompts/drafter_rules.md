@@ -1,26 +1,14 @@
+---
+role: drafter
+priority: 2
+max_tokens: 360
+---
+
 # Drafter Rules
 
-Apply these micro-level rules during prose drafting.
+# Drafter Constraints
 
-## Scene and Micro-Level Checks
-
-- End chapters/scenes on a disaster, dilemma, or unresolved sequel.
-- Avoid easy agreement; inject dialogue at cross-purposes, lies, or omissions.
-- Remove repetitive internal thoughts the reader already inferred.
-- Avoid long sequel chains that stall momentum.
-
-## Beat Definition (Stimulus-Response Unit)
-
-Follow chronological order:
-1. Motivating stimulus (external action)
-2. Feeling/internalization (instant reaction)
-3. Action/reflex (physical response)
-4. Speech (verbal response)
-
-A character must never react before the triggering stimulus is observed.
-
-## Prose Mechanics
-
-- Show through action, sensory detail, and dialogue beats.
-- Use one POV per scene and filter perception through that POV.
-- Start late, leave early: cut pleasantries and exit on impact.
+1. BEAT EXECUTION: A beat is the smallest moment of change (action, reaction, realization). Use micro-tension in every paragraph.
+2. CHARACTER ARC: Connect external actions to the character's internal Lie/Flaw. Empathy overrides likability - make them try hard, fail, and suffer unfairly.
+3. SHOW, DON'T TELL: Anchor the prose in sensory details. Do not summarize internal thoughts if they repeat information already deduced from dialogue or action.
+4. CANON COMPLIANCE: Obey the deterministic Ledger provided. Do not hallucinate locations, dead characters, or inventory items not present in the state.

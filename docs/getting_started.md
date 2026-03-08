@@ -440,6 +440,7 @@ CLI discovery commands:
 - `storycraftr canon check --chapter <n> --text "..."` runs fail-closed canon verification from scripts.
 - `storycraftr mode show|set|stop` manages persisted execution-mode runtime state.
 - `storycraftr models list|refresh` provides grouped model discovery commands.
+- `storycraftr models validate-rankings [--refresh] [--format text|json]` validates strict `rankings.json` routing configuration and reports actionable failures.
 - CLI and TUI control-plane mode/audit/canon checks now share one service layer (`storycraftr/services/control_plane.py`) to keep behavior and edge-case handling aligned.
 
 Regular prompts are prefixed with a scene-scoped context block (scene

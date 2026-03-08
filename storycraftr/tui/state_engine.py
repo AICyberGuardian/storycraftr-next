@@ -12,7 +12,11 @@ from yaml import YAMLError
 from storycraftr.agent.narrative_state import NarrativeStateStore
 from storycraftr.agent.memory_manager import NarrativeMemoryManager
 from storycraftr.agent.story.scene_planner import plan_next_scene
-from storycraftr.prompts.craft_rules import CraftRuleSet, load_craft_rule_set
+from storycraftr.prompts.craft_rules import (
+    CraftRuleSet,
+    load_craft_rule_set,
+    trim_fragment_to_budget,
+)
 from storycraftr.tui.canon import list_facts
 from storycraftr.tui.context_builder import (
     build_scoped_context_block,
@@ -182,6 +186,7 @@ class NarrativeStateEngine:
             active_arc=state.active_arc,
             user_prompt=user_prompt,
         )
+        global_story_anchor = self._build_global_story_anchor(state=state)
         planner_rules, drafter_rules, editor_rules = self._select_craft_rules(
             rule_profile
         )
@@ -199,6 +204,7 @@ class NarrativeStateEngine:
             planner_rules=planner_rules,
             drafter_rules=drafter_rules,
             editor_rules=editor_rules,
+            global_story_anchor=global_story_anchor,
         )
         self.last_budget_metadata = budget
         self.last_prompt_diagnostics = diagnostics
@@ -225,6 +231,7 @@ class NarrativeStateEngine:
             active_arc=state.active_arc,
             user_prompt=user_prompt,
         )
+        global_story_anchor = self._build_global_story_anchor(state=state)
         planner_rules, drafter_rules, editor_rules = self._select_craft_rules(
             rule_profile
         )
@@ -237,6 +244,7 @@ class NarrativeStateEngine:
             planner_rules=planner_rules,
             drafter_rules=drafter_rules,
             editor_rules=editor_rules,
+            global_story_anchor=global_story_anchor,
         )
 
     def _select_craft_rules(
@@ -246,18 +254,46 @@ class NarrativeStateEngine:
         """Select which static craft-rule fragments to include in prompt assembly."""
 
         if rule_profile == "planner":
-            return self._craft_rules.planner, "", ""
+            return self._fragment_text(self._craft_rules.planner), "", ""
         if rule_profile == "drafter":
-            return "", self._craft_rules.drafter, ""
+            return "", self._fragment_text(self._craft_rules.drafter), ""
         if rule_profile == "editor":
-            return "", "", self._craft_rules.editor
+            return "", "", self._fragment_text(self._craft_rules.editor)
         if rule_profile == "none":
             return "", "", ""
         return (
-            self._craft_rules.planner,
-            self._craft_rules.drafter,
-            self._craft_rules.editor,
+            self._fragment_text(self._craft_rules.planner),
+            self._fragment_text(self._craft_rules.drafter),
+            self._fragment_text(self._craft_rules.editor),
         )
+
+    def _fragment_text(self, fragment: Any) -> str:
+        """Return prompt-safe fragment text bounded by configured token budget."""
+        return trim_fragment_to_budget(fragment.text, fragment.max_tokens)
+
+    def _build_global_story_anchor(self, *, state: NarrativeState) -> str:
+        """Return a compact anchor from chapter 1 to stabilize long-horizon generation."""
+
+        chapter_one = _find_chapter(list(state.chapters), 1)
+        if chapter_one is None:
+            return ""
+
+        chapter_path = self.book_path / "chapters" / "chapter-1.md"
+        body_excerpt = ""
+        try:
+            raw = chapter_path.read_text(encoding="utf-8")
+            _fm, body = _split_frontmatter(raw)
+            body_excerpt = " ".join(body.split())[:280].strip()
+        except OSError:
+            body_excerpt = ""
+
+        header = (
+            f"Chapter 1 Anchor: {chapter_one.title} | Scene: {chapter_one.scene} "
+            f"| Arc: {chapter_one.arc}"
+        )
+        if not body_excerpt:
+            return header
+        return f"{header}\nSummary: {body_excerpt}"
 
     def record_turn_memory(self, *, user_prompt: str, assistant_response: str) -> bool:
         """Persist one turn to optional long-term memory storage."""

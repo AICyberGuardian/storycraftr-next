@@ -76,6 +76,7 @@ def build_scoped_context_block(
     planner_rules: str | None = None,
     drafter_rules: str | None = None,
     editor_rules: str | None = None,
+    global_story_anchor: str | None = None,
     max_facts: int = 5,
     max_retrieval_chunks: int = 3,
 ) -> str:
@@ -105,6 +106,16 @@ def build_scoped_context_block(
         f"Ending Beat: {scoped.scene_plan.ending_beat}",
         "[/Scene Plan]",
     ]
+
+    if global_story_anchor and global_story_anchor.strip():
+        lines.extend(
+            [
+                "",
+                "[Global Story Anchor]",
+                global_story_anchor.strip(),
+                "[/Global Story Anchor]",
+            ]
+        )
 
     if planner_rules and planner_rules.strip():
         lines.extend(["", "[Planner Rules]", planner_rules.strip(), "[/Planner Rules]"])
@@ -159,6 +170,7 @@ def compose_budgeted_prompt(
     planner_rules: str | None = None,
     drafter_rules: str | None = None,
     editor_rules: str | None = None,
+    global_story_anchor: str | None = None,
     max_facts: int = 5,
     max_retrieval_chunks: int = 3,
     max_recent_turns: int = 3,
@@ -179,6 +191,7 @@ def compose_budgeted_prompt(
         planner_rules=planner_rules,
         drafter_rules=drafter_rules,
         editor_rules=editor_rules,
+        global_story_anchor=global_story_anchor,
         max_facts=max_facts,
         max_retrieval_chunks=max_retrieval_chunks,
         max_recent_turns=max_recent_turns,
@@ -201,6 +214,7 @@ def compose_budgeted_prompt_with_diagnostics(
     planner_rules: str | None = None,
     drafter_rules: str | None = None,
     editor_rules: str | None = None,
+    global_story_anchor: str | None = None,
     max_facts: int = 5,
     max_retrieval_chunks: int = 3,
     max_recent_turns: int = 3,
@@ -226,6 +240,7 @@ def compose_budgeted_prompt_with_diagnostics(
     normalized_planner_rules = (planner_rules or "").strip()
     normalized_drafter_rules = (drafter_rules or "").strip()
     normalized_editor_rules = (editor_rules or "").strip()
+    normalized_global_story_anchor = (global_story_anchor or "").strip()
 
     # Priority-5 (lowest): extra state strips.
     include_memory_strip = True
@@ -250,6 +265,7 @@ def compose_budgeted_prompt_with_diagnostics(
     include_planner_rules = bool(normalized_planner_rules)
     include_drafter_rules = bool(normalized_drafter_rules)
     include_editor_rules = bool(normalized_editor_rules)
+    include_global_story_anchor = bool(normalized_global_story_anchor)
     # Priority-1 (highest): canon constraints.
     active_canon = list(canon_items)
 
@@ -268,6 +284,16 @@ def compose_budgeted_prompt_with_diagnostics(
             lines.append(f"Outcome: {scene_plan.outcome}")
         lines.append(f"Ending Beat: {scene_plan.ending_beat}")
         lines.append("[/Scene Plan]")
+
+        if include_global_story_anchor and normalized_global_story_anchor:
+            lines.extend(
+                [
+                    "",
+                    "[Global Story Anchor]",
+                    normalized_global_story_anchor,
+                    "[/Global Story Anchor]",
+                ]
+            )
 
         if include_planner_rules and normalized_planner_rules:
             lines.extend(
@@ -336,6 +362,8 @@ def compose_budgeted_prompt_with_diagnostics(
             active_recent.pop()
         elif include_editor_rules:
             include_editor_rules = False
+        elif include_global_story_anchor:
+            include_global_story_anchor = False
         elif include_drafter_rules:
             include_drafter_rules = False
         elif include_planner_rules:
@@ -375,6 +403,7 @@ def compose_budgeted_prompt_with_diagnostics(
     has_planner_rules = bool(normalized_planner_rules)
     has_drafter_rules = bool(normalized_drafter_rules)
     has_editor_rules = bool(normalized_editor_rules)
+    has_global_story_anchor = bool(normalized_global_story_anchor)
 
     included_sections = [
         "scene_plan",
@@ -427,6 +456,11 @@ def compose_budgeted_prompt_with_diagnostics(
         included_sections.append("editor_rules")
     elif has_editor_rules:
         pruned_sections.append("editor_rules")
+
+    if include_global_story_anchor and has_global_story_anchor:
+        included_sections.append("global_story_anchor")
+    elif has_global_story_anchor:
+        pruned_sections.append("global_story_anchor")
 
     if not include_memory_strip:
         pruned_sections.append("memory_strip")
@@ -492,6 +526,9 @@ def compose_budgeted_prompt_with_diagnostics(
         ),
         "editor_rules": _estimate_tokens(
             normalized_editor_rules if include_editor_rules else ""
+        ),
+        "global_story_anchor": _estimate_tokens(
+            normalized_global_story_anchor if include_global_story_anchor else ""
         ),
         "full_prompt": _estimate_tokens(prompt),
     }

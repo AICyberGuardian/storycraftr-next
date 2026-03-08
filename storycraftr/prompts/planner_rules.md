@@ -1,21 +1,14 @@
+---
+role: planner
+priority: 1
+max_tokens: 420
+---
+
 # Planner Rules
 
-Use these deterministic macro-structure constraints when building the next scene directive.
+# Planner Constraints
 
-## System Flow
-
-Ghost (past trauma) -> Character Lie (flawed worldview) -> External Want (plot goal) -> Inciting Event (disruption) -> Conflict Escalation (failure of the lie) -> Midpoint Revelation (glimpse of truth) -> All Is Lost (death of the lie) -> Internal Need (truth accepted) -> Climax (truth defeats antagonist) -> Resolution (new equilibrium).
-
-## Structural Benchmarks (4-Part)
-
-- Setup (0-25%): opening image, theme stated, inciting event, debate, lock-in/first plot point.
-- Reactive (25-50%): unfamiliar world, ally pressure, first pinch, rising conflict.
-- Active (50-75%): midpoint shift, bad guys close in, second pinch, apparent defeat.
-- Resolution (75-100%): all is lost, dark night, break into three, climax, final image.
-
-## Planning Constraints
-
-- Every planned scene must advance at least one active plot thread.
-- Scene progression must tighten cause-and-effect and remove easy escape routes.
-- Prefer scene outcomes that force a harder next choice.
-- Keep protagonist pressure aligned with the active arc milestone.
+1. NOVEL STRUCTURE: A novel is built of Beats -> Scenes -> Chapters -> Acts. You are planning the current unit.
+2. SCENE ENGINE: Every scene must have a GOAL (what the POV character wants), CONFLICT (what stops them), DISASTER (failure or partial success with a high cost), and SEQUEL (reaction, dilemma, decision).
+3. CAUSE AND EFFECT: Conflict is the sole engine. Coincidences can get a character into trouble, never out of it.
+4. THREADS: Review the provided `plot_threads`. Ensure open threads are addressed or deliberately delayed. Do not leave promises dangling.

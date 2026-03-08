@@ -1346,6 +1346,22 @@ def test_on_input_submitted_warns_on_canon_conflicts(tmp_path, monkeypatch) -> N
 
     monkeypatch.setattr(app, "_analyze_canon_conflicts", _fake_analyze_canon_conflicts)
 
+    async def _fake_analyze_state_extraction_issues(*, response: str):
+        assert "Mira is not the ship navigator." in response
+        return {
+            "operation_count": 0,
+            "verification_passed": True,
+            "issues": [],
+            "dropped_operations": 0,
+            "retry_performed": False,
+        }
+
+    monkeypatch.setattr(
+        app,
+        "_analyze_state_extraction_issues",
+        _fake_analyze_state_extraction_issues,
+    )
+
     event = SimpleNamespace(input=_FakeInput("Continue scene"), value="Continue scene")
     asyncio.run(app.on_input_submitted(event))
 

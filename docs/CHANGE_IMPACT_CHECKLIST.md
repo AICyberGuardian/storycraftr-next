@@ -2,6 +2,18 @@
 
 ## Change History
 
+### 2026-03-08 — Phase 6B: memory persistence diagnostics
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/app.py::_post_generation_hooks` to capture persist status (success/failed) from `state_engine.record_turn_memory()` return value instead of catching exceptions.
+	- Updated `storycraftr/tui/app.py::_post_generation_hooks` to surface immediate warning in output pane when memory is enabled but persistence fails.
+	- Renamed `_last_memory_persist_error` to `_last_memory_persist_status` to track success/failed state.
+	- Updated `storycraftr/tui/app.py::_build_context_memory_text` to include last persist status in `/context memory` diagnostics output.
+	- Added regression test in `tests/unit/test_tui_app.py` validating persist status appears in diagnostics.
+	- Updated `docs/chat.md` to document memory persistence failure visibility.
+	- Synced release docs in `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-08 — Phase 6B: query-aware memory retrieval
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

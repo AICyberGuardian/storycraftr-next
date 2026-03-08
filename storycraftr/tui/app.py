@@ -143,7 +143,7 @@ class TuiApp(App[None]):
         self._last_state_extraction_report: dict[str, Any] | None = None
         self._load_mode_session_state()
         self._load_session_summary_state()
-        self._last_memory_persist_error: str | None = None
+        self._last_memory_persist_status: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -388,15 +388,20 @@ class TuiApp(App[None]):
     async def _post_generation_hooks(self, *, user_prompt: str, response: str) -> None:
         """Run mode-gated post-generation policy hooks."""
 
-        try:
-            await asyncio.to_thread(
-                self.state_engine.record_turn_memory,
-                user_prompt=user_prompt,
-                assistant_response=response,
-            )
-        except Exception as exc:
-            # Long-term memory is best-effort and must not block generation flow.
-            self._last_memory_persist_error = str(exc)
+        persisted = await asyncio.to_thread(
+            self.state_engine.record_turn_memory,
+            user_prompt=user_prompt,
+            assistant_response=response,
+        )
+        if persisted:
+            self._last_memory_persist_status = "success"
+        else:
+            self._last_memory_persist_status = "failed"
+            if self.state_engine.memory_manager.is_enabled:
+                # Only warn when memory is expected to work
+                self.query_one("#output", RichLog).write(
+                    "[yellow]Memory Persist:[/yellow] failed to store turn in long-term memory"
+                )
         await self._apply_extracted_state_patch(response)
         await self._warn_about_canon_conflicts(response)
         if self.mode_config.mode is ExecutionMode.HYBRID:
@@ -1159,6 +1164,8 @@ class TuiApp(App[None]):
         ]
         if not enabled and diag.get("reason"):
             lines.append(f"- Reason: {diag['reason']}")
+        if self._last_memory_persist_status:
+            lines.append(f"- Last Persist: {self._last_memory_persist_status}")
         return "\n".join(lines)
 
     def _build_context_summary_text(self) -> str:

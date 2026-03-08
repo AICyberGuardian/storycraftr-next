@@ -357,6 +357,25 @@ def test_dispatch_context_refresh_memory_rebinds_runtime(tmp_path) -> None:
     assert "Provider Mode: ollama" in result
 
 
+def test_context_memory_includes_last_persist_status_when_available(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    memory_path = str(tmp_path / "memory")
+    app.state_engine.memory_manager.get_runtime_diagnostics = lambda: {
+        "enabled": True,
+        "provider": "openrouter",
+        "story_id": "demo-story",
+        "storage_path": memory_path,
+        "reason": None,
+    }
+    app._last_memory_persist_status = "success"
+
+    result = asyncio.run(app._dispatch_slash_command("/context memory"))
+
+    assert "Long-Term Memory" in result
+    assert "Last Persist: success" in result
+
+
 def test_dispatch_context_conflicts_reports_latest_conflict_snapshot(tmp_path) -> None:
     TuiApp = _load_tui_app()
     app = TuiApp(book_path=str(tmp_path))

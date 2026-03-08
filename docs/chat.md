@@ -71,7 +71,7 @@ assistant/backend flow.
 - `/context summary` — Show full rolling summary state (status, compacted turns, summary text).
 - `/context budget` — Show latest prompt budget and deterministic pruning/truncation diagnostics.
 - `/context models` — Show OpenRouter cache metadata and resolved active-model limits/source.
-- `/context memory` — Show long-term memory runtime diagnostics (status, provider mode, storage path).
+- `/context memory` — Show long-term memory runtime diagnostics (status, provider mode, storage path, last persist status).
 - `/context conflicts` — Show the latest canon conflict diagnostics (candidate counts, grouped reasons, details).
 - `/context clear-summary` — Clear compacted summary while retaining recent transcript tail.
 - `/context refresh-models` — Force-refresh OpenRouter model discovery cache and report status.
@@ -134,6 +134,11 @@ drift across long autonomous runs. Memory retrieval is **query-aware**: the
 system uses the user's current prompt to retrieve semantically relevant memories
 before falling back to generic intent/event queries. If Mem0 is unavailable,
 this layer is silently skipped and standard context composition continues.
+
+After generation, the system attempts to persist the turn to long-term memory.
+When memory is enabled and persistence fails, a warning is displayed in the
+output pane and the failure is logged to `/context memory` diagnostics for
+operator review.
 
 Mem0 runtime mode follows StoryCraftr provider settings:
 - `llm_provider=ollama` uses local Ollama inference for memory extraction plus local embedding model.

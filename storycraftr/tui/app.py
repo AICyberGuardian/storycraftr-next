@@ -140,6 +140,7 @@ class TuiApp(App[None]):
         self._last_prompt_model = "<unknown>"
         self._last_assistant_response = ""
         self._last_canon_conflict_report: dict[str, Any] | None = None
+        self._last_state_extraction_report: dict[str, Any] | None = None
         self._load_mode_session_state()
         self._load_session_summary_state()
 
@@ -311,21 +312,76 @@ class TuiApp(App[None]):
 
         if self.mode_config.should_auto_regenerate_on_conflict() and not streamed:
             chapter = self._active_chapter_for_canon()
-            report = await self._analyze_canon_conflicts(
+            canon_report = await self._analyze_canon_conflicts(
                 response=response,
                 chapter=chapter,
             )
-            self._last_canon_conflict_report = report
-            if report["conflicts"]:
-                revise_prompt = (
-                    f"{user_prompt}\n\n"
-                    "Revise once to resolve canon conflicts and contradictions "
-                    "while preserving intent."
+            self._last_canon_conflict_report = canon_report
+            state_report = await self._analyze_state_extraction_issues(
+                response=response
+            )
+            self._last_state_extraction_report = state_report
+
+            has_canon_conflicts = bool(canon_report["conflicts"])
+            has_state_issues = bool(state_report["issues"])
+            if has_canon_conflicts or has_state_issues:
+                revise_prompt = self._build_critic_repair_prompt(
+                    user_prompt=user_prompt,
+                    canon_report=canon_report,
+                    state_report=state_report,
                 )
                 revised = await self._compose_prompt_with_tracking(revise_prompt)
                 response, streamed = await self._run_assistant_turn(revised)
 
+                refreshed_canon = await self._analyze_canon_conflicts(
+                    response=response,
+                    chapter=chapter,
+                )
+                self._last_canon_conflict_report = refreshed_canon
+                self._last_state_extraction_report = (
+                    await self._analyze_state_extraction_issues(response=response)
+                )
+
         return response, streamed
+
+    def _build_critic_repair_prompt(
+        self,
+        *,
+        user_prompt: str,
+        canon_report: dict[str, Any],
+        state_report: dict[str, Any],
+    ) -> str:
+        """Build one bounded repair prompt from canon and state-critic diagnostics."""
+
+        lines = [user_prompt, "", "Revise once using these constraints:"]
+        if canon_report.get("conflicts"):
+            lines.append("- Resolve canon contradictions and duplicate canon claims.")
+        if state_report.get("issues"):
+            lines.append("- Keep extracted narrative-state transitions valid.")
+            for issue in state_report["issues"][:3]:
+                lines.append(f"  - {issue}")
+        lines.append("Preserve intent, tone, and scene trajectory.")
+        return "\n".join(lines)
+
+    async def _analyze_state_extraction_issues(
+        self, *, response: str
+    ) -> dict[str, Any]:
+        """Run extraction verifier in preview mode to detect unsafe state transitions."""
+
+        result = await asyncio.to_thread(
+            state_extract_impl,
+            str(self.book_path),
+            text=response,
+            apply_patch=False,
+            actor="tui-state-critic",
+        )
+        return {
+            "operation_count": len(result.extracted.patch.operations),
+            "verification_passed": result.verification_passed,
+            "issues": list(result.verification_issues),
+            "dropped_operations": result.dropped_operations,
+            "retry_performed": result.retry_performed,
+        }
 
     async def _post_generation_hooks(self, *, user_prompt: str, response: str) -> None:
         """Run mode-gated post-generation policy hooks."""

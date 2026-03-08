@@ -2,6 +2,16 @@
 
 ## Change History
 
+### 2026-03-07 — Phase 5: mode-gated state critic regeneration
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/app.py::_generate_with_mode_awareness` to include a bounded state-critic pass using extraction verification diagnostics.
+	- Added one constrained regeneration attempt (single retry) in hybrid/autopilot mode when extraction verification reports unsafe transitions.
+	- Added helper diagnostics in `storycraftr/tui/app.py` (`_analyze_state_extraction_issues`, `_build_critic_repair_prompt`) and tracked latest state-extraction report metadata for runtime inspection.
+	- Added tests in `tests/unit/test_tui_app.py` covering retry-on-state-issues and no-retry behavior in manual mode.
+	- Synced docs in `README.md`, `docs/chat.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Phase 4: extraction verification and bounded retry repair
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

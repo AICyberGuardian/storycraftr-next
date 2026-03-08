@@ -104,6 +104,10 @@ assistant/backend flow.
 The control-plane runtime logic is centralized in `storycraftr/services/control_plane.py` and shared by both Click commands and TUI slash commands to avoid feature drift.
 
 The TUI now also supports `/state extract-last [apply]` to preview/apply deterministic extraction from the latest assistant response, including one bounded dependency-order retry and verification diagnostics.
+When mode policy enables auto-regeneration (`/mode hybrid` or `/mode autopilot`),
+normal generation applies one bounded state-critic retry: if extraction
+verification detects unsafe transitions, a single constrained revision is
+requested before post-generation hooks run.
 
 ### Keyboard Shortcuts
 

@@ -318,6 +318,10 @@ Generated responses now pass through deterministic state extraction before canon
 diagnostics. Valid patches are applied through the existing narrative-state
 validation and audit trail pipeline.
 
+In `hybrid` and `autopilot` modes, generation now includes one bounded
+state-critic retry: when extraction verification surfaces unsafe transitions,
+the TUI requests a single constrained revision before post-generation hooks run.
+
 During long sessions, the TUI automatically rolls older transcript turns into a
 persisted summary (`sessions/session.json`) and injects that summary as
 budgeted context ahead of recent verbatim turns.

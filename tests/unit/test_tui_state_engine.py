@@ -331,6 +331,33 @@ Body
     )
 
 
+def test_get_memory_context_respects_token_budget(tmp_path) -> None:
+    _write(
+        tmp_path / "chapters" / "chapter-1.md",
+        """---
+title: Arrival
+scene: Setup
+arc: Act I
+---
+# Chapter 1
+Body
+""",
+    )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+    state = engine.get_state()
+    long_text = "A" * 1200
+
+    engine.memory_manager.get_context_items = lambda **_kwargs: [
+        MemoryContextItem(source="intent", text=long_text),
+        MemoryContextItem(source="events", text="short fallback"),
+    ]
+
+    lines = engine.get_memory_context(state=state, max_items=4, max_tokens=40)
+
+    assert lines == []
+
+
 def test_compose_prompt_includes_recent_turns_when_budget_allows(tmp_path) -> None:
     _write(
         tmp_path / "chapters" / "chapter-1.md",

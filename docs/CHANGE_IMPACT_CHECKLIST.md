@@ -2,6 +2,14 @@
 
 ## Change History
 
+### 2026-03-08 — Phase 6B: memory-context token budget guard
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/state_engine.py::get_memory_context` to enforce a deterministic memory-specific token cap (`max_tokens`) before context is merged into prompt composition.
+	- Added regression coverage in `tests/unit/test_tui_state_engine.py` validating memory context is dropped when recall snippets exceed the configured memory budget.
+	- Synced release docs in `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-08 — Phase 6 hardening: Mem0 toggles + memory diagnostics/CLI commands
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

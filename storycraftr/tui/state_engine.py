@@ -224,18 +224,33 @@ class NarrativeStateEngine:
         )
 
     def get_memory_context(
-        self, *, state: NarrativeState, max_items: int = 4
+        self,
+        *,
+        state: NarrativeState,
+        max_items: int = 4,
+        max_tokens: int = 320,
     ) -> list[str]:
-        """Return prompt-ready memory context bullets when available."""
+        """Return prompt-ready memory context bullets when available.
+
+        A local memory token ceiling keeps long recalled snippets from consuming
+        most of the budget before downstream prompt pruning runs.
+        """
 
         items = self.memory_manager.get_context_items(
             chapter=state.active_chapter,
             max_items=max_items,
         )
         lines: list[str] = []
+        consumed_tokens = 0
+        token_limit = max(16, max_tokens)
         for item in items:
             label = "Intent" if item.source == "intent" else "Memory"
-            lines.append(f"{label}: {item.text}")
+            line = f"{label}: {item.text}"
+            estimated = _estimate_tokens(line)
+            if consumed_tokens + estimated > token_limit:
+                break
+            lines.append(line)
+            consumed_tokens += estimated
         return lines
 
     def memory_diagnostics(self) -> dict[str, Any]:
@@ -536,3 +551,11 @@ def _find_chapter(
         if chapter.number == active_chapter:
             return chapter
     return None
+
+
+def _estimate_tokens(text: str) -> int:
+    """Estimate tokens using the same coarse chars-per-token ratio as TUI prompts."""
+
+    if not text:
+        return 0
+    return max(1, (len(text) + 3) // 4)

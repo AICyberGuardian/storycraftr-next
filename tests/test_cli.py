@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -276,11 +277,12 @@ def test_model_list_command_outputs_limits(monkeypatch) -> None:
         "storycraftr.cli.get_free_models", lambda force_refresh: [model]
     )
 
-    result = runner.invoke(cli, ["model-list"])
+    result = runner.invoke(cli, ["model-list"], color=False)
 
     assert result.exit_code == 0, result.output
-    assert "id | context_length | max_completion_tokens | free" in result.output
-    assert "openrouter/free | 32768 | 4096 | yes" in result.output
+    clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "id | context_length | max_completion_tokens | free" in clean_output
+    assert "openrouter/free | 32768 | 4096 | yes" in clean_output
 
 
 def test_model_list_command_refresh_forces_fetch(monkeypatch) -> None:

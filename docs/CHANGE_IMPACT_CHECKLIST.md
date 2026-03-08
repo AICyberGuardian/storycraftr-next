@@ -2,6 +2,13 @@
 
 ## Change History
 
+### 2026-03-08 — CLI model-list test ANSI normalization
+- **Sections reviewed:** 8 (Documentation & Versioning contract review)
+- **Impact:**
+	- Updated `tests/test_cli.py` `test_model_list_command_outputs_limits` to normalize ANSI escape sequences before asserting table row text.
+	- Preserves colored CLI output behavior while making test assertions deterministic across environments where Rich emits style codes.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile updates, no runtime prompt/agent behavior changes, no config/schema changes, no sub-agent/vector-store/event-contract changes, no security tooling changes).
+
 ### 2026-03-08 — Static craft-rule prompt injection + DSVL schema extension
 - **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
 - **Impact:**

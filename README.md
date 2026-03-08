@@ -253,7 +253,8 @@ Current TUI slash commands include:
 
 - `/help` for a concise command reference
 - `/status` for project/assistant/runtime status
-- `/mode <manual|hybrid|autopilot>` to control TUI execution autonomy level
+- `/mode [manual|hybrid|autopilot [max_turns]]` to control TUI execution policy and autopilot turn limits
+- `/stop` to force manual mode and clear remaining autopilot turns
 - `/autopilot <steps> <prompt>` to run bounded autonomous turns when mode is `autopilot`
 - `/state` to inspect current narrative context snapshot with version/timestamp metadata
 - `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]` to inspect append-only narrative state mutation history with optional filters

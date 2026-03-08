@@ -63,9 +63,11 @@ explicit attributes.
 - `storycraftr/utils/paths.py`: canonical runtime path resolver.
 - `storycraftr/subagents/jobs.py`: background role-based job execution.
 - `storycraftr/integrations/vscode.py`: JSONL event emission.
+- `storycraftr/agent/execution_mode.py`: shared execution-mode policy model (`ExecutionMode`, `ModeConfig`) and policy helpers for runtime gates.
 - `storycraftr/agent/narrative_state.py`: Pydantic-validated narrative state store with character, location, and plot-thread entities. Includes patch validation and application, and version-aware prompt rendering with metadata headers (DSVL Phase 1A-1C, 2C).
 - `storycraftr/agent/state_audit.py`: append-only audit trail logging of all state mutations with timestamped entries, queryable filters by entity/type, and actor attribution (DSVL Phase 2A).
 - `storycraftr/tui/app.py`: Textual terminal command center and slash-command router with `/state audit` subcommand for audit history inspection (DSVL Phase 2B).
+- `storycraftr/tui/session.py`: TUI runtime-session state serialization (`mode_config`, `autopilot_turns_remaining`) with backward-compatible runtime metadata handling.
 - `storycraftr/tui/canon.py`: chapter-scoped canon ledger helpers for writer-approved constraints.
 - `storycraftr/tui/canon_extract.py`: conservative canon-candidate extraction for hybrid review.
 - `storycraftr/tui/canon_verify.py`: fail-closed canon candidate verification for autopilot commits.
@@ -93,6 +95,8 @@ Internal state (resolved via `resolve_project_paths`):
 
 TUI autonomy note:
 - `/mode` controls manual, hybrid, and autopilot execution behavior.
+- `/mode autopilot <max_turns>` sets bounded autopilot turn budget and persists remaining turns.
+- `/stop` forces manual mode and clears remaining autopilot turns.
 - `/autopilot` only runs when mode is `autopilot` and performs bounded steps.
 - Canon commits in autopilot flow are verified against accepted chapter facts and skip duplicate or conflicting candidates.
 - `/summary` and `/context` expose compaction, prompt-budget, pruning, and OpenRouter model-cache diagnostics to keep model-aware pruning visible to writers.

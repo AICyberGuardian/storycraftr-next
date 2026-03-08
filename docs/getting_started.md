@@ -410,7 +410,8 @@ Useful slash commands:
 
 - `/help` shows TUI command reference.
 - `/status` shows project/assistant runtime status.
-- `/mode <manual|hybrid|autopilot>` sets the execution mode control layer for TUI workflows.
+- `/mode [manual|hybrid|autopilot [max_turns]]` sets the execution mode control layer and optional autopilot turn budget.
+- `/stop` forces manual mode and clears remaining autopilot turns.
 - `/autopilot <steps> <prompt>` runs bounded autonomous turns when mode is `autopilot`.
 - `/state` shows active narrative state snapshot with version/timestamp metadata and the injected narrative-state context.
 - `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]` shows append-only state mutation history with optional filters.

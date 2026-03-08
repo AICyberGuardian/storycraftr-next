@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from enum import StrEnum
 import inspect
 import io
 import os
@@ -27,6 +26,11 @@ from storycraftr.agent.agents import (
     create_or_get_assistant,
     get_thread,
 )
+from storycraftr.agent.execution_mode import (
+    ExecutionMode,
+    ModeConfig,
+    parse_execution_mode,
+)
 from storycraftr.chat.commands import CommandContext, handle_command
 from storycraftr.chat.module_runner import ModuleCommandError, run_module_command
 from storycraftr.chat.session import SessionManager
@@ -41,15 +45,8 @@ from storycraftr.tui.canon import add_fact, clear_chapter_facts, list_facts
 from storycraftr.tui.canon_extract import CanonCandidate, extract_canon_candidates
 from storycraftr.tui.canon_verify import verify_candidate_against_canon
 from storycraftr.tui.state_engine import NarrativeState, NarrativeStateEngine
+from storycraftr.tui.session import TuiSessionState
 from storycraftr.utils.core import BookConfig, load_book_config
-
-
-class ExecutionMode(StrEnum):
-    """Execution mode for managing autonomous behavior levels in the TUI."""
-
-    MANUAL = "manual"
-    HYBRID = "hybrid"
-    AUTOPILOT = "autopilot"
 
 
 def _resolve_book_path(book_path: str | None) -> Path:
@@ -127,7 +124,8 @@ class TuiApp(App[None]):
         self._wizard_profile: dict[str, str] = {}
         self.pending_canon_candidates: list[CanonCandidate] = []
         self._hybrid_extract_manager: SubAgentJobManager | None = None
-        self.execution_mode = ExecutionMode.MANUAL
+        self.mode_config = ModeConfig()
+        self.autopilot_turns_remaining = 0
         self._session_summary = ""
         self._session_compacted_turns = 0
         self._last_prompt_budget: Any | None = None
@@ -136,7 +134,7 @@ class TuiApp(App[None]):
         self._last_prompt_model = "<unknown>"
         self._last_assistant_response = ""
         self._last_canon_conflict_report: dict[str, Any] | None = None
-        self._load_execution_mode()
+        self._load_mode_session_state()
         self._load_session_summary_state()
 
     def compose(self) -> ComposeResult:
@@ -218,31 +216,16 @@ class TuiApp(App[None]):
                 log.write(f"[green][Done][/green] {escape(text)}")
                 log.write(f"[bold magenta]CLI:[/bold magenta] {escape(command_result)}")
             else:
-                provider = self._active_provider()
-                model_id = self._active_model()
-                recent_turns = self._recent_turns_for_prompt()
-                prompt, budget, diagnostics = await asyncio.to_thread(
-                    self.state_engine.compose_prompt_with_diagnostics,
-                    text,
-                    provider=provider,
-                    model_id=model_id,
-                    output_reserve_tokens=(
-                        self.config.max_tokens if self.config is not None else None
-                    ),
-                    recent_turns=recent_turns,
-                )
-                self._last_prompt_budget = budget
-                self._last_prompt_diagnostics = diagnostics
-                self._last_prompt_provider = provider
-                self._last_prompt_model = model_id
-                response, streamed = await self._run_assistant_turn(prompt)
+                response, streamed = await self._generate_with_mode_awareness(text)
                 if not streamed:
                     log.write(f"[bold green]Assistant:[/bold green] {escape(response)}")
                 self._last_assistant_response = response
-                await self._warn_about_canon_conflicts(response)
                 self.transcript.append({"user": text, "answer": response})
                 self._roll_session_summary_if_needed()
-                await self._maybe_queue_hybrid_canon_candidates(response)
+                await self._post_generation_hooks(
+                    user_prompt=text,
+                    response=response,
+                )
         except Exception as exc:  # pragma: no cover
             if text.startswith("/"):
                 log.write(f"[red][Failed][/red] {escape(text)}")
@@ -289,6 +272,63 @@ class TuiApp(App[None]):
         response = await asyncio.to_thread(self._invoke_assistant_sync, prompt)
         return response, False
 
+    async def _compose_prompt_with_tracking(self, user_prompt: str) -> str:
+        """Compose a scoped prompt and persist latest budget diagnostics."""
+
+        provider = self._active_provider()
+        model_id = self._active_model()
+        recent_turns = self._recent_turns_for_prompt()
+        prompt, budget, diagnostics = await asyncio.to_thread(
+            self.state_engine.compose_prompt_with_diagnostics,
+            user_prompt,
+            provider=provider,
+            model_id=model_id,
+            output_reserve_tokens=(
+                self.config.max_tokens if self.config is not None else None
+            ),
+            recent_turns=recent_turns,
+        )
+        self._last_prompt_budget = budget
+        self._last_prompt_diagnostics = diagnostics
+        self._last_prompt_provider = provider
+        self._last_prompt_model = model_id
+        return prompt
+
+    async def _generate_with_mode_awareness(
+        self,
+        user_prompt: str,
+    ) -> tuple[str, bool]:
+        """Generate assistant output under execution-mode policy controls."""
+
+        prompt = await self._compose_prompt_with_tracking(user_prompt)
+        response, streamed = await self._run_assistant_turn(prompt)
+
+        if self.mode_config.should_auto_regenerate_on_conflict() and not streamed:
+            chapter = self._active_chapter_for_canon()
+            report = await self._analyze_canon_conflicts(
+                response=response,
+                chapter=chapter,
+            )
+            self._last_canon_conflict_report = report
+            if report["conflicts"]:
+                revise_prompt = (
+                    f"{user_prompt}\n\n"
+                    "Revise once to resolve canon conflicts and contradictions "
+                    "while preserving intent."
+                )
+                revised = await self._compose_prompt_with_tracking(revise_prompt)
+                response, streamed = await self._run_assistant_turn(revised)
+
+        return response, streamed
+
+    async def _post_generation_hooks(self, *, user_prompt: str, response: str) -> None:
+        """Run mode-gated post-generation policy hooks."""
+
+        _ = user_prompt  # Reserved for future structured policy decisions.
+        await self._warn_about_canon_conflicts(response)
+        if self.mode_config.mode is ExecutionMode.HYBRID:
+            await self._maybe_queue_hybrid_canon_candidates(response)
+
     def _invoke_assistant_sync(self, prompt: str) -> str:
         if self.assistant is None or self.thread_id is None:
             return "Assistant is not initialized."
@@ -328,6 +368,9 @@ class TuiApp(App[None]):
 
         if command == "mode":
             return self._handle_mode_command(args)
+
+        if command == "stop":
+            return self._handle_stop_command()
 
         if command == "canon":
             return await self._handle_canon_command(args)
@@ -397,6 +440,12 @@ class TuiApp(App[None]):
         if self.config and self.config.llm_model:
             return self.config.llm_model
         return "<unknown>"
+
+    @property
+    def execution_mode(self) -> ExecutionMode:
+        """Compatibility view for call sites/tests expecting execution_mode."""
+
+        return self.mode_config.mode
 
     def _active_provider(self) -> str:
         if self.config and self.config.llm_provider:
@@ -644,7 +693,8 @@ class TuiApp(App[None]):
                 "/state audit [limit=<n>] [entity=<id>] [type=<type>]",
                 "/summary [clear]",
                 "/context [summary|budget|models|conflicts|clear-summary|refresh-models]",
-                "/mode <manual|hybrid|autopilot>",
+                "/mode [manual|hybrid|autopilot [max_turns]]",
+                "/stop",
                 "/clear",
                 "/toggle-tree",
                 "/chapter <number>",
@@ -1163,20 +1213,32 @@ class TuiApp(App[None]):
     async def _run_autopilot_command(self, args: list[str]) -> str:
         """Run bounded generation loop with fail-closed canon verification."""
 
-        if self.execution_mode is not ExecutionMode.AUTOPILOT:
+        if not self.mode_config.allows_autopilot_loop():
             return "Autopilot is disabled. Set /mode autopilot first."
 
         if not args:
             return "Usage: /autopilot <steps> <prompt>"
 
+        default_steps = max(1, self.mode_config.max_autopilot_turns)
+        available_steps = (
+            self.autopilot_turns_remaining
+            if self.autopilot_turns_remaining > 0
+            else default_steps
+        )
+
         steps = 1
         prompt_tokens = args
         if args[0].isdigit():
-            steps = max(1, min(10, int(args[0])))
+            steps = max(1, min(available_steps, int(args[0])))
             prompt_tokens = args[1:]
+        else:
+            steps = min(default_steps, available_steps)
 
         if not prompt_tokens:
             return "Usage: /autopilot <steps> <prompt>"
+
+        if available_steps <= 0:
+            return "No autopilot turns remaining. Run /mode autopilot <max_turns>."
 
         seed_prompt = " ".join(prompt_tokens).strip()
         chapter = self._active_chapter_for_canon()
@@ -1257,6 +1319,9 @@ class TuiApp(App[None]):
 
         lines.append(f"- Final committed: {committed}")
         lines.append(f"- Final skipped: {skipped}")
+        self.autopilot_turns_remaining = max(0, available_steps - steps)
+        self._persist_mode_session_state()
+        lines.append(f"- Turns remaining: {self.autopilot_turns_remaining}")
         return "\n".join(lines)
 
     def _handle_mode_command(self, args: list[str]) -> str:
@@ -1265,41 +1330,64 @@ class TuiApp(App[None]):
         if not args:
             return (
                 f"Execution mode: {self.execution_mode.value}\n"
-                "Usage: /mode <manual|hybrid|autopilot>"
+                f"Max autopilot turns: {self.mode_config.max_autopilot_turns}\n"
+                f"Autopilot turns remaining: {self.autopilot_turns_remaining}\n"
+                "Usage: /mode [manual|hybrid|autopilot [max_turns]]"
             )
 
-        requested = self._parse_execution_mode(args[0])
+        requested = parse_execution_mode(args[0])
         if requested is None:
-            return "Usage: /mode <manual|hybrid|autopilot>"
+            return "Usage: /mode [manual|hybrid|autopilot [max_turns]]"
 
-        self.execution_mode = requested
+        config = self.mode_config.with_mode(requested)
+        if requested is ExecutionMode.AUTOPILOT:
+            if len(args) > 1:
+                if not args[1].isdigit():
+                    return "Usage: /mode autopilot [max_turns]"
+                config = config.with_autopilot_limit(int(args[1]))
+            self.autopilot_turns_remaining = config.max_autopilot_turns
+        else:
+            self.autopilot_turns_remaining = 0
+
+        self.mode_config = config
         try:
-            self._persist_runtime_state_patch(
-                {"execution_mode": self.execution_mode.value}
-            )
+            self._persist_mode_session_state()
         except Exception as exc:
             return f"Failed to persist execution mode: {exc}"
 
         self._refresh_mode_indicator()
+        if requested is ExecutionMode.AUTOPILOT:
+            return (
+                f"Execution mode set to {self.execution_mode.value} "
+                f"({self.autopilot_turns_remaining} turns available)."
+            )
         return f"Execution mode set to {self.execution_mode.value}."
 
-    def _parse_execution_mode(self, raw: str | None) -> ExecutionMode | None:
-        """Parse user input into an execution mode value."""
+    def _handle_stop_command(self) -> str:
+        """Force manual mode and stop any further autonomous generation turns."""
 
-        if raw is None:
-            return None
-        try:
-            return ExecutionMode(raw.strip().lower())
-        except ValueError:
-            return None
+        self.mode_config = self.mode_config.with_mode(ExecutionMode.MANUAL)
+        self.autopilot_turns_remaining = 0
+        self._persist_mode_session_state()
+        self._refresh_mode_indicator()
+        return "Execution stopped. Mode set to manual."
 
-    def _load_execution_mode(self) -> None:
-        """Restore execution mode from runtime session metadata."""
+    def _load_mode_session_state(self) -> None:
+        """Restore mode configuration and counters from runtime session metadata."""
 
         state = self.session_manager.load_runtime_state()
-        mode = self._parse_execution_mode(state.get("execution_mode"))
-        if mode is not None:
-            self.execution_mode = mode
+        session_state = TuiSessionState.from_dict(state)
+        self.mode_config = session_state.mode_config
+        self.autopilot_turns_remaining = session_state.autopilot_turns_remaining
+
+    def _persist_mode_session_state(self) -> None:
+        """Persist mode configuration and counters to runtime session metadata."""
+
+        session_state = TuiSessionState(
+            mode_config=self.mode_config,
+            autopilot_turns_remaining=self.autopilot_turns_remaining,
+        )
+        self._persist_runtime_state_patch(session_state.to_dict())
 
     def _load_session_summary_state(self) -> None:
         """Restore compact session summary from runtime metadata."""

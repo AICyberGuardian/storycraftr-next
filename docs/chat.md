@@ -50,7 +50,7 @@ If you want a structured terminal dashboard instead of REPL-only chat, launch
 the Textual TUI:
 
 ```bash
-python -m storycraftr.tui.app --book-path /path/to/your/book
+storycraftr tui --book-path /path/to/your/book
 ```
 
 The TUI adds a narrative-memory strip, scene timeline strip, and slash commands
@@ -90,6 +90,15 @@ assistant/backend flow.
 - `/model-list refresh` — Force-refresh the OpenRouter catalog before rendering.
 - `/model-change <model_id>` — Switch the active TUI session model.
 - `/session ...` and `/sub-agent ...` — Route to existing chat command handlers.
+
+### Control-Plane CLI Commands
+
+- `storycraftr state show` — Print the current narrative-state snapshot.
+- `storycraftr state validate` — Run consistency checks on narrative-state data.
+- `storycraftr state audit --format json` — Query append-only state audit history.
+- `storycraftr canon check --chapter <n> --text "..."` — Verify candidate facts against accepted chapter canon.
+- `storycraftr mode show|set|stop` — Inspect or mutate persisted execution mode state.
+- `storycraftr models list|refresh` — List or refresh free OpenRouter discovery results.
 
 ### Keyboard Shortcuts
 

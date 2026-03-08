@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -296,3 +297,87 @@ def test_model_list_command_refresh_forces_fetch(monkeypatch) -> None:
 
     assert result.exit_code == 0, result.output
     assert observed["refresh"] is True
+
+
+def test_mode_command_set_show_stop_round_trip(tmp_path) -> None:
+    runner = CliRunner()
+    project = tmp_path / "demo"
+    project.mkdir()
+
+    show_before = runner.invoke(cli, ["mode", "show", "--book-path", str(project)])
+    assert show_before.exit_code == 0, show_before.output
+    assert "mode: manual" in show_before.output
+
+    set_mode = runner.invoke(
+        cli,
+        [
+            "mode",
+            "set",
+            "autopilot",
+            "--book-path",
+            str(project),
+            "--turns",
+            "4",
+        ],
+    )
+    assert set_mode.exit_code == 0, set_mode.output
+
+    show_after_set = runner.invoke(cli, ["mode", "show", "--book-path", str(project)])
+    assert show_after_set.exit_code == 0, show_after_set.output
+    assert "mode: autopilot" in show_after_set.output
+    assert "autopilot_turns_remaining: 4" in show_after_set.output
+
+    stop_mode = runner.invoke(cli, ["mode", "stop", "--book-path", str(project)])
+    assert stop_mode.exit_code == 0, stop_mode.output
+
+    show_after_stop = runner.invoke(cli, ["mode", "show", "--book-path", str(project)])
+    assert show_after_stop.exit_code == 0, show_after_stop.output
+    assert "mode: manual" in show_after_stop.output
+    assert "autopilot_turns_remaining: 0" in show_after_stop.output
+
+
+def test_models_group_list_outputs_rows(monkeypatch) -> None:
+    runner = CliRunner()
+    model = SimpleNamespace(
+        model_id="openrouter/free",
+        label="openrouter/free",
+        context_length=16384,
+        max_completion_tokens=1024,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.control_plane.get_free_models",
+        lambda force_refresh: [model],
+    )
+
+    result = runner.invoke(cli, ["models", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "OpenRouter Free Models" in result.output
+    assert "openrouter/free" in result.output
+
+
+def test_state_audit_json_output_reads_entries(tmp_path) -> None:
+    runner = CliRunner()
+    project = tmp_path / "demo"
+    outline = project / "outline"
+    outline.mkdir(parents=True)
+
+    audit_line = {
+        "timestamp": "2026-03-07T12:34:56",
+        "operation_type": "patch",
+        "actor": "test-runner",
+        "metadata": {},
+        "patch": {"operations": [], "description": ""},
+    }
+    (outline / "narrative_audit.jsonl").write_text(
+        f"{json.dumps(audit_line)}\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        cli,
+        ["state", "audit", "--book-path", str(project), "--format", "json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert '"actor": "test-runner"' in result.output

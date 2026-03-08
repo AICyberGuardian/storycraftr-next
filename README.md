@@ -242,8 +242,15 @@ storycraftr chat --book-path /path/to/your/book
 You can also launch the minimal terminal-native TUI command center:
 
 ```bash
-python -m storycraftr.tui.app --book-path /path/to/your/book
+storycraftr tui --book-path /path/to/your/book
 ```
+
+Control-plane CLI groups are also available for scripting and CI workflows:
+
+- `storycraftr state show|validate|audit`
+- `storycraftr canon check --chapter <n> --text "..."`
+- `storycraftr mode show|set|stop`
+- `storycraftr models list|refresh`
 
 The v0.1 TUI is now state-driven: the project tree starts hidden by default,
 the top bar shows a Narrative strip and Scene Timeline strip, and input routes
@@ -286,6 +293,7 @@ CLI model discovery:
 
 - `storycraftr model-list` lists free OpenRouter models with discovered limits (`context_length`, `max_completion_tokens`).
 - `storycraftr model-list --refresh` forces a live catalog refresh before rendering.
+- `storycraftr models list` and `storycraftr models refresh` expose the same discovery flow under the grouped control-plane surface.
 
 Keyboard ergonomics:
 

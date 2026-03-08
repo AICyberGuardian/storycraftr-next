@@ -2,6 +2,15 @@
 
 ## Change History
 
+### 2026-03-07 — Click control-plane command surface (tui/state/canon/mode/models)
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/cmd/control_plane.py` with grouped Click commands for `tui`, `state`, `canon`, `mode`, and `models`.
+	- Wired new control-plane groups into `storycraftr/cli.py` while preserving existing command compatibility (including legacy `model-list`).
+	- Added CLI regressions in `tests/test_cli.py` covering mode round-trip (`show/set/stop`), grouped model listing, and state audit JSON output.
+	- Updated user-facing docs (`README.md`, `docs/chat.md`, `docs/getting_started.md`) and release notes (`CHANGELOG.md`) for new command discovery and usage.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile updates, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Execution Mode Control Plane (manual/hybrid/autopilot)
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

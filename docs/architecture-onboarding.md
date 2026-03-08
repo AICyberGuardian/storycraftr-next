@@ -63,7 +63,9 @@ explicit attributes.
 - `storycraftr/utils/paths.py`: canonical runtime path resolver.
 - `storycraftr/subagents/jobs.py`: background role-based job execution.
 - `storycraftr/integrations/vscode.py`: JSONL event emission.
-- `storycraftr/tui/app.py`: Textual terminal command center and slash-command router.
+- `storycraftr/agent/narrative_state.py`: Pydantic-validated narrative state store with character, location, and plot-thread entities. Includes patch validation and application, and version-aware prompt rendering with metadata headers (DSVL Phase 1A-1C, 2C).
+- `storycraftr/agent/state_audit.py`: append-only audit trail logging of all state mutations with timestamped entries, queryable filters by entity/type, and actor attribution (DSVL Phase 2A).
+- `storycraftr/tui/app.py`: Textual terminal command center and slash-command router with `/state audit` subcommand for audit history inspection (DSVL Phase 2B).
 - `storycraftr/tui/canon.py`: chapter-scoped canon ledger helpers for writer-approved constraints.
 - `storycraftr/tui/canon_extract.py`: conservative canon-candidate extraction for hybrid review.
 - `storycraftr/tui/canon_verify.py`: fail-closed canon candidate verification for autopilot commits.
@@ -80,6 +82,8 @@ At project level:
 - `storycraftr.json` or `papercraftr.json`: runtime configuration.
 - Markdown content (`chapters/`, `outline/`, `worldbuilding/`, etc.): user source corpus.
 - `vector_store/`: Chroma persistence.
+- `outline/narrative_state.json`: structured narrative state store with validated character, location, and plot-thread entities (DSVL Phase 1A-1C).
+- `outline/narrative_audit.jsonl`: append-only audit trail logging all state mutations with timestamps and actor attribution (DSVL Phase 2A).
 
 Internal state (resolved via `resolve_project_paths`):
 - `.storycraftr/subagents/`
@@ -92,6 +96,8 @@ TUI autonomy note:
 - `/autopilot` only runs when mode is `autopilot` and performs bounded steps.
 - Canon commits in autopilot flow are verified against accepted chapter facts and skip duplicate or conflicting candidates.
 - `/summary` and `/context` expose compaction, prompt-budget, pruning, and OpenRouter model-cache diagnostics to keep model-aware pruning visible to writers.
+- `/state` displays current narrative state snapshot with version and timestamp (DSVL Phase 2C).
+- `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]` queries audit trail with optional filters for entity ID, entity type, and result limit (DSVL Phase 2B).
 - Sub-agent workers checkpoint transient provider exhaustion as `model_exhausted`, apply bounded cooldown, and retry once before terminal failure.
 
 Do not hardcode these paths; use `storycraftr/utils/paths.py`.

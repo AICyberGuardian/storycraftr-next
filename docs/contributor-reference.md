@@ -66,6 +66,7 @@ configuration examples, or public workflow descriptions.
 | `storycraftr/utils/paths.py` | Canonical project path resolver for internal state directories and runtime files. | Internal path resolution contract, runtime state layout, or project structure changes. |
 | `storycraftr/utils/project_lock.py` | Cross-process write-lock coordination for project mutation safety. | Lock acquisition contract, reentrancy behavior, or flock coordination changes. |
 | `storycraftr/agent/narrative_state.py` | JSON-backed structured narrative state store (characters, world facts) with prompt rendering. | Narrative state schema, JSON persistence contract, or prompt injection format changes. |
+| `storycraftr/agent/state_audit.py` | Append-only audit trail logging of all narrative state mutations with timestamps, actor attribution, and queryable filters. | Audit log schema, JSONL persistence contract, query filter API, or audit entry structure changes. |
 | `storycraftr/agent/story/scene_planner.py` | Deterministic scene Goal/Conflict/Outcome planning for focused generation. | Scene planning schema, deterministic extraction logic, or prompt template changes. |
 | `storycraftr/tui/context_builder.py` | Budgeted prompt composition, deterministic pruning, section assembly, and prompt diagnostics metadata. | Prompt section priority, truncation strategy, adaptive compaction heuristics, or diagnostics fields change. |
 | `storycraftr/tui/state_engine.py` | Read-only narrative state extraction, prompt composition orchestration, and diagnostics persistence. | Narrative state parsing, canon ledger integration, or prompt assembly/orchestration changes. |
@@ -75,6 +76,7 @@ configuration examples, or public workflow descriptions.
 | `storycraftr/tui/app.py` | Slash-command router, writer-visible diagnostics, execution mode persistence, and adaptive compaction orchestration. | TUI commands, diagnostics UX, execution modes, session compaction behavior, or canon continuity commands change. |
 | `storycraftr/subagents/jobs.py` | Background sub-agent lifecycle including cooldown and retry for model exhaustion. | Job lifecycle, retry checkpoints, or cooldown metadata changes. |
 | `tests/unit/test_narrative_state.py` | Regression coverage for narrative state store CRUD operations and prompt rendering. | `storycraftr/agent/narrative_state.py` behavior changes. |
+| `tests/unit/test_state_audit.py` | Regression coverage for audit trail logging, entry querying, and filter API. | `storycraftr/agent/state_audit.py` behavior changes. |
 | `tests/unit/test_scene_planner.py` | Regression coverage for deterministic scene planning extraction. | `storycraftr/agent/story/scene_planner.py` behavior changes. |
 | `tests/unit/test_openrouter_discovery.py` | Regression coverage for discovery cache, metadata, and free-model parsing behavior. | `storycraftr/llm/openrouter_discovery.py` behavior changes. |
 | `tests/unit/test_tui_app.py` | Regression coverage for TUI slash commands, diagnostics surfaces, canon commands, and adaptive compaction. | `storycraftr/tui/app.py` behavior changes. |
@@ -174,6 +176,7 @@ configuration examples, or public workflow descriptions.
 
 - **Canon Guard**: Chapter-scoped fact ledger (`outline/canon.yml`) with duplicate/negation conflict detection; fail-closed verification gates autopilot commits.
 - **Narrative State**: Structured character/world state (`outline/narrative_state.json`) with prompt injection via `[Structured Narrative State]` section.
+- **Audit Trail**: Append-only mutation log (`outline/narrative_audit.jsonl`) with DSVL Phase 2A query API, queryable by entity/type with `/state audit` TUI command (DSVL Phase 2B).
 - **Adaptive Compaction**: Rolling session summaries preserve high-signal narrative anchors (scene boundaries, canon-relevant turns, reveals, entity introductions).
 - **TUI Execution Modes**: `manual`, `hybrid`, `autopilot` with persistence in `sessions/session.json`; `/autopilot` is bounded and mode-gated.
 - **Project Write Locking**: Cross-process coordination via `project_write_lock` (reentrant within thread, file-locked across processes).

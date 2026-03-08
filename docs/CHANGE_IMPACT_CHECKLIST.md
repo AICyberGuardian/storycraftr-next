@@ -2,6 +2,30 @@
 
 ## Change History
 
+### 2026-03-08 — Phase 6 hardening: Mem0 toggles + memory diagnostics/CLI commands
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/agent/memory_manager.py` with explicit runtime toggles (`STORYCRAFTR_MEM0_ENABLED`, `STORYCRAFTR_MEM0_FORCE_PROVIDER`, `STORYCRAFTR_MEM0_FORCE_OPENROUTER`) and diagnostics/search helper APIs.
+	- Updated `storycraftr/tui/state_engine.py` and `storycraftr/tui/app.py` to expose memory diagnostics via `/context memory`, add runtime rebind diagnostics via `/context refresh-memory`, and include memory-layer status in the `/context` overview.
+	- Added `storycraftr/cmd/memory.py` with `storycraftr memory status|search|remember` for memory inspection, querying, and explicit turn persistence.
+	- Added machine-friendly diagnostics output with `storycraftr memory status --format json`.
+	- Added line-delimited diagnostics output with `storycraftr memory search --format ndjson` for script/CI-friendly streaming results.
+	- Wired memory commands into `storycraftr/cli.py` command registration.
+	- Added regression tests in `tests/unit/test_memory_manager.py`, `tests/unit/test_tui_app.py`, and `tests/test_cli.py` for toggles, diagnostics rendering, and CLI command behavior.
+	- Synced docs in `README.md`, `docs/chat.md`, `docs/advanced.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Phase 6 foundation: optional Mem0 long-term memory + expanded deterministic scene directives
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/agent/memory_manager.py` as a fail-closed optional Mem0 adapter with Chroma-backed local storage under resolved internal state paths and scoped retrieval helpers.
+	- Updated `storycraftr/tui/state_engine.py` to enrich prompt context with retrieved long-term memory snippets and persist post-generation turns to memory (best effort, non-blocking).
+	- Updated `storycraftr/tui/app.py` to configure state-engine collaborators from runtime config and invoke memory persistence during post-generation hooks.
+	- Expanded `storycraftr/agent/story/scene_planner.py` and prompt assembly (`storycraftr/tui/context_builder.py`) to include explicit scene `stakes` and `ending_beat` fields.
+	- Added regression coverage in `tests/unit/test_memory_manager.py` and expanded tests in `tests/unit/test_scene_planner.py`, `tests/unit/test_tui_context_builder.py`, and `tests/unit/test_tui_state_engine.py`.
+	- Synced docs in `CHANGELOG.md`, `docs/architecture-onboarding.md`, and `docs/contributor-reference.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Complete documentation sync for Phases 2B–5 (service unification, extraction, verification, state-critic regeneration)
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

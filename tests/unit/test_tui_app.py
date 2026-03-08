@@ -318,6 +318,45 @@ def test_dispatch_context_models_routes_to_renderer(tmp_path, monkeypatch) -> No
     assert observed == [False, True]
 
 
+def test_dispatch_context_memory_reports_runtime_details(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    memory_path = str(tmp_path / "memory")
+    app.state_engine.memory_manager.get_runtime_diagnostics = lambda: {
+        "enabled": True,
+        "provider": "openrouter",
+        "story_id": "demo-story",
+        "storage_path": memory_path,
+        "reason": None,
+    }
+
+    result = asyncio.run(app._dispatch_slash_command("/context memory"))
+
+    assert "Long-Term Memory" in result
+    assert "Refreshed: no" in result
+    assert "Status: enabled" in result
+    assert "Provider Mode: openrouter" in result
+
+
+def test_dispatch_context_refresh_memory_rebinds_runtime(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    memory_path = str(tmp_path / "memory")
+    app.state_engine.refresh_memory_runtime = lambda: {
+        "enabled": True,
+        "provider": "ollama",
+        "story_id": "demo-story",
+        "storage_path": memory_path,
+        "reason": None,
+    }
+
+    result = asyncio.run(app._dispatch_slash_command("/context refresh-memory"))
+
+    assert "Long-Term Memory" in result
+    assert "Refreshed: yes" in result
+    assert "Provider Mode: ollama" in result
+
+
 def test_dispatch_context_conflicts_reports_latest_conflict_snapshot(tmp_path) -> None:
     TuiApp = _load_tui_app()
     app = TuiApp(book_path=str(tmp_path))

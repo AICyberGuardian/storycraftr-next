@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from storycraftr.agent.memory_manager import MemoryContextItem
 from storycraftr.tui.state_engine import NarrativeStateEngine
 
 
@@ -293,6 +294,41 @@ chapters:
 
     assert "Chapter two fact." in prompt
     assert "Chapter one fact." not in prompt
+
+
+def test_compose_prompt_includes_memory_context_when_available(tmp_path) -> None:
+    _write(
+        tmp_path / "chapters" / "chapter-1.md",
+        """---
+title: Arrival
+scene: Setup
+arc: Act I
+---
+# Chapter 1
+Body
+""",
+    )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+
+    engine.memory_manager.get_context_items = lambda **_kwargs: [
+        MemoryContextItem(
+            source="intent",
+            text="Elias intends to expose Mara before dawn.",
+        ),
+        MemoryContextItem(
+            source="events",
+            text="The bridge console logs already implicate the quartermaster.",
+        ),
+    ]
+
+    prompt = engine.compose_prompt("Continue the confrontation.")
+
+    assert "[Relevant Context]" in prompt
+    assert "Intent: Elias intends to expose Mara before dawn." in prompt
+    assert (
+        "Memory: The bridge console logs already implicate the quartermaster." in prompt
+    )
 
 
 def test_compose_prompt_includes_recent_turns_when_budget_allows(tmp_path) -> None:

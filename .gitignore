@@ -160,3 +160,4 @@ vector_store/
 behaviors/
 *.sqlite3
 .storycraftr/cache/
+docs/Mem0_Ideas.txt

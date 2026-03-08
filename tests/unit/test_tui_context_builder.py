@@ -26,7 +26,9 @@ def test_build_scoped_context_block_includes_plan_constraints_and_retrieval() ->
         scene_plan=ScenePlan(
             goal="Escalate the standoff.",
             conflict="Trust is collapsing.",
+            stakes="A failed negotiation fractures the alliance.",
             outcome="End with a hard choice.",
+            ending_beat="Close on a vote that splits the bridge crew.",
         ),
         canon_facts=["Mira is the ship navigator."],
         retrieved_context=["Bridge logs confirm sabotage."],
@@ -34,6 +36,8 @@ def test_build_scoped_context_block_includes_plan_constraints_and_retrieval() ->
 
     assert "[Scene Plan]" in block
     assert "Goal: Escalate the standoff." in block
+    assert "Stakes: A failed negotiation fractures the alliance." in block
+    assert "Ending Beat: Close on a vote that splits the bridge crew." in block
     assert "[Canon Constraints]" in block
     assert "Mira is the ship navigator." in block
     assert "[Relevant Context]" in block
@@ -47,7 +51,9 @@ def test_build_scoped_context_block_dedupes_and_caps_inputs() -> None:
         scene_plan=ScenePlan(
             goal="Escalate.",
             conflict="Collapse.",
+            stakes="Break trust.",
             outcome="Shift.",
+            ending_beat="Force a hard pivot.",
         ),
         canon_facts=["Fact one.", "Fact one.", long_value],
         retrieved_context=[
@@ -84,7 +90,9 @@ def test_compose_budgeted_prompt_uses_model_aware_budget(monkeypatch) -> None:
         scene_plan=ScenePlan(
             goal="Escalate.",
             conflict="Collapse.",
+            stakes="Break trust.",
             outcome="Shift.",
+            ending_beat="Force a hard pivot.",
         ),
         canon_facts=["Mira is the ship navigator."],
         user_prompt="Continue the scene with pressure.",
@@ -109,7 +117,9 @@ def test_compose_budgeted_prompt_prunes_in_priority_order() -> None:
         scene_plan=ScenePlan(
             goal="Keep chapter continuity.",
             conflict="Pacing pressure rises.",
+            stakes="Losing this scene breaks canon intent.",
             outcome="Land on a sharp pivot.",
+            ending_beat="End with a decision that reorients chapter momentum.",
         ),
         canon_facts=[
             f"Canon fact one {huge}",
@@ -170,7 +180,9 @@ def test_compose_budgeted_prompt_clamps_reserve_to_model_max_completion(
         scene_plan=ScenePlan(
             goal="Escalate.",
             conflict="Collapse.",
+            stakes="Break trust.",
             outcome="Shift.",
+            ending_beat="Force a hard pivot.",
         ),
         canon_facts=["Mira is the ship navigator."],
         user_prompt="Continue the scene with pressure.",

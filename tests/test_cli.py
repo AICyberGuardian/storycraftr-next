@@ -438,3 +438,128 @@ def test_state_extract_command_outputs_patch_summary(tmp_path) -> None:
     assert result.exit_code == 0, result.output
     assert "State Extraction" in result.output
     assert "Operations:" in result.output
+
+
+def test_memory_status_command_reports_runtime_details(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+
+    class _FakeManager:
+        def get_runtime_diagnostics(self):
+            return {
+                "enabled": True,
+                "provider": "ollama",
+                "story_id": "demo-story",
+                "storage_path": str(tmp_path / ".storycraftr" / "memory"),
+                "reason": None,
+            }
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.memory._build_manager",
+        lambda _book_path: _FakeManager(),
+    )
+
+    result = runner.invoke(cli, ["memory", "status"])
+
+    assert result.exit_code == 0, result.output
+    assert "Memory Status" in result.output
+    assert "Provider Mode: ollama" in result.output
+
+
+def test_memory_status_command_outputs_json(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+
+    class _FakeManager:
+        def get_runtime_diagnostics(self):
+            return {
+                "enabled": False,
+                "provider": "openrouter",
+                "story_id": "demo-story",
+                "storage_path": str(tmp_path / ".storycraftr" / "memory"),
+                "reason": "disabled by STORYCRAFTR_MEM0_ENABLED",
+            }
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.memory._build_manager",
+        lambda _book_path: _FakeManager(),
+    )
+
+    result = runner.invoke(cli, ["memory", "status", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    assert '"enabled": false' in result.output.lower()
+    assert '"provider": "openrouter"' in result.output
+
+
+def test_memory_search_command_outputs_json(monkeypatch) -> None:
+    runner = CliRunner()
+
+    class _FakeManager:
+        def search_memories(self, *, query, chapter, limit):
+            assert query == "Where is Elias?"
+            assert chapter == 3
+            assert limit == 5
+            return [{"memory": "Elias is on the bridge."}]
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.memory._build_manager",
+        lambda _book_path: _FakeManager(),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "memory",
+            "search",
+            "--query",
+            "Where is Elias?",
+            "--chapter",
+            "3",
+            "--limit",
+            "5",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Elias is on the bridge." in result.output
+
+
+def test_memory_search_command_outputs_ndjson(monkeypatch) -> None:
+    runner = CliRunner()
+
+    class _FakeManager:
+        def search_memories(self, *, query, chapter, limit):
+            assert query == "What changed?"
+            assert chapter is None
+            assert limit == 2
+            return [
+                {"memory": "Elias moved to the bridge."},
+                {"memory": "Mara hid the keycard."},
+            ]
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.memory._build_manager",
+        lambda _book_path: _FakeManager(),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "memory",
+            "search",
+            "--query",
+            "What changed?",
+            "--limit",
+            "2",
+            "--format",
+            "ndjson",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    lines = [line for line in result.output.splitlines() if line.strip()]
+    assert lines == [
+        '{"memory":"Elias moved to the bridge."}',
+        '{"memory":"Mara hid the keycard."}',
+    ]

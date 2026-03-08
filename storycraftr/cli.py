@@ -40,6 +40,7 @@ from storycraftr.cmd.control_plane import (
     state,
     tui,
 )
+from storycraftr.cmd.memory import memory
 from storycraftr.agent.agents import create_or_get_assistant, update_agent_files
 from storycraftr.utils.core import load_book_config
 
@@ -477,6 +478,7 @@ cli.add_command(state)
 cli.add_command(canon)
 cli.add_command(mode)
 cli.add_command(models)
+cli.add_command(memory)
 
 # CLI-specific group configuration
 if cli_name == "storycraftr":

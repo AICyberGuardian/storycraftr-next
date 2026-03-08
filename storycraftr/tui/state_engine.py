@@ -10,6 +10,7 @@ import yaml
 from yaml import YAMLError
 
 from storycraftr.agent.narrative_state import NarrativeStateStore
+from storycraftr.agent.memory_manager import NarrativeMemoryManager
 from storycraftr.agent.story.scene_planner import plan_next_scene
 from storycraftr.tui.canon import list_facts
 from storycraftr.tui.context_builder import (
@@ -58,6 +59,20 @@ class NarrativeStateEngine:
         self.last_budget_metadata: PromptBudget | None = None
         self.last_prompt_diagnostics: PromptDiagnostics | None = None
         self.narrative_state_store = NarrativeStateStore(str(self.book_path))
+        self._runtime_config: Any | None = None
+        self.memory_manager = NarrativeMemoryManager(book_path=str(self.book_path))
+
+    def configure(self, config: Any | None) -> None:
+        """Apply runtime config updates for path-aware collaborators."""
+
+        self._runtime_config = config
+        self.memory_manager.configure(config)
+
+    def refresh_memory_runtime(self) -> dict[str, Any]:
+        """Reinitialize memory runtime and return refreshed diagnostics."""
+
+        self.memory_manager.configure(self._runtime_config)
+        return self.memory_manager.get_runtime_diagnostics()
 
     def set_active_chapter(self, chapter_number: int) -> None:
         """Update in-memory active chapter focus for strips and prompt context."""
@@ -145,6 +160,10 @@ class NarrativeStateEngine:
 
         state = self.get_state()
         canon_facts = self.get_active_canon_facts(state=state)
+        memory_context = self.get_memory_context(state=state)
+        merged_retrieved_context = list(memory_context)
+        if retrieved_context:
+            merged_retrieved_context.extend(retrieved_context)
         scene_plan = plan_next_scene(
             active_scene=state.active_scene,
             active_arc=state.active_arc,
@@ -158,7 +177,7 @@ class NarrativeStateEngine:
             provider=provider,
             model_id=model_id,
             output_reserve_tokens=output_reserve_tokens,
-            retrieved_context=retrieved_context,
+            retrieved_context=merged_retrieved_context,
             recent_turns=recent_turns,
             narrative_state_json=self.narrative_state_store.render_prompt_block(),
         )
@@ -176,6 +195,10 @@ class NarrativeStateEngine:
 
         state = self.get_state()
         canon_facts = self.get_active_canon_facts(state=state)
+        memory_context = self.get_memory_context(state=state)
+        merged_retrieved_context = list(memory_context)
+        if retrieved_context:
+            merged_retrieved_context.extend(retrieved_context)
         scene_plan = plan_next_scene(
             active_scene=state.active_scene,
             active_arc=state.active_arc,
@@ -185,9 +208,40 @@ class NarrativeStateEngine:
             state=state,
             scene_plan=scene_plan,
             canon_facts=canon_facts,
-            retrieved_context=retrieved_context,
+            retrieved_context=merged_retrieved_context,
             narrative_state_json=self.narrative_state_store.render_prompt_block(),
         )
+
+    def record_turn_memory(self, *, user_prompt: str, assistant_response: str) -> bool:
+        """Persist one turn to optional long-term memory storage."""
+
+        state = self.get_state()
+        return self.memory_manager.remember_turn(
+            user_prompt=user_prompt,
+            assistant_response=assistant_response,
+            chapter=state.active_chapter,
+            scene=state.active_scene,
+        )
+
+    def get_memory_context(
+        self, *, state: NarrativeState, max_items: int = 4
+    ) -> list[str]:
+        """Return prompt-ready memory context bullets when available."""
+
+        items = self.memory_manager.get_context_items(
+            chapter=state.active_chapter,
+            max_items=max_items,
+        )
+        lines: list[str] = []
+        for item in items:
+            label = "Intent" if item.source == "intent" else "Memory"
+            lines.append(f"{label}: {item.text}")
+        return lines
+
+    def memory_diagnostics(self) -> dict[str, Any]:
+        """Return current long-term memory diagnostics for observability views."""
+
+        return self.memory_manager.get_runtime_diagnostics()
 
     def get_active_canon_facts(
         self, *, state: NarrativeState, max_facts: int = 8

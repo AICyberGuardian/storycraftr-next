@@ -67,9 +67,10 @@ explicit attributes.
 - `storycraftr/integrations/vscode.py`: JSONL event emission.
 - `storycraftr/agent/execution_mode.py`: shared execution-mode policy model (`ExecutionMode`, `ModeConfig`) and policy helpers for runtime gates.
 - `storycraftr/agent/narrative_state.py`: Pydantic-validated narrative state store with character, location, and plot-thread entities. Includes patch validation and application, and version-aware prompt rendering with metadata headers (DSVL Phase 1A-1C, 2C).
-- `storycraftr/agent/state_extractor.py`: deterministic prose-to-state extraction that emits validation-ready `StatePatch` proposals for runtime state updates.
+- `storycraftr/agent/state_extractor.py`: deterministic prose-to-state extraction with validation-ready `StatePatch` proposals. Includes verification pass that fails closed on unsafe operations (e.g., dead-character movement), performs bounded operation-order retry, and drops unsafe operations (DSVL Phase 3-4).
 - `storycraftr/agent/state_audit.py`: append-only audit trail logging of all state mutations with timestamped entries, queryable filters by entity/type, and actor attribution (DSVL Phase 2A).
-- `storycraftr/tui/app.py`: Textual terminal command center and slash-command router with `/state audit` subcommand for audit history inspection (DSVL Phase 2B).
+- `storycraftr/services/control_plane.py`: shared service layer for runtime mode controls, state-audit queries, canon verification checks, and extraction verification/retry logic. Both CLI commands and TUI slash commands call shared implementations to prevent behavior drift (Phase 2B).
+- `storycraftr/tui/app.py`: Textual terminal command center and slash-command router with `/state audit` subcommand for audit history inspection (DSVL Phase 2B). Includes bounded state-critic regeneration retry in `_generate_with_mode_awareness()` when extraction verification detects unsafe state transitions (Phase 5).
 - `storycraftr/tui/session.py`: TUI runtime-session state serialization (`mode_config`, `autopilot_turns_remaining`) with backward-compatible runtime metadata handling.
 - `storycraftr/tui/canon.py`: chapter-scoped canon ledger helpers for writer-approved constraints.
 - `storycraftr/tui/canon_extract.py`: conservative canon-candidate extraction for hybrid review.
@@ -87,6 +88,7 @@ At project level:
 - `storycraftr.json` or `papercraftr.json`: runtime configuration.
 - Markdown content (`chapters/`, `outline/`, `worldbuilding/`, etc.): user source corpus.
 - `vector_store/`: Chroma persistence.
+- `outline/canon.yml`: chapter-scoped canon ledger with writer-approved continuity facts; verified for duplicate/negation conflicts during autopilot commits.
 - `outline/narrative_state.json`: structured narrative state store with validated character, location, and plot-thread entities (DSVL Phase 1A-1C).
 - `outline/narrative_audit.jsonl`: append-only audit trail logging all state mutations with timestamps and actor attribution (DSVL Phase 2A).
 
@@ -102,8 +104,10 @@ TUI autonomy note:
 - `/stop` forces manual mode and clears remaining autopilot turns.
 - `/autopilot` only runs when mode is `autopilot` and performs bounded steps.
 - Canon commits in autopilot flow are verified against accepted chapter facts and skip duplicate or conflicting candidates.
+- Post-generation state extraction runs in preview mode in all flows; if verification reports unsafe state transitions (e.g., dead-character location change), hybrid/autopilot modes request one bounded critic regeneration before applying state patches or advancing autonomy (Phase 5).
 - `/summary` and `/context` expose compaction, prompt-budget, pruning, and OpenRouter model-cache diagnostics to keep model-aware pruning visible to writers.
 - `/state` displays current narrative state snapshot with version and timestamp (DSVL Phase 2C).
+- `/state extract-last [apply]` shows last extraction attempt including verification status, issues, and dropped operations; optional `apply` commits verified patches to narrative state.
 - `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]` queries audit trail with optional filters for entity ID, entity type, and result limit (DSVL Phase 2B).
 - Sub-agent workers checkpoint transient provider exhaustion as `model_exhausted`, apply bounded cooldown, and retry once before terminal failure.
 

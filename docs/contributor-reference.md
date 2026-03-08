@@ -181,8 +181,11 @@ configuration examples, or public workflow descriptions.
 ### Recent Architecture Context
 
 - **Canon Guard**: Chapter-scoped fact ledger (`outline/canon.yml`) with duplicate/negation conflict detection; fail-closed verification gates autopilot commits.
-- **Narrative State**: Structured character/world state (`outline/narrative_state.json`) with prompt injection via `[Structured Narrative State]` section.
+- **Narrative State**: Structured character/world state (`outline/narrative_state.json`) with prompt injection via `[Structured Narrative State]` section and version-aware headers (DSVL Phase 1C, 2C).
 - **Audit Trail**: Append-only mutation log (`outline/narrative_audit.jsonl`) with DSVL Phase 2A query API, queryable by entity/type with `/state audit` TUI command (DSVL Phase 2B).
+- **State Extraction & Verification**: Deterministic prose-to-patch extraction (`storycraftr/agent/state_extractor.py`) with fail-closed verification, operation-order retry, and unsafe-operation dropping (DSVL Phase 3-4).
+- **State-Critic Regeneration**: Bounded single regeneration attempt in hybrid/autopilot modes when extraction verification detects state transition errors; constrained revision prompt includes canon and state diagnostics (Phase 5).
+- **Control-Plane Service Layer**: Shared `storycraftr/services/control_plane.py` for mode controls, state audit, and extraction verification logic used by both CLI and TUI to prevent behavior drift (Phase 2B).
 - **Adaptive Compaction**: Rolling session summaries preserve high-signal narrative anchors (scene boundaries, canon-relevant turns, reveals, entity introductions).
 - **TUI Execution Modes**: `manual`, `hybrid`, `autopilot` with persistence in `sessions/session.json`; `/autopilot` is bounded and mode-gated.
 - **Project Write Locking**: Cross-process coordination via `project_write_lock` (reentrant within thread, file-locked across processes).

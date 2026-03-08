@@ -2,6 +2,17 @@
 
 ## Change History
 
+### 2026-03-07 — Complete documentation sync for Phases 2B–5 (service unification, extraction, verification, state-critic regeneration)
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `docs/architecture-onboarding.md` to include Phase 2B-5 modules in Core Code Map: `storycraftr/services/control_plane.py`, extended description of `storycraftr/agent/state_extractor.py` (verification, retry logic), and phase attribution for state-critic regeneration in `storycraftr/tui/app.py`.
+	- Enhanced "Runtime Files and State" section to document canonical file (`outline/canon.yml`) with phase attribution.
+	- Extended "TUI autonomy note" section with post-generation state extraction workflow, state-critic retry explanation (`/state extract-last [apply]`), and phase attributions.
+	- Updated `docs/contributor-reference.md` "Recent Architecture Context" section: added state extraction & verification, control-plane service layer, state-critic regeneration with phase references, and cross-references to DSVL phase numbers.
+	- Created comprehensive Phase 2B–5 implementation summary in `PHASES_2B_TO_5_IMPLEMENTATION_SUMMARY.md`: detailed phase-by-phase breakdown, architectural diagrams, complete file inventory, design patterns, test coverage, developer experience improvements, migration guide, and commit status.
+	- All documentation updates reinforce phase attributions, architectural relationships, and cross-references across onboarding, contributor reference, and new summary document.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (documentation-only updates with no code/runtime/lockfile/provider/event-schema/security behavior changes).
+
 ### 2026-03-07 — Phase 5: mode-gated state critic regeneration
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

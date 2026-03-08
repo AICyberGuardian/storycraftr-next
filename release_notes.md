@@ -1,9 +1,10 @@
-## Draft Update - 2026-03-07 (Dynamic OpenRouter Discovery, Prompt Budgeting, and Sub-Agent Cooldown)
+## Draft Update - 2026-03-07 (Dynamic OpenRouter Discovery, Prompt Budgeting, Sub-Agent Cooldown, and Click Control-Plane)
 
 Current development target: `v0.16` (`0.16.0-dev`).
 
 ### Highlights
 
+- **Added Click control-plane command groups** for automation and headless workflows (`storycraftr/cmd/control_plane.py`): `storycraftr tui`, `storycraftr state show|validate|audit`, `storycraftr canon check`, `storycraftr mode show|set|stop`, and `storycraftr models list|refresh`. These grouped commands reuse existing runtime services (`NarrativeStateStore`, canon verification, session metadata, OpenRouter discovery) to provide first-class CLI surfaces that stay aligned with TUI behavior.
 - Added dynamic OpenRouter free-model discovery (`storycraftr/llm/openrouter_discovery.py`) using `GET https://openrouter.ai/api/v1/models`, with user-local cache at `~/.storycraftr/openrouter-models-cache.json`, default 6-hour TTL, stale-cache fallback, and a minimal emergency fallback profile.
 - Added strict free-only OpenRouter startup validation in `storycraftr/llm/factory.py`: paid/unknown/unavailable model IDs are rejected before provider initialization for both primary and fallback models.
 - Updated model-aware prompt budgeting in the TUI prompt path to use live-discovered OpenRouter limits first (context length + max completion), with conservative in-repo fallback defaults in `storycraftr/llm/model_context.py`.
@@ -13,7 +14,7 @@ Current development target: `v0.16` (`0.16.0-dev`).
 - Added TUI diagnostics commands `/summary` (`/summary clear`) and `/context` (`summary`, `budget`, `models`, `clear-summary`, `refresh-models`) for writer-visible prompt-budget, pruning, summary, and OpenRouter cache introspection.
 - Added sub-agent `model_exhausted` lifecycle checkpoint handling in `storycraftr/subagents/jobs.py`: transient rate-limit/capacity failures now checkpoint, cooldown, and retry once before terminal failure.
 - Added job metadata persistence for retry diagnostics (`attempts`, `cooldown_until`) and surfaced `model_exhausted` counts in chat footer status rendering.
-- Synchronized canonical and user-facing docs (`README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `.github/copilot-instructions.md`, and `docs/CHANGE_IMPACT_CHECKLIST.md`).
+- Synchronized canonical and user-facing docs (`README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/contributor-reference.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `.github/copilot-instructions.md`, and `docs/CHANGE_IMPACT_CHECKLIST.md`).
 
 For complete line-item history, see `CHANGELOG.md` and `docs/CHANGE_IMPACT_CHECKLIST.md`.
 

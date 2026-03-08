@@ -31,6 +31,7 @@ StoryCraftr-Next is a local-first writing platform with:
 
 - `storycraftr/cli.py`: top-level command registration and dual-mode routing.
 - `storycraftr/cmd/`: command handlers for story, paper, and chat flows.
+- `storycraftr/cmd/control_plane.py`: grouped Click commands for automation and headless workflows (tui/state/canon/mode/models) that reuse existing runtime services.
 - `storycraftr/agent/agents.py`: assistant lifecycle, message execution, orchestration glue.
 - `storycraftr/agent/assistant_cache.py`: assistant cache key generation and lock-guarded cache helpers.
 - `storycraftr/agent/vector_hydration.py`: vector-store refresh/hydration and markdown ingestion helpers.

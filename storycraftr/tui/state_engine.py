@@ -160,7 +160,9 @@ class NarrativeStateEngine:
 
         state = self.get_state()
         canon_facts = self.get_active_canon_facts(state=state)
-        memory_context = self.get_memory_context(state=state)
+        memory_context = self.get_memory_context(
+            state=state, user_query=user_prompt, provider=provider, model_id=model_id
+        )
         merged_retrieved_context = list(memory_context)
         if retrieved_context:
             merged_retrieved_context.extend(retrieved_context)
@@ -195,7 +197,8 @@ class NarrativeStateEngine:
 
         state = self.get_state()
         canon_facts = self.get_active_canon_facts(state=state)
-        memory_context = self.get_memory_context(state=state)
+        # Use default budget when provider/model_id unavailable (e.g., diagnostics)
+        memory_context = self.get_memory_context(state=state, user_query=user_prompt)
         merged_retrieved_context = list(memory_context)
         if retrieved_context:
             merged_retrieved_context.extend(retrieved_context)
@@ -224,19 +227,75 @@ class NarrativeStateEngine:
         )
 
     def get_memory_context(
-        self, *, state: NarrativeState, max_items: int = 4
+        self,
+        *,
+        state: NarrativeState,
+        user_query: str | None = None,
+        provider: str | None = None,
+        model_id: str | None = None,
+        max_items: int = 4,
+        max_tokens: int | None = None,
     ) -> list[str]:
-        """Return prompt-ready memory context bullets when available."""
+        """Return prompt-ready memory context bullets when available.
+
+        A local memory token ceiling keeps long recalled snippets from consuming
+        most of the budget before downstream prompt pruning runs.
+
+        When user_query is provided, memory retrieval becomes semantically aware
+        of the current prompt for improved relevance ranking.
+
+        When provider/model_id are provided and max_tokens is None, the budget
+        is scaled dynamically based on the model's context window (larger models
+        receive larger memory budgets, capped at reasonable bounds).
+        """
+
+        if max_tokens is None:
+            max_tokens = self._compute_memory_budget(
+                provider=provider, model_id=model_id
+            )
 
         items = self.memory_manager.get_context_items(
             chapter=state.active_chapter,
+            active_scene=state.active_scene,
+            active_arc=state.active_arc,
             max_items=max_items,
+            query=user_query,
         )
         lines: list[str] = []
+        consumed_tokens = 0
+        token_limit = max(16, max_tokens)
         for item in items:
             label = "Intent" if item.source == "intent" else "Memory"
-            lines.append(f"{label}: {item.text}")
+            line = f"{label}: {item.text}"
+            estimated = _estimate_tokens(line)
+            if consumed_tokens + estimated > token_limit:
+                break
+            lines.append(line)
+            consumed_tokens += estimated
         return lines
+
+    def _compute_memory_budget(
+        self, *, provider: str | None, model_id: str | None
+    ) -> int:
+        """Compute memory recall token budget based on model context window.
+
+        Larger models (e.g., 128k context) receive larger memory budgets to take
+        advantage of available capacity. Smaller models (e.g., 8k context) use
+        conservative budgets to preserve space for critical prompt sections.
+
+        Returns a value between 160 and 1280 tokens, scaled as a percentage of
+        the model's effective context window.
+        """
+
+        from storycraftr.llm.model_context import resolve_model_context
+
+        spec = resolve_model_context(provider, model_id)
+        context_window = spec.context_window_tokens
+
+        # Memory budget as ~2% of context window, clamped to reasonable bounds
+        budget = int(context_window * 0.02)
+        budget = max(160, min(budget, 1280))
+        return budget
 
     def memory_diagnostics(self) -> dict[str, Any]:
         """Return current long-term memory diagnostics for observability views."""
@@ -536,3 +595,11 @@ def _find_chapter(
         if chapter.number == active_chapter:
             return chapter
     return None
+
+
+def _estimate_tokens(text: str) -> int:
+    """Estimate tokens using the same coarse chars-per-token ratio as TUI prompts."""
+
+    if not text:
+        return 0
+    return max(1, (len(text) + 3) // 4)

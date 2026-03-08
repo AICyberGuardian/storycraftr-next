@@ -54,6 +54,20 @@ def memory_status(book_path: str | None, output_format: str) -> None:
         f"- Story ID: {info.get('story_id', 'unknown')}",
         f"- Storage Path: {info.get('storage_path', 'unknown')}",
     ]
+    retrieval = info.get("last_retrieval")
+    if isinstance(retrieval, dict):
+        lines.append(
+            "- Last Recall Hits: "
+            f"{retrieval.get('hits_returned', 0)} "
+            f"(queries run: {retrieval.get('queries_run', 0)}/"
+            f"{retrieval.get('queries_attempted', 0)})"
+        )
+        hits_by_source = retrieval.get("hits_by_source") or {}
+        if isinstance(hits_by_source, dict) and hits_by_source:
+            source_summary = ", ".join(
+                f"{name}={count}" for name, count in hits_by_source.items()
+            )
+            lines.append(f"- Last Recall Sources: {source_summary}")
     if not info.get("enabled") and info.get("reason"):
         lines.append(f"- Reason: {info['reason']}")
     click.echo("\n".join(lines))

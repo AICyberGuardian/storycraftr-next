@@ -36,6 +36,7 @@ class NarrativeMemoryManager:
         self._config = config
         self._memory: Any | None = None
         self._disabled_reason: str | None = None
+        self._last_retrieval: dict[str, Any] | None = None
 
     def configure(self, config: Any | None) -> None:
         """Rebind config and reset Mem0 client so path overrides are respected."""
@@ -45,6 +46,7 @@ class NarrativeMemoryManager:
         self.storage_path = project_paths.internal_state_root / "memory"
         self._memory = None
         self._disabled_reason = None
+        self._last_retrieval = None
 
     @property
     def is_enabled(self) -> bool:
@@ -115,42 +117,169 @@ class NarrativeMemoryManager:
         self,
         *,
         chapter: int | None,
+        active_scene: str | None = None,
+        active_arc: str | None = None,
         max_items: int = 6,
+        query: str | None = None,
     ) -> list[MemoryContextItem]:
-        """Retrieve compact memory context lines for prompt assembly."""
+        """Retrieve compact memory context lines for prompt assembly.
+
+        When query is provided, uses it for primary semantic retrieval before
+        falling back to chapter/scene/arc continuity and generic intent/event
+        queries for broader coverage.
+        """
 
         memory = self._ensure_client()
         if memory is None:
+            self._set_last_retrieval(
+                enabled=False,
+                queries=[],
+                queries_run=0,
+                hits_by_source={},
+                items=[],
+            )
             return []
 
         chapter_hint = chapter if chapter is not None else 0
-        queries = [
-            ("intent", "Current character goals and motivations"),
-            (
-                "events",
-                f"Key unresolved events and threads near chapter {chapter_hint}",
-            ),
-        ]
+        scene_hint = " ".join((active_scene or "").split()).strip()
+        arc_hint = " ".join((active_arc or "").split()).strip()
+
+        # Build weighted query set: prompt relevance first, then continuity
+        # signals (recent chapter + scene/arc), then broad intent/event recall.
+        queries: list[tuple[str, str, dict[str, Any]]] = []
+        if query and query.strip():
+            queries.append(("relevant", query.strip(), {"category": "narrative_turn"}))
+        if chapter is not None:
+            queries.append(
+                (
+                    "recent",
+                    f"Recent chapter {chapter} developments and unresolved continuity details",
+                    {"category": "narrative_turn", "chapter": chapter},
+                )
+            )
+            if chapter > 1:
+                queries.append(
+                    (
+                        "recent",
+                        f"Carry-over continuity from chapter {chapter - 1}",
+                        {"category": "narrative_turn", "chapter": chapter - 1},
+                    )
+                )
+        if scene_hint:
+            queries.append(
+                (
+                    "scene",
+                    f"Scene continuity cues for '{scene_hint}'",
+                    {"category": "narrative_turn"},
+                )
+            )
+        if arc_hint:
+            queries.append(
+                (
+                    "arc",
+                    f"Arc-level constraints and unresolved beats for '{arc_hint}'",
+                    {"category": "narrative_turn"},
+                )
+            )
+        queries.extend(
+            [
+                (
+                    "character_state",
+                    "Current character states, motivations, and interpersonal tension",
+                    {"category": "narrative_turn"},
+                ),
+                (
+                    "plot_thread",
+                    f"Key unresolved plot threads near chapter {chapter_hint}",
+                    {"category": "narrative_turn"},
+                ),
+                (
+                    "intent",
+                    "Current character goals and motivations",
+                    {"category": "narrative_turn"},
+                ),
+                (
+                    "events",
+                    f"Key unresolved events and threads near chapter {chapter_hint}",
+                    {"category": "narrative_turn"},
+                ),
+            ]
+        )
 
         items: list[MemoryContextItem] = []
         seen: set[str] = set()
-        per_query_limit = max(1, max_items // 2)
+        hits_by_source: dict[str, int] = {}
+        queries_run = 0
 
-        for source, query in queries:
+        # Front-loaded weighted allocation: earlier (higher-priority) queries
+        # can return up to 3 hits while preserving at least one slot per
+        # remaining query.
+        for index, (source, query_text, filters) in enumerate(queries):
+            remaining_slots = max_items - len(items)
+            if remaining_slots <= 0:
+                self._set_last_retrieval(
+                    enabled=True,
+                    queries=queries,
+                    queries_run=queries_run,
+                    hits_by_source=hits_by_source,
+                    items=items,
+                )
+                return items
+            remaining_queries = len(queries) - index
+            per_query_limit = min(3, max(1, remaining_slots - (remaining_queries - 1)))
+            queries_run += 1
             for hit in self._search(
-                query=query,
+                query=query_text,
                 limit=per_query_limit,
-                filters={"category": "narrative_turn"},
+                filters=filters,
             ):
                 normalized = " ".join(hit.split())
                 if not normalized or normalized in seen:
                     continue
                 seen.add(normalized)
                 items.append(MemoryContextItem(source=source, text=normalized))
+                hits_by_source[source] = hits_by_source.get(source, 0) + 1
                 if len(items) >= max_items:
+                    self._set_last_retrieval(
+                        enabled=True,
+                        queries=queries,
+                        queries_run=queries_run,
+                        hits_by_source=hits_by_source,
+                        items=items,
+                    )
                     return items
 
+        self._set_last_retrieval(
+            enabled=True,
+            queries=queries,
+            queries_run=queries_run,
+            hits_by_source=hits_by_source,
+            items=items,
+        )
         return items
+
+    def _set_last_retrieval(
+        self,
+        *,
+        enabled: bool,
+        queries: list[tuple[str, str, dict[str, Any]]],
+        queries_run: int,
+        hits_by_source: dict[str, int],
+        items: list[MemoryContextItem],
+    ) -> None:
+        """Persist a stable snapshot for runtime retrieval diagnostics."""
+
+        self._last_retrieval = {
+            "enabled": enabled,
+            "hits_returned": len(items),
+            "queries_attempted": len(queries),
+            "queries_run": queries_run,
+            "source_order": [source_name for source_name, _, _ in queries],
+            "hits_by_source": dict(hits_by_source),
+            "selected_items": [
+                {"source": item.source, "text": item.text} for item in items
+            ],
+        }
 
     def _ensure_client(self) -> Any | None:
         if self._memory is not None:
@@ -282,6 +411,7 @@ class NarrativeMemoryManager:
             "provider": provider,
             "story_id": self.story_id,
             "storage_path": str(self.storage_path),
+            "last_retrieval": self._last_retrieval,
         }
 
     def _effective_provider(self) -> str:

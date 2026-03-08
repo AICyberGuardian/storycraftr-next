@@ -71,7 +71,8 @@ assistant/backend flow.
 - `/context summary` — Show full rolling summary state (status, compacted turns, summary text).
 - `/context budget` — Show latest prompt budget and deterministic pruning/truncation diagnostics.
 - `/context models` — Show OpenRouter cache metadata and resolved active-model limits/source.
-- `/context memory` — Show long-term memory runtime diagnostics (status, provider mode, storage path).
+- `/context memory` — Show long-term memory runtime diagnostics (status, provider mode, storage path, last persist status).
+- `/context memory explain` — Show detailed breakdown of the latest recall pass, including source order and selected memory lines by source.
 - `/context conflicts` — Show the latest canon conflict diagnostics (candidate counts, grouped reasons, details).
 - `/context clear-summary` — Clear compacted summary while retaining recent transcript tail.
 - `/context refresh-models` — Force-refresh OpenRouter model discovery cache and report status.
@@ -130,8 +131,31 @@ existing assistant pipeline: `[Canon Constraints]`, `[Scene Plan]`,
 
 When Mem0 is available in the local environment, `[Scoped Context]` may include
 compact long-term memory recalls (intent/event snippets) to reduce narrative
-drift across long autonomous runs. If Mem0 is unavailable, this layer is
-silently skipped and standard context composition continues.
+drift across long autonomous runs. Memory retrieval is **query-aware**: the
+system uses the user's current prompt to retrieve semantically relevant memories
+before falling back to generic intent/event queries. If Mem0 is unavailable,
+this layer is silently skipped and standard context composition continues.
+
+Memory token budgets are **model-aware**: larger context models (e.g., 128k tokens)
+receive proportionally larger memory budgets (up to 1280 tokens) to take advantage
+of available capacity, while smaller models (e.g., 8k tokens) use conservative
+budgets (160+ tokens) to preserve space for critical prompt sections.
+
+Memory retrieval strategy is now **storyline-aware**: after the user's prompt
+query, recall prioritizes recent chapter continuity (active chapter and previous
+chapter), then active scene/arc cues, then broader character-state and
+plot-thread signals before generic fallback intent/event queries.
+
+After generation, the system attempts to persist the turn to long-term memory.
+When memory is enabled and persistence fails, a warning is displayed in the
+output pane and the failure is logged to `/context memory` diagnostics for
+operator review.
+
+`/context memory` and `storycraftr memory status` now include recall telemetry
+from the latest retrieval pass (hits returned, query stages run/attempted, and
+hit distribution by source label) to help tune memory strategy behavior.
+Use `/context memory explain` to inspect which source label contributed each
+selected memory line in the latest retrieval snapshot.
 
 Mem0 runtime mode follows StoryCraftr provider settings:
 - `llm_provider=ollama` uses local Ollama inference for memory extraction plus local embedding model.

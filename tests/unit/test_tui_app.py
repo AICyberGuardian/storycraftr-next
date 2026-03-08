@@ -357,6 +357,86 @@ def test_dispatch_context_refresh_memory_rebinds_runtime(tmp_path) -> None:
     assert "Provider Mode: ollama" in result
 
 
+def test_context_memory_includes_last_persist_status_when_available(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    memory_path = str(tmp_path / "memory")
+    app.state_engine.memory_manager.get_runtime_diagnostics = lambda: {
+        "enabled": True,
+        "provider": "openrouter",
+        "story_id": "demo-story",
+        "storage_path": memory_path,
+        "reason": None,
+    }
+    app._last_memory_persist_status = "success"
+
+    result = asyncio.run(app._dispatch_slash_command("/context memory"))
+
+    assert "Long-Term Memory" in result
+    assert "Last Persist: success" in result
+
+
+def test_context_memory_includes_last_recall_telemetry(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    memory_path = str(tmp_path / "memory")
+    app.state_engine.memory_manager.get_runtime_diagnostics = lambda: {
+        "enabled": True,
+        "provider": "openrouter",
+        "story_id": "demo-story",
+        "storage_path": memory_path,
+        "reason": None,
+        "last_retrieval": {
+            "hits_returned": 3,
+            "queries_run": 4,
+            "queries_attempted": 6,
+            "hits_by_source": {"relevant": 1, "recent": 2},
+        },
+    }
+
+    result = asyncio.run(app._dispatch_slash_command("/context memory"))
+
+    assert "Long-Term Memory" in result
+    assert "Last Recall Hits: 3 (queries run: 4/6)" in result
+    assert "Last Recall Sources: relevant=1, recent=2" in result
+
+
+def test_context_memory_explain_reports_selected_items(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.state_engine.memory_manager.get_runtime_diagnostics = lambda: {
+        "enabled": True,
+        "provider": "openrouter",
+        "story_id": "demo-story",
+        "storage_path": str(tmp_path / "memory"),
+        "reason": None,
+        "last_retrieval": {
+            "enabled": True,
+            "hits_returned": 2,
+            "queries_run": 3,
+            "queries_attempted": 5,
+            "source_order": ["relevant", "recent", "scene"],
+            "selected_items": [
+                {
+                    "source": "relevant",
+                    "text": "Elias suspects Mara tampered with bridge telemetry.",
+                },
+                {
+                    "source": "recent",
+                    "text": "Quartermaster logs implicate unauthorized access last night.",
+                },
+            ],
+        },
+    }
+
+    result = asyncio.run(app._dispatch_slash_command("/context memory explain"))
+
+    assert "Memory Recall Explain" in result
+    assert "Source Order: relevant, recent, scene" in result
+    assert "1. [relevant] Elias suspects Mara" in result
+    assert "2. [recent] Quartermaster logs" in result
+
+
 def test_dispatch_context_conflicts_reports_latest_conflict_snapshot(tmp_path) -> None:
     TuiApp = _load_tui_app()
     app = TuiApp(book_path=str(tmp_path))
@@ -1247,6 +1327,46 @@ def test_on_input_submitted_warns_on_canon_conflicts(tmp_path, monkeypatch) -> N
         return "Mira is not the ship navigator.", False
 
     monkeypatch.setattr(app, "_run_assistant_turn", _fake_turn)
+
+    async def _fake_analyze_canon_conflicts(*, response: str, chapter: int):
+        assert "Mira is not the ship navigator." in response
+        return {
+            "chapter": chapter,
+            "checked_candidates": 1,
+            "duplicate_count": 0,
+            "negation_conflict_count": 1,
+            "conflicts": [
+                {
+                    "reason": "negation conflict",
+                    "candidate": "Mira is not the ship navigator.",
+                    "conflicting_fact": "Mira is the ship navigator.",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(app, "_analyze_canon_conflicts", _fake_analyze_canon_conflicts)
+
+    async def _fake_analyze_state_extraction_issues(*, response: str):
+        assert "Mira is not the ship navigator." in response
+        return {
+            "operation_count": 0,
+            "verification_passed": True,
+            "issues": [],
+            "dropped_operations": 0,
+            "retry_performed": False,
+        }
+
+    monkeypatch.setattr(
+        app,
+        "_analyze_state_extraction_issues",
+        _fake_analyze_state_extraction_issues,
+    )
+
+    async def _fake_post_generation_hooks(*, user_prompt: str, response: str) -> None:
+        del user_prompt
+        await app._warn_about_canon_conflicts(response)
+
+    monkeypatch.setattr(app, "_post_generation_hooks", _fake_post_generation_hooks)
 
     event = SimpleNamespace(input=_FakeInput("Continue scene"), value="Continue scene")
     asyncio.run(app.on_input_submitted(event))

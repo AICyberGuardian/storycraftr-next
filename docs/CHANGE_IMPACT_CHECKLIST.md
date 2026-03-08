@@ -2,6 +2,88 @@
 
 ## Change History
 
+### 2026-03-08 — CI stabilization: deterministic canon-conflict warning test
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `tests/unit/test_tui_app.py::test_on_input_submitted_warns_on_canon_conflicts` to monkeypatch `app._analyze_canon_conflicts` with a deterministic local report, preventing unintended external provider calls during test execution.
+	- Updated the same test to monkeypatch `app._analyze_state_extraction_issues` with a deterministic local report, preventing state-critic regeneration code paths from reaching provider-authenticated runtime dependencies in CI.
+	- Updated the same test to monkeypatch `app._post_generation_hooks` to a canon-only path (`_warn_about_canon_conflicts`) so memory persistence/state extraction side effects do not introduce external runtime dependencies in this unit-level assertion.
+	- Verified failure reproduction and fix against the previously failing CI path (`pytest` job) and reran full suite locally.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (test-only change; no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Phase 6B: `/context memory explain` item-level diagnostics
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/agent/memory_manager.py` retrieval snapshot structure to include `selected_items` (source/text pairs) for item-level explainability.
+	- Updated `storycraftr/tui/app.py::_handle_context_command` and added `_build_context_memory_explain_text` for `/context memory explain` rendering.
+	- Added regression tests in `tests/unit/test_tui_app.py` and `tests/unit/test_memory_manager.py` validating explain output and retrieval snapshot payload structure.
+	- Updated `docs/chat.md` and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Phase 6B: memory retrieval telemetry diagnostics
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/agent/memory_manager.py` to track latest retrieval telemetry (`hits_returned`, `queries_run`, `queries_attempted`, `hits_by_source`, `source_order`) and expose it via `get_runtime_diagnostics()`.
+	- Updated `storycraftr/tui/app.py::_build_context_memory_text` to render recall telemetry summary lines in `/context memory` diagnostics.
+	- Updated `storycraftr/cmd/memory.py::memory_status` to render recall telemetry summary lines in text output while preserving JSON output compatibility.
+	- Added regression tests in `tests/unit/test_memory_manager.py`, `tests/unit/test_tui_app.py`, and `tests/test_cli.py` validating telemetry population and rendering.
+	- Updated `docs/chat.md` and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Phase 6B: storyline-aware weighted memory retrieval
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/agent/memory_manager.py::get_context_items` to accept optional `active_scene` and `active_arc` hints and to prioritize retrieval in weighted order: user query -> recent chapter continuity (active + previous chapter) -> scene/arc cues -> character-state and plot-thread context -> generic intent/events.
+	- Added chapter-scoped memory filters for recent continuity lookups and preserved fail-closed behavior via existing `_search` fallback semantics.
+	- Updated `storycraftr/tui/state_engine.py::get_memory_context` to pass active scene/arc hints from `NarrativeState` to memory retrieval.
+	- Added/updated regression coverage in `tests/unit/test_memory_manager.py` validating recent chapter filters, scene/arc hint queries, and updated source-label expectations.
+	- Updated `docs/chat.md` to document storyline-aware retrieval strategy.
+	- Synced release docs in `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-08 — Phase 6B: model-aware memory token budgeting
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/state_engine.py::get_memory_context` to accept optional `provider` and `model_id` parameters for dynamic budget computation.
+	- Added `storycraftr/tui/state_engine.py::_compute_memory_budget` helper that scales memory budget as ~2% of model context window (160-1280 token range).
+	- Updated `storycraftr/tui/state_engine.py::compose_prompt_with_diagnostics` to pass provider/model_id through to `get_memory_context()`.
+	- Backward compatibility preserved: when provider/model_id are None, budgets default to previous behavior.
+	- Added regression test in `tests/unit/test_tui_state_engine.py` validating budget scaling for large and small context models.
+	- Updated `docs/chat.md` to document model-aware budget behavior.
+	- Synced release docs in `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-08 — Phase 6B: memory persistence diagnostics
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/app.py::_post_generation_hooks` to capture persist status (success/failed) from `state_engine.record_turn_memory()` return value instead of catching exceptions.
+	- Updated `storycraftr/tui/app.py::_post_generation_hooks` to surface immediate warning in output pane when memory is enabled but persistence fails.
+	- Renamed `_last_memory_persist_error` to `_last_memory_persist_status` to track success/failed state.
+	- Updated `storycraftr/tui/app.py::_build_context_memory_text` to include last persist status in `/context memory` diagnostics output.
+	- Added regression test in `tests/unit/test_tui_app.py` validating persist status appears in diagnostics.
+	- Updated `docs/chat.md` to document memory persistence failure visibility.
+	- Synced release docs in `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-08 — Phase 6B: query-aware memory retrieval
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/state_engine.py::compose_prompt_with_diagnostics` and `build_scoped_context` to pass `user_query=user_prompt` to `get_memory_context()`.
+	- Updated `storycraftr/tui/state_engine.py::get_memory_context()` to accept optional `user_query` parameter and pass it through to memory manager as `query`.
+	- Updated `storycraftr/agent/memory_manager.py::get_context_items()` to accept optional `query` parameter and use it as the primary semantic retrieval query before fallback queries (intent/events).
+	- Added regression tests in `tests/unit/test_memory_manager.py` validating that user query is used as first retrieval source, and in `tests/unit/test_tui_state_engine.py` confirming query parameter passes through correctly.
+	- Updated `docs/chat.md` to document query-aware retrieval behavior.
+	- Synced release docs in `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-08 — Phase 6B: memory-context token budget guard
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/state_engine.py::get_memory_context` to enforce a deterministic memory-specific token cap (`max_tokens`) before context is merged into prompt composition.
+	- Added regression coverage in `tests/unit/test_tui_state_engine.py` validating memory context is dropped when recall snippets exceed the configured memory budget.
+	- Synced release docs in `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-08 — Phase 6 hardening: Mem0 toggles + memory diagnostics/CLI commands
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

@@ -143,7 +143,7 @@ class TuiApp(App[None]):
         self._last_state_extraction_report: dict[str, Any] | None = None
         self._load_mode_session_state()
         self._load_session_summary_state()
-        self._last_memory_persist_error: str | None = None
+        self._last_memory_persist_status: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -388,15 +388,20 @@ class TuiApp(App[None]):
     async def _post_generation_hooks(self, *, user_prompt: str, response: str) -> None:
         """Run mode-gated post-generation policy hooks."""
 
-        try:
-            await asyncio.to_thread(
-                self.state_engine.record_turn_memory,
-                user_prompt=user_prompt,
-                assistant_response=response,
-            )
-        except Exception as exc:
-            # Long-term memory is best-effort and must not block generation flow.
-            self._last_memory_persist_error = str(exc)
+        persisted = await asyncio.to_thread(
+            self.state_engine.record_turn_memory,
+            user_prompt=user_prompt,
+            assistant_response=response,
+        )
+        if persisted:
+            self._last_memory_persist_status = "success"
+        else:
+            self._last_memory_persist_status = "failed"
+            if self.state_engine.memory_manager.is_enabled:
+                # Only warn when memory is expected to work
+                self.query_one("#output", RichLog).write(
+                    "[yellow]Memory Persist:[/yellow] failed to store turn in long-term memory"
+                )
         await self._apply_extracted_state_patch(response)
         await self._warn_about_canon_conflicts(response)
         if self.mode_config.mode is ExecutionMode.HYBRID:
@@ -1051,6 +1056,8 @@ class TuiApp(App[None]):
         if subcommand == "models":
             return await asyncio.to_thread(self._build_context_models_text, False)
         if subcommand == "memory":
+            if len(args) > 1 and args[1].lower() == "explain":
+                return self._build_context_memory_explain_text()
             return self._build_context_memory_text()
         if subcommand == "conflicts":
             return self._build_context_conflicts_text()
@@ -1062,7 +1069,7 @@ class TuiApp(App[None]):
             return self._build_context_memory_text(refreshed=True)
         return (
             "Usage: /context "
-            "[summary|budget|models|memory|conflicts|clear-summary|refresh-models|refresh-memory]"
+            "[summary|budget|models|memory [explain]|conflicts|clear-summary|refresh-models|refresh-memory]"
         )
 
     async def _build_context_overview_text(self) -> str:
@@ -1159,6 +1166,65 @@ class TuiApp(App[None]):
         ]
         if not enabled and diag.get("reason"):
             lines.append(f"- Reason: {diag['reason']}")
+        retrieval = diag.get("last_retrieval")
+        if isinstance(retrieval, dict):
+            lines.append(
+                "- Last Recall Hits: "
+                f"{retrieval.get('hits_returned', 0)} "
+                f"(queries run: {retrieval.get('queries_run', 0)}/"
+                f"{retrieval.get('queries_attempted', 0)})"
+            )
+            hits_by_source = retrieval.get("hits_by_source") or {}
+            if isinstance(hits_by_source, dict) and hits_by_source:
+                source_summary = ", ".join(
+                    f"{name}={count}" for name, count in hits_by_source.items()
+                )
+                lines.append(f"- Last Recall Sources: {source_summary}")
+        if self._last_memory_persist_status:
+            lines.append(f"- Last Persist: {self._last_memory_persist_status}")
+        return "\n".join(lines)
+
+    def _build_context_memory_explain_text(self) -> str:
+        """Render detailed explain view for latest memory recall composition."""
+
+        diag = self.state_engine.memory_diagnostics()
+        retrieval = diag.get("last_retrieval")
+        if not isinstance(retrieval, dict):
+            return (
+                "Memory Recall Explain\n"
+                "- Status: unavailable\n"
+                "- Run a normal generation turn first so memory recall diagnostics are captured."
+            )
+
+        lines = [
+            "Memory Recall Explain",
+            f"- Enabled: {'yes' if retrieval.get('enabled') else 'no'}",
+            f"- Hits Returned: {retrieval.get('hits_returned', 0)}",
+            (
+                "- Query Stages: "
+                f"{retrieval.get('queries_run', 0)}/"
+                f"{retrieval.get('queries_attempted', 0)}"
+            ),
+        ]
+
+        source_order = retrieval.get("source_order") or []
+        if source_order:
+            lines.append(f"- Source Order: {', '.join(str(s) for s in source_order)}")
+
+        selected_items = retrieval.get("selected_items") or []
+        if selected_items:
+            lines.append("- Selected Items:")
+            for idx, item in enumerate(selected_items, start=1):
+                if not isinstance(item, dict):
+                    continue
+                source = str(item.get("source") or "unknown")
+                text = " ".join(str(item.get("text") or "").split())
+                if len(text) > 180:
+                    text = f"{text[:177]}..."
+                lines.append(f"  {idx}. [{source}] {text}")
+        else:
+            lines.append("- Selected Items: none")
+
         return "\n".join(lines)
 
     def _build_context_summary_text(self) -> str:

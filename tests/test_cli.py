@@ -451,6 +451,12 @@ def test_memory_status_command_reports_runtime_details(monkeypatch, tmp_path) ->
                 "story_id": "demo-story",
                 "storage_path": str(tmp_path / ".storycraftr" / "memory"),
                 "reason": None,
+                "last_retrieval": {
+                    "hits_returned": 2,
+                    "queries_run": 3,
+                    "queries_attempted": 5,
+                    "hits_by_source": {"recent": 2},
+                },
             }
 
     monkeypatch.setattr(
@@ -463,6 +469,8 @@ def test_memory_status_command_reports_runtime_details(monkeypatch, tmp_path) ->
     assert result.exit_code == 0, result.output
     assert "Memory Status" in result.output
     assert "Provider Mode: ollama" in result.output
+    assert "Last Recall Hits: 2 (queries run: 3/5)" in result.output
+    assert "Last Recall Sources: recent=2" in result.output
 
 
 def test_memory_status_command_outputs_json(monkeypatch, tmp_path) -> None:

@@ -318,7 +318,7 @@ class TuiApp(App[None]):
             return await self._build_status_text()
 
         if command == "state":
-            return await self._build_state_text()
+            return await self._handle_state_command(args)
 
         if command == "summary":
             return self._handle_summary_command(args)
@@ -641,6 +641,7 @@ class TuiApp(App[None]):
             "project": [
                 "/status",
                 "/state",
+                "/state audit [limit=<n>] [entity=<id>] [type=<type>]",
                 "/summary [clear]",
                 "/context [summary|budget|models|conflicts|clear-summary|refresh-models]",
                 "/mode <manual|hybrid|autopilot>",
@@ -722,6 +723,106 @@ class TuiApp(App[None]):
             block,
         ]
         return "\n".join(lines)
+
+    def _build_state_audit_text(self, args: list[str]) -> str:
+        """Query and display audit trail history with optional filters."""
+
+        # Parse optional filter arguments (limit=N, entity=ID, type=TYPE)
+        limit = 10  # Default limit
+        entity_id: str | None = None
+        entity_type: str | None = None
+
+        for arg in args:
+            if "=" in arg:
+                key, _, value = arg.partition("=")
+                key = key.strip().lower()
+                value = value.strip()
+
+                if key == "limit":
+                    try:
+                        limit = max(1, int(value))
+                    except ValueError:
+                        return f"Invalid limit value: {value}"
+                elif key == "entity":
+                    entity_id = value
+                elif key == "type":
+                    if value.lower() in {"character", "location", "plot_thread"}:
+                        entity_type = value.lower()
+                    else:
+                        return "Invalid type. Use: character, location, or plot_thread"
+                else:
+                    return f"Unknown filter: {key}"
+
+        # Access audit log through narrative state store
+        try:
+            store = self.state_engine.narrative_state_store
+            audit_log = store._get_audit_log()
+
+            if audit_log is None:
+                return "Audit logging is disabled for this project."
+
+            # Query with filters
+            entries = audit_log.query_entries(
+                entity_id=entity_id,
+                entity_type=entity_type,
+                limit=limit,
+            )
+
+            if not entries:
+                return "No audit entries found matching the specified filters."
+
+            # Format entries for display
+            lines = [f"Audit Trail (showing {len(entries)} entries):", ""]
+
+            for i, entry in enumerate(entries, 1):
+                lines.append(f"[{i}] {entry.timestamp}")
+                lines.append(f"    Operation: {entry.operation_type}")
+                lines.append(f"    Actor: {entry.actor}")
+
+                if entry.patch:
+                    patch_desc = f"{len(entry.patch.operations)} operation(s)"
+                    lines.append(f"    Patch: {patch_desc}")
+
+                if entry.changeset:
+                    change_count = (
+                        len(entry.changeset.character_diffs)
+                        + len(entry.changeset.location_diffs)
+                        + len(entry.changeset.plot_thread_diffs)
+                    )
+                    if entry.changeset.world_changed:
+                        change_count += 1
+                    lines.append(
+                        f"    Changes: {change_count} entity/field modification(s)"
+                    )
+
+                if entry.metadata:
+                    version = entry.metadata.get("version")
+                    if version is not None:
+                        lines.append(f"    Version: {version}")
+
+                lines.append("")
+
+            # Add usage example
+            lines.append(
+                "Tip: Use filters like 'limit=20', 'entity=alice', 'type=character'"
+            )
+
+            return "\n".join(lines)
+
+        except Exception as exc:
+            return f"Failed to query audit log: {exc}"
+
+    async def _handle_state_command(self, args: list[str]) -> str:
+        """Dispatch /state diagnostics subcommands."""
+
+        if not args:
+            return await self._build_state_text()
+
+        subcommand = args[0].lower()
+        if subcommand == "audit":
+            return await asyncio.to_thread(self._build_state_audit_text, args[1:])
+
+        return "Usage: /state [audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]]"
 
     async def _handle_context_command(self, args: list[str]) -> str:
         """Dispatch /context diagnostics subcommands."""

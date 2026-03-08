@@ -63,12 +63,27 @@ configuration examples, or public workflow descriptions.
 | `storycraftr/llm/factory.py` | Provider validation plus OpenRouter retry, backoff, and fallback behavior. | Provider startup, model validation, retry logic, or fallback chain behavior changes. |
 | `storycraftr/llm/openrouter_discovery.py` | Dynamic OpenRouter free-model discovery, user-local cache, cache metadata, and forced refresh helpers. | OpenRouter catalog fetch, cache TTL/fallback, or model discovery diagnostics change. |
 | `storycraftr/llm/model_context.py` | Model context-window and completion-limit resolution used by prompt budgeting. | Budget computation, registry defaults, or discovery-driven context resolution changes. |
-| `storycraftr/tui/context_builder.py` | Budgeted prompt composition, deterministic pruning, and prompt diagnostics metadata. | Prompt section priority, truncation strategy, or diagnostics fields change. |
-| `storycraftr/tui/state_engine.py` | Read-only narrative state extraction plus prompt composition with diagnostics. | Narrative state parsing or prompt assembly/orchestration changes. |
-| `storycraftr/tui/app.py` | Slash-command router and writer-visible diagnostics for summary, budget, model cache, and autopilot. | TUI commands, diagnostics UX, execution modes, or session compaction behavior changes. |
+| `storycraftr/utils/paths.py` | Canonical project path resolver for internal state directories and runtime files. | Internal path resolution contract, runtime state layout, or project structure changes. |
+| `storycraftr/utils/project_lock.py` | Cross-process write-lock coordination for project mutation safety. | Lock acquisition contract, reentrancy behavior, or flock coordination changes. |
+| `storycraftr/agent/narrative_state.py` | JSON-backed structured narrative state store (characters, world facts) with prompt rendering. | Narrative state schema, JSON persistence contract, or prompt injection format changes. |
+| `storycraftr/agent/story/scene_planner.py` | Deterministic scene Goal/Conflict/Outcome planning for focused generation. | Scene planning schema, deterministic extraction logic, or prompt template changes. |
+| `storycraftr/tui/context_builder.py` | Budgeted prompt composition, deterministic pruning, section assembly, and prompt diagnostics metadata. | Prompt section priority, truncation strategy, adaptive compaction heuristics, or diagnostics fields change. |
+| `storycraftr/tui/state_engine.py` | Read-only narrative state extraction, prompt composition orchestration, and diagnostics persistence. | Narrative state parsing, canon ledger integration, or prompt assembly/orchestration changes. |
+| `storycraftr/tui/canon.py` | Chapter-scoped canon ledger helpers for writer-approved continuity constraints. | Canon ledger schema, persistence format, or chapter-scoped constraint behavior changes. |
+| `storycraftr/tui/canon_extract.py` | Conservative canon candidate extraction for hybrid review workflow. | Candidate extraction heuristics, hybrid mode integration, or pending queue behavior changes. |
+| `storycraftr/tui/canon_verify.py` | Fail-closed canon candidate verification (duplicate and negation conflict detection). | Verification logic, conflict detection rules, or autopilot commit gates changes. |
+| `storycraftr/tui/app.py` | Slash-command router, writer-visible diagnostics, execution mode persistence, and adaptive compaction orchestration. | TUI commands, diagnostics UX, execution modes, session compaction behavior, or canon continuity commands change. |
 | `storycraftr/subagents/jobs.py` | Background sub-agent lifecycle including cooldown and retry for model exhaustion. | Job lifecycle, retry checkpoints, or cooldown metadata changes. |
+| `tests/unit/test_narrative_state.py` | Regression coverage for narrative state store CRUD operations and prompt rendering. | `storycraftr/agent/narrative_state.py` behavior changes. |
+| `tests/unit/test_scene_planner.py` | Regression coverage for deterministic scene planning extraction. | `storycraftr/agent/story/scene_planner.py` behavior changes. |
 | `tests/unit/test_openrouter_discovery.py` | Regression coverage for discovery cache, metadata, and free-model parsing behavior. | `storycraftr/llm/openrouter_discovery.py` behavior changes. |
-| `tests/unit/test_tui_app.py` | Regression coverage for TUI slash commands and diagnostics surfaces. | `storycraftr/tui/app.py` behavior changes. |
+| `tests/unit/test_tui_app.py` | Regression coverage for TUI slash commands, diagnostics surfaces, canon commands, and adaptive compaction. | `storycraftr/tui/app.py` behavior changes. |
+| `tests/unit/test_tui_state_engine.py` | Regression coverage for state engine prompt composition and diagnostics persistence. | `storycraftr/tui/state_engine.py` behavior changes. |
+| `tests/unit/test_tui_context_builder.py` | Regression coverage for budgeted prompt assembly and section pruning. | `storycraftr/tui/context_builder.py` behavior changes. |
+| `tests/unit/test_tui_canon.py` | Regression coverage for canon ledger persistence and chapter-scoped operations. | `storycraftr/tui/canon.py` behavior changes. |
+| `tests/unit/test_tui_canon_extract.py` | Regression coverage for canon candidate extraction in hybrid mode. | `storycraftr/tui/canon_extract.py` behavior changes. |
+| `tests/unit/test_tui_canon_verify.py` | Regression coverage for fail-closed canon verification (duplicate and conflict detection). | `storycraftr/tui/canon_verify.py` behavior changes. |
+| `tests/unit/test_project_lock.py` | Regression coverage for project write lock reentrancy and cross-process coordination. | `storycraftr/utils/project_lock.py` behavior changes. |
 
 ## Update Rules By Change Type
 
@@ -154,3 +169,13 @@ configuration examples, or public workflow descriptions.
 - Use the deep reference only when subsystem depth is actually needed.
 - `AGENTS.md` still references `behavior.txt`, but the runtime and project
   templates use project-local behavior files under `behaviors/default.txt`.
+
+### Recent Architecture Context
+
+- **Canon Guard**: Chapter-scoped fact ledger (`outline/canon.yml`) with duplicate/negation conflict detection; fail-closed verification gates autopilot commits.
+- **Narrative State**: Structured character/world state (`outline/narrative_state.json`) with prompt injection via `[Structured Narrative State]` section.
+- **Adaptive Compaction**: Rolling session summaries preserve high-signal narrative anchors (scene boundaries, canon-relevant turns, reveals, entity introductions).
+- **TUI Execution Modes**: `manual`, `hybrid`, `autopilot` with persistence in `sessions/session.json`; `/autopilot` is bounded and mode-gated.
+- **Project Write Locking**: Cross-process coordination via `project_write_lock` (reentrant within thread, file-locked across processes).
+- **Path Resolution**: Use `storycraftr/utils/paths.py::resolve_project_paths()` for all internal state paths; never hardcode `.storycraftr/` literals.
+- **Prompt Diagnostics**: `PromptDiagnostics` metadata tracks included/pruned/truncated sections with token estimates for observability without generation changes.

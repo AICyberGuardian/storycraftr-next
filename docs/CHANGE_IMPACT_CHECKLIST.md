@@ -2,6 +2,101 @@
 
 ## Change History
 
+### 2026-03-07 — DSVL Phase 2C: Version-aware prompt injection
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Modified `render_prompt_block()` in `storycraftr/agent/narrative_state.py` to add version metadata header.
+	- Header format: `[Narrative State v{version} as of {timestamp}]` prepended to JSON payload.
+	- Version and timestamp extracted from `NarrativeStateSnapshot.version` and `NarrativeStateSnapshot.last_modified`.
+	- Header is not counted toward `max_chars` truncation limit (truncation applies to JSON only).
+	- Empty state continues to return empty string with no header (backward compatible).
+	- LLMs can now reference specific narrative state versions in responses for continuity tracking.
+	- Added 5 comprehensive tests to `tests/unit/test_narrative_state.py`:
+		- test_render_prompt_block_includes_version_header: Validates header presence
+		- test_render_prompt_block_header_format: Validates exact format
+		- test_render_prompt_block_empty_returns_empty_string: Validates empty state
+		- test_render_prompt_block_truncation_preserves_header: Validates truncation behavior
+		- test_render_prompt_block_version_increments: Validates version tracking
+	- Updated `CHANGELOG.md` with DSVL Phase 2C entry.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no LLM provider changes, no sub-agent lifecycle changes, no vector-store changes, no VS Code event schema changes, and no security-tooling policy changes). Pure prompt enhancement (additive metadata) with no breaking changes to existing prompt format.
+
+### 2026-03-07 — DSVL Phase 2B: TUI audit trail integration
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Modified `storycraftr/tui/app.py` to add `/state audit` command with subcommand routing pattern.
+	- Changed `_dispatch_slash_command()` to route `/state` to `_handle_state_command(args)` dispatcher.
+	- Added `_handle_state_command()` method to route to `_build_state_text()` (default) or `_build_state_audit_text()` (audit subcommand).
+	- Implemented `_build_state_audit_text(args)` method (~75 lines) for audit history query and formatting.
+	- Filter support: `limit=<n>` for result count, `entity=<id>` for entity filtering, `type=<character|location|plot_thread>` for entity type filtering.
+	- Display format: entry number, timestamp, operation type, actor, patch operation count, changeset modification count, state version.
+	- Error handling: validates filter arguments, checks for disabled audit logging, handles empty audit logs.
+	- Updated TUI help text to include `/state audit [limit=<n>] [entity=<id>] [type=<type>]` command with filter examples.
+	- Added 11 comprehensive tests to `tests/unit/test_tui_app.py` covering all filter combinations, error cases, and disabled audit scenarios.
+	- Updated `CHANGELOG.md` with DSVL Phase 2B entry.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no LLM provider changes, no sub-agent lifecycle changes, no vector-store changes, no VS Code event schema changes, and no security-tooling policy changes). Pure TUI enhancement (display-only) with no core behavior or data model changes.
+
+### 2026-03-07 — DSVL Phase 2A: Persistent audit trail logging
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Created `storycraftr/agent/state_audit.py` with `AuditEntry` frozen dataclass and `StateAuditLog` class.
+	- `AuditEntry` contains: timestamp, operation_type (Literal), actor, patch (optional), changeset (optional), metadata.
+	- `StateAuditLog` provides append-only JSONL persistence in `{book_path}/outline/narrative_audit.jsonl`.
+	- Implemented `append_entry()` for atomic line append (thread-safe on POSIX).
+	- Implemented `query_entries()` with filters: entity_id, entity_type, operation_type, after, before, limit.
+	- Integrated audit logging into `NarrativeStateStore.apply_patch()` with lazy initialization.
+	- Added `enable_audit` flag to `NarrativeStateStore.__init__()` (default: True).
+	- Added `actor` parameter to `apply_patch()` for audit trail attribution.
+	- Created `tests/unit/test_state_audit.py` with 16 comprehensive tests including integration tests.
+	- Updated `CHANGELOG.md` with DSVL Phase 2A entry.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no LLM provider changes, no sub-agent lifecycle changes, no vector-store changes, no VS Code event schema changes, and no security-tooling policy changes). Audit logging is opt-in (enabled by default) and logs to project-local JSONL files with no external dependencies.
+
+### 2026-03-07 — DSVL Phase 1C: Rule-governed patch validation and application
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `StateValidationError` exception, `PatchOperation`, and `StatePatch` dataclasses to `storycraftr/agent/narrative_state.py`.
+	- Implemented `validate_patch()` method with rule enforcement: dead characters cannot change location, location references must exist, cannot remove locations with characters, cannot add duplicate entities.
+	- Implemented `apply_patch()` method with atomic multi-operation application, version increments, and timestamp updates.
+	- Added internal validators: `_validate_character_patch()`, `_validate_location_patch()`, `_validate_plot_thread_patch()`.
+	- Added internal apply methods: `_apply_character_operation()`, `_apply_location_operation()`, `_apply_plot_thread_operation()`.
+	- Created `tests/unit/test_patch_validation.py` with 14 comprehensive patch validation tests.
+	- Updated `CHANGELOG.md` with DSVL Phase 1C entry.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no LLM provider changes, no sub-agent lifecycle changes, no vector-store changes, no VS Code event schema changes, and no security-tooling policy changes). Pure additive module with no runtime integration yet (pending Phase 2B).
+
+### 2026-03-07 — DSVL Phase 1B: Deterministic state diff engine
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Created `storycraftr/agent/state_diff.py` with `DiffType` enum, `FieldDiff`, `EntityDiff`, and `StateChangeset` dataclasses.
+	- Implemented `compute_state_diff()` function with deterministic (sorted) ordering for characters, locations, plot threads.
+	- Added field-level change tracking (ADDED, REMOVED, MODIFIED, UNCHANGED).
+	- Added entity-level diff detection across all state entity types.
+	- Added world dict change detection.
+	- Created `tests/unit/test_state_diff.py` with 16 comprehensive diff detection tests.
+	- Updated `CHANGELOG.md` with DSVL Phase 1B entry.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no LLM provider changes, no sub-agent lifecycle changes, no vector-store changes, no VS Code event schema changes, and no security-tooling policy changes). Pure additive module with no runtime integration yet (pending Phase 1C/2B).
+
+### 2026-03-07 — DSVL Phase 1A: Validated narrative state schema models
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added Pydantic validation models in `storycraftr/agent/narrative_state.py`: `CharacterState`, `LocationState`, `PlotThreadState` with field validators and model validators.
+	- Replaced frozen dataclass `NarrativeStateSnapshot` with validated Pydantic model supporting `characters`, `locations`, `plot_threads`, and legacy `world` fields.
+	- Updated `NarrativeStateStore.load()` with validation-first loading and legacy fallback migration via `_load_legacy()`.
+	- Updated `NarrativeStateStore.save()` to serialize Pydantic models using `model_dump()`.
+	- Updated `NarrativeStateStore.upsert_character()` with validation and graceful failure handling.
+	- Updated `NarrativeStateStore.render_prompt_block()` to serialize validated models.
+	- Created `tests/unit/test_narrative_state_validation.py` with 30 comprehensive validation tests.
+	- Updated existing tests in `tests/unit/test_narrative_state.py` to work with Pydantic models.
+	- Updated `CHANGELOG.md` with DSVL Phase 1A entry.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no LLM provider changes, no sub-agent lifecycle changes, no vector-store changes, no VS Code event schema changes, and no security-tooling policy changes). Maintained backward compatibility with existing narrative state files through legacy loading support.
+
+### 2026-03-07 — Updated contributor-reference.md with recent runtime contract files
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `docs/contributor-reference.md` "High-Value Runtime Contract Files" section to include recently added modules: `storycraftr/utils/paths.py`, `storycraftr/utils/project_lock.py`, `storycraftr/agent/narrative_state.py`, `storycraftr/agent/story/scene_planner.py`, canon-related files (`canon.py`, `canon_extract.py`, `canon_verify.py`), and their corresponding test files.
+	- Updated descriptions to reflect recent architecture features: Canon Guard, narrative state, adaptive compaction, TUI execution modes, and project write locking.
+	- Added "Recent Architecture Context" subsection to "Notes For AI Agents" section to highlight key architectural additions for quick onboarding.
+	- Enhanced runtime contract file descriptions to mention specific behaviors like fail-closed verification, adaptive compaction heuristics, and diagnostics persistence.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no code changes, only documentation catalog updates).
+
 ### 2026-03-07 — Adaptive compaction + canon diagnostics + structured narrative-state prompts
 - **Sections reviewed:** 3 (LLM Configuration & Routing), 8 (Documentation & Versioning)
 - **Impact:**

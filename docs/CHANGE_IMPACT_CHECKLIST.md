@@ -7,6 +7,7 @@
 - **Impact:**
 	- Updated `tests/unit/test_tui_app.py::test_on_input_submitted_warns_on_canon_conflicts` to monkeypatch `app._analyze_canon_conflicts` with a deterministic local report, preventing unintended external provider calls during test execution.
 	- Updated the same test to monkeypatch `app._analyze_state_extraction_issues` with a deterministic local report, preventing state-critic regeneration code paths from reaching provider-authenticated runtime dependencies in CI.
+	- Updated the same test to monkeypatch `app._post_generation_hooks` to a canon-only path (`_warn_about_canon_conflicts`) so memory persistence/state extraction side effects do not introduce external runtime dependencies in this unit-level assertion.
 	- Verified failure reproduction and fix against the previously failing CI path (`pytest` job) and reran full suite locally.
 - **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (test-only change; no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
 

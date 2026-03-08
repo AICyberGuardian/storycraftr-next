@@ -1362,6 +1362,12 @@ def test_on_input_submitted_warns_on_canon_conflicts(tmp_path, monkeypatch) -> N
         _fake_analyze_state_extraction_issues,
     )
 
+    async def _fake_post_generation_hooks(*, user_prompt: str, response: str) -> None:
+        del user_prompt
+        await app._warn_about_canon_conflicts(response)
+
+    monkeypatch.setattr(app, "_post_generation_hooks", _fake_post_generation_hooks)
+
     event = SimpleNamespace(input=_FakeInput("Continue scene"), value="Continue scene")
     asyncio.run(app.on_input_submitted(event))
 

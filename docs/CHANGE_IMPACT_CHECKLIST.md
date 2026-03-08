@@ -2,6 +2,17 @@
 
 ## Change History
 
+### 2026-03-07 — Phase 3: deterministic state extraction integration
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/agent/state_extractor.py` for deterministic prose-to-patch extraction (character movement and inventory-drop events).
+	- Extended shared services in `storycraftr/services/control_plane.py` with `state_extract_impl` for CLI/TUI parity.
+	- Added `storycraftr state extract --text "..." [--apply]` in `storycraftr/cmd/control_plane.py`.
+	- Updated `storycraftr/tui/app.py` to apply deterministic extraction in post-generation hooks and added `/state extract-last [apply]` preview/apply command.
+	- Added regression coverage in `tests/unit/test_state_extractor.py`, `tests/unit/test_control_plane_service.py`, `tests/test_cli.py`, and `tests/unit/test_tui_app.py`.
+	- Updated docs: `README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/contributor-reference.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `release_notes.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider-routing contract changes, no sub-agent lifecycle contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Phase 2B: CLI/TUI service unification for control-plane runtime logic
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

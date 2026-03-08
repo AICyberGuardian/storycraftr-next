@@ -1414,6 +1414,10 @@ def test_state_command_dispatch_to_subcommands(tmp_path) -> None:
     result = asyncio.run(app._dispatch_slash_command("/state audit"))
     assert "Audit Trail" in result or "No audit entries" in result
 
+    # Test extract-last without prior assistant output
+    result = asyncio.run(app._dispatch_slash_command("/state extract-last"))
+    assert "No assistant response available" in result
+
     # Test invalid subcommand
     result = asyncio.run(app._dispatch_slash_command("/state invalid"))
     assert "Usage:" in result
@@ -1428,3 +1432,17 @@ def test_state_audit_help_text_updated(tmp_path) -> None:
 
     assert "/state" in help_text
     assert "/state audit" in help_text
+    assert "/state extract-last" in help_text
+
+
+def test_state_extract_last_preview_and_apply(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app._last_assistant_response = "Elias entered the bridge."
+
+    preview = asyncio.run(app._dispatch_slash_command("/state extract-last"))
+    assert "State Extraction" in preview
+    assert "Applied: no (preview mode)" in preview
+
+    applied = asyncio.run(app._dispatch_slash_command("/state extract-last apply"))
+    assert "Applied: yes" in applied

@@ -42,6 +42,7 @@ StoryCraftr-Next is a local-first writing platform with:
 - `storycraftr/llm/model_context.py`: dynamic-first model limit resolution for budgeting (OpenRouter) plus conservative in-repo fallback registry.
 - `storycraftr/llm/credentials.py`: credential resolution order and keyring helper.
 - `storycraftr/llm/embeddings.py`: embedding client construction.
+- `storycraftr/agent/state_extractor.py`: deterministic prose-to-state extraction that emits validation-ready `StatePatch` proposals for runtime state updates.
 - `storycraftr/vectorstores/chroma.py`: persistent Chroma setup.
 - `storycraftr/subagents/jobs.py`: sub-agent job manager lifecycle.
 - `storycraftr/tui/app.py`: Textual single-screen command center and slash-command router.

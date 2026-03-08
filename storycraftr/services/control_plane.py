@@ -6,6 +6,7 @@ from pathlib import Path
 
 from storycraftr.agent.execution_mode import ExecutionMode, parse_execution_mode
 from storycraftr.agent.narrative_state import NarrativeStateStore
+from storycraftr.agent.state_extractor import StateExtractionResult, extract_state_patch
 from storycraftr.chat.session import SessionManager
 from storycraftr.tui.canon_extract import extract_canon_candidates
 from storycraftr.tui.canon_verify import verify_candidate_against_canon
@@ -38,6 +39,15 @@ class StateAuditResult:
 
     enabled: bool
     entries: list
+
+
+@dataclass(frozen=True)
+class StateExtractResult:
+    """Shared state extraction result for CLI and TUI surfaces."""
+
+    extracted: StateExtractionResult
+    applied: bool
+    applied_version: int | None
 
 
 def _resolve_book_path(book_path: str | Path | None) -> str:
@@ -168,4 +178,50 @@ def canon_check_impl(
         checked_candidates=len(candidate_texts),
         failures=failures,
         rows=rows,
+    )
+
+
+def state_extract_impl(
+    book_path: str | Path | None,
+    *,
+    text: str,
+    apply_patch: bool,
+    actor: str = "state-extractor",
+) -> StateExtractResult:
+    """Extract deterministic state patch proposal and optionally apply it."""
+
+    store = NarrativeStateStore(_resolve_book_path(book_path))
+    snapshot = store.load()
+    extracted = extract_state_patch(text, snapshot=snapshot)
+
+    if not apply_patch or not extracted.patch.operations:
+        return StateExtractResult(
+            extracted=extracted,
+            applied=False,
+            applied_version=None,
+        )
+
+    updated = None
+    # Apply one operation at a time so strict validators can resolve
+    # dependencies (e.g., add location before assigning character location).
+    for operation in extracted.patch.operations:
+        updated = store.apply_patch(
+            type(extracted.patch)(
+                operations=[operation],
+                description=extracted.patch.description,
+            ),
+            actor=actor,
+        )
+
+    if updated is None:
+        return StateExtractResult(
+            extracted=extracted,
+            applied=False,
+            applied_version=None,
+        )
+
+    return StateExtractResult(
+        extracted=extracted,
+        applied=True,
+        applied_version=updated.version,
     )

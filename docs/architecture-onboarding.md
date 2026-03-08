@@ -67,6 +67,7 @@ explicit attributes.
 - `storycraftr/integrations/vscode.py`: JSONL event emission.
 - `storycraftr/agent/execution_mode.py`: shared execution-mode policy model (`ExecutionMode`, `ModeConfig`) and policy helpers for runtime gates.
 - `storycraftr/agent/narrative_state.py`: Pydantic-validated narrative state store with character, location, and plot-thread entities. Includes patch validation and application, and version-aware prompt rendering with metadata headers (DSVL Phase 1A-1C, 2C).
+- `storycraftr/agent/state_extractor.py`: deterministic prose-to-state extraction that emits validation-ready `StatePatch` proposals for runtime state updates.
 - `storycraftr/agent/state_audit.py`: append-only audit trail logging of all state mutations with timestamped entries, queryable filters by entity/type, and actor attribution (DSVL Phase 2A).
 - `storycraftr/tui/app.py`: Textual terminal command center and slash-command router with `/state audit` subcommand for audit history inspection (DSVL Phase 2B).
 - `storycraftr/tui/session.py`: TUI runtime-session state serialization (`mode_config`, `autopilot_turns_remaining`) with backward-compatible runtime metadata handling.

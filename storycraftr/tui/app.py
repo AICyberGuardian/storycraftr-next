@@ -41,6 +41,7 @@ from storycraftr.services.control_plane import (
     mode_set_impl,
     mode_show_impl,
     state_audit_impl,
+    state_extract_impl,
 )
 from storycraftr.tui.openrouter_models import (
     OpenRouterModel,
@@ -330,9 +331,41 @@ class TuiApp(App[None]):
         """Run mode-gated post-generation policy hooks."""
 
         _ = user_prompt  # Reserved for future structured policy decisions.
+        await self._apply_extracted_state_patch(response)
         await self._warn_about_canon_conflicts(response)
         if self.mode_config.mode is ExecutionMode.HYBRID:
             await self._maybe_queue_hybrid_canon_candidates(response)
+
+    async def _apply_extracted_state_patch(self, response: str) -> None:
+        """Apply deterministic state extraction patch after generation."""
+
+        if not response.strip():
+            return
+
+        try:
+            result = await asyncio.to_thread(
+                state_extract_impl,
+                str(self.book_path),
+                text=response,
+                apply_patch=True,
+                actor="tui-state-extractor",
+            )
+        except Exception as exc:
+            self.query_one("#output", RichLog).write(
+                "[yellow]State Extractor:[/yellow] " f"{escape(str(exc))}"
+            )
+            return
+
+        op_count = len(result.extracted.patch.operations)
+        if op_count <= 0:
+            return
+
+        version = result.applied_version if result.applied_version is not None else "?"
+        self.query_one("#output", RichLog).write(
+            "[cyan]State Extractor:[/cyan] "
+            f"applied {op_count} patch operation(s) "
+            f"(state version {version})."
+        )
 
     def _invoke_assistant_sync(self, prompt: str) -> str:
         if self.assistant is None or self.thread_id is None:
@@ -696,6 +729,7 @@ class TuiApp(App[None]):
                 "/status",
                 "/state",
                 "/state audit [limit=<n>] [entity=<id>] [type=<type>]",
+                "/state extract-last [apply]",
                 "/summary [clear]",
                 "/context [summary|budget|models|conflicts|clear-summary|refresh-models]",
                 "/mode [manual|hybrid|autopilot [max_turns]]",
@@ -873,8 +907,52 @@ class TuiApp(App[None]):
         subcommand = args[0].lower()
         if subcommand == "audit":
             return await asyncio.to_thread(self._build_state_audit_text, args[1:])
+        if subcommand in {"extract-last", "extract_last", "extractlast"}:
+            if not self._last_assistant_response.strip():
+                return "No assistant response available. Generate output first."
 
-        return "Usage: /state [audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]]"
+            should_apply = bool(args[1:]) and args[1].lower() == "apply"
+            try:
+                result = await asyncio.to_thread(
+                    state_extract_impl,
+                    str(self.book_path),
+                    text=self._last_assistant_response,
+                    apply_patch=should_apply,
+                    actor="tui-state-extractor-manual",
+                )
+            except Exception as exc:
+                return f"State extraction failed: {exc}"
+
+            lines = [
+                "State Extraction",
+                f"- Operations: {len(result.extracted.patch.operations)}",
+                f"- Events: {len(result.extracted.events)}",
+            ]
+            if result.extracted.patch.operations:
+                lines.append("- Patch operations:")
+                for operation in result.extracted.patch.operations:
+                    lines.append(
+                        "  "
+                        f"* {operation.operation} {operation.entity_type}:{operation.entity_id}"
+                    )
+            else:
+                lines.append("- Patch operations: <none>")
+
+            if should_apply:
+                if result.applied:
+                    lines.append(f"- Applied: yes (version {result.applied_version})")
+                else:
+                    lines.append("- Applied: no (no operations extracted)")
+            else:
+                lines.append("- Applied: no (preview mode)")
+
+            return "\n".join(lines)
+
+        return (
+            "Usage: /state "
+            "[audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]"
+            "|extract-last [apply]]"
+        )
 
     async def _handle_context_command(self, args: list[str]) -> str:
         """Dispatch /context diagnostics subcommands."""

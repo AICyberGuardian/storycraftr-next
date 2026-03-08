@@ -4,6 +4,7 @@
 
 ### Added
 
+- **DSVL Phase 3: Deterministic State Extraction Runtime Loop** — Added `storycraftr/agent/state_extractor.py` with deterministic prose-to-patch extraction for character movement and inventory drop events. Integrated shared extraction service (`state_extract_impl`) into both CLI and TUI surfaces so generation can produce validated `StatePatch` proposals and apply them through the existing narrative-state validation/audit pipeline.
 - **Click control-plane command groups** — Added first-class grouped CLI surfaces for automation and headless workflows: `storycraftr tui`, `storycraftr state show|validate|audit`, `storycraftr canon check`, `storycraftr mode show|set|stop`, and `storycraftr models list|refresh`. These commands reuse existing runtime services (`NarrativeStateStore`, canon verification, runtime session metadata, OpenRouter discovery) so CLI and TUI behavior stay aligned.
 - **CLI/TUI control-plane service unification** — Added `storycraftr/services/control_plane.py` as a shared service layer for runtime mode controls, canon verification checks, and state-audit queries. Both Click commands (`storycraftr/cmd/control_plane.py`) and Textual slash commands (`storycraftr/tui/app.py`) now call shared implementations (`mode_show_impl`, `mode_set_impl`, `state_audit_impl`, `canon_check_impl`) to prevent behavior drift.
 - **Execution Mode Control Plane** — Added shared execution-mode policy model (`storycraftr/agent/execution_mode.py`) with `ExecutionMode` and `ModeConfig`, plus TUI runtime session serialization (`storycraftr/tui/session.py`) for `mode_config` and `autopilot_turns_remaining`. Added `/stop` command and enhanced `/mode` command to support autopilot turn limits (`/mode autopilot <max_turns>`). Generation now flows through mode-aware policy gates with one-time hybrid auto-regeneration on canon conflicts and bounded autopilot turn tracking.
@@ -16,6 +17,8 @@
 
 ### Changed
 
+- Added `storycraftr state extract --text "..." [--apply]` for deterministic state patch proposal/JSON output and optional application.
+- Added TUI `/state extract-last [apply]` command and automatic post-generation state extraction application in `storycraftr/tui/app.py`.
 - Updated `docs/contributor-reference.md` with comprehensive runtime contract file catalog reflecting recent architecture: added Canon Guard files (`canon.py`, `canon_extract.py`, `canon_verify.py`), narrative state module (`narrative_state.py`), project locking (`project_lock.py`), path resolution (`paths.py`), scene planner, and their corresponding test files. Enhanced "Notes For AI Agents" with Canon Guard, narrative state, adaptive compaction, TUI execution modes, project write locking, and prompt diagnostics context.
 - Added Phase A Textual TUI ergonomics: `/clear` output reset command, `ctrl+l` focus mode toggle, Up/Down command history navigation, and inline slash-command status markers (`[Running]`, `[Done]`, `[Failed]`).
 - Added TUI workflow guidance commands: `/progress` for file-backed checkpoint status and `/wizard` (`/wizard next`) for canonical next-step recommendations based on project artifacts.

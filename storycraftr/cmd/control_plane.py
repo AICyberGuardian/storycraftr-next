@@ -17,6 +17,7 @@ from storycraftr.services.control_plane import (
     mode_set_impl,
     mode_show_impl,
     state_audit_impl,
+    state_extract_impl,
 )
 
 console = Console()
@@ -154,6 +155,86 @@ def state_show(book_path: str | None, output_format: str) -> None:
         return
 
     click.echo(store.render_prompt_block())
+
+
+@state.command(name="extract")
+@click.option("--book-path", type=click.Path(), required=False)
+@click.option("--text", type=str, required=False, help="Text to extract state from.")
+@click.option(
+    "--file",
+    "file_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=False,
+)
+@click.option("--apply", "apply_patch", is_flag=True, default=False)
+@click.option(
+    "--format", "output_format", type=click.Choice(["text", "json"]), default="text"
+)
+def state_extract(
+    book_path: str | None,
+    text: str | None,
+    file_path: Path | None,
+    apply_patch: bool,
+    output_format: str,
+) -> None:
+    """Extract deterministic state patch proposal from prose and optionally apply it."""
+
+    payload = text
+    if file_path is not None:
+        payload = file_path.read_text(encoding="utf-8")
+    elif payload is None and not sys.stdin.isatty():
+        payload = sys.stdin.read().strip()
+
+    if not payload:
+        raise click.ClickException("Provide --text, --file, or piped input.")
+
+    try:
+        result = state_extract_impl(
+            _resolve_book_path(book_path),
+            text=payload,
+            apply_patch=apply_patch,
+            actor="cli-state-extractor",
+        )
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if output_format == "json":
+        click.echo(
+            json.dumps(
+                {
+                    "operation_count": len(result.extracted.patch.operations),
+                    "events": [event.__dict__ for event in result.extracted.events],
+                    "patch": result.extracted.patch.model_dump(),
+                    "applied": result.applied,
+                    "applied_version": result.applied_version,
+                },
+                indent=2,
+            )
+        )
+        return
+
+    lines = [
+        "State Extraction",
+        f"- Operations: {len(result.extracted.patch.operations)}",
+        f"- Events: {len(result.extracted.events)}",
+    ]
+    if result.extracted.patch.operations:
+        lines.append("- Patch operations:")
+        for operation in result.extracted.patch.operations:
+            lines.append(
+                "  "
+                f"* {operation.operation} {operation.entity_type}:{operation.entity_id}"
+            )
+    else:
+        lines.append("- Patch operations: <none>")
+
+    if apply_patch:
+        if result.applied:
+            lines.append(f"- Applied: yes (version {result.applied_version})")
+        else:
+            lines.append("- Applied: no (no operations extracted)")
+
+    click.echo("\n".join(lines))
 
 
 @click.group(name="canon")

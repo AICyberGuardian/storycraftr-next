@@ -5,6 +5,7 @@ from storycraftr.services.control_plane import (
     mode_set_impl,
     mode_show_impl,
     state_audit_impl,
+    state_extract_impl,
 )
 from storycraftr.tui.canon import add_fact
 
@@ -77,3 +78,23 @@ def test_canon_check_impl_flags_conflict(tmp_path) -> None:
     assert result.checked_candidates >= 1
     assert result.failures >= 1
     assert any(row.reason == "negation-conflict" for row in result.rows)
+
+
+def test_state_extract_impl_can_apply_patch(tmp_path) -> None:
+    result = state_extract_impl(
+        tmp_path,
+        text="Elias entered the bridge.",
+        apply_patch=True,
+        actor="service-extractor-test",
+    )
+
+    assert result.applied is True
+    assert result.applied_version is not None
+    assert len(result.extracted.patch.operations) >= 1
+
+    from storycraftr.agent.narrative_state import NarrativeStateStore
+
+    store = NarrativeStateStore(str(tmp_path))
+    snapshot = store.load()
+    assert "elias" in snapshot.characters
+    assert snapshot.characters["elias"].location == "bridge"

@@ -416,3 +416,25 @@ def test_state_audit_json_output_reads_entries(tmp_path) -> None:
 
     assert result.exit_code == 0, result.output
     assert '"actor": "test-runner"' in result.output
+
+
+def test_state_extract_command_outputs_patch_summary(tmp_path) -> None:
+    runner = CliRunner()
+    project = tmp_path / "demo"
+    project.mkdir()
+
+    result = runner.invoke(
+        cli,
+        [
+            "state",
+            "extract",
+            "--book-path",
+            str(project),
+            "--text",
+            "Elias entered the bridge.",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "State Extraction" in result.output
+    assert "Operations:" in result.output

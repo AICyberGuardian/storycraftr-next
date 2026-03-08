@@ -1328,6 +1328,24 @@ def test_on_input_submitted_warns_on_canon_conflicts(tmp_path, monkeypatch) -> N
 
     monkeypatch.setattr(app, "_run_assistant_turn", _fake_turn)
 
+    async def _fake_analyze_canon_conflicts(*, response: str, chapter: int):
+        assert "Mira is not the ship navigator." in response
+        return {
+            "chapter": chapter,
+            "checked_candidates": 1,
+            "duplicate_count": 0,
+            "negation_conflict_count": 1,
+            "conflicts": [
+                {
+                    "reason": "negation conflict",
+                    "candidate": "Mira is not the ship navigator.",
+                    "conflicting_fact": "Mira is the ship navigator.",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(app, "_analyze_canon_conflicts", _fake_analyze_canon_conflicts)
+
     event = SimpleNamespace(input=_FakeInput("Continue scene"), value="Continue scene")
     asyncio.run(app.on_input_submitted(event))
 

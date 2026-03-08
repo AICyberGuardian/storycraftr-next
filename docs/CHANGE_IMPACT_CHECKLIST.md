@@ -2,6 +2,13 @@
 
 ## Change History
 
+### 2026-03-08 — CI stabilization: deterministic canon-conflict warning test
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `tests/unit/test_tui_app.py::test_on_input_submitted_warns_on_canon_conflicts` to monkeypatch `app._analyze_canon_conflicts` with a deterministic local report, preventing unintended external provider calls during test execution.
+	- Verified failure reproduction and fix against the previously failing CI path (`pytest` job) and reran full suite locally.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (test-only change; no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Phase 6B: `/context memory explain` item-level diagnostics
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

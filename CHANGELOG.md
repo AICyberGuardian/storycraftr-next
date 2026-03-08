@@ -76,7 +76,7 @@
   - Added dedicated sub-agent command event-contract tests (`tests/unit/test_chat_commands.py`) to lock event names and payload schemas for `sub_agent.roles`, `sub_agent.status`, `sub_agent.queued`, and `sub_agent.error`.
   - Added vector-store integrity regressions (`tests/unit/test_agents_vectorstore_integrity.py`) for empty-corpus failure handling, deterministic `force=True` rebuild behavior, and non-empty-store reindex bypass in `LangChainAssistant.ensure_vector_store`.
   - Removed import-time credential loading side effect in `storycraftr/cli.py` by introducing lazy one-time bootstrap (`_ensure_local_credentials_loaded`) executed from the Click group callback; added startup regressions in `tests/unit/test_cli_startup.py`.
-- Current development target set to `v0.17` (`0.17.0`).
+- Current development target set to `v0.18` (`0.18.0-dev`).
 - CI dependency installation modernized for speed and determinism:
   - `.github/workflows/pytest.yml` now uses `astral-sh/setup-uv@v5` native cache, validates `poetry export` availability, exports requirements from `poetry.lock`, installs with `uv pip`, and runs `npm ci` before extension compile.
   - `.github/workflows/pytest.yml` `embeddings-smoke` now uses the same `poetry export` + `uv pip` flow for embeddings extras.

@@ -9,7 +9,9 @@ class ScenePlan:
 
     goal: str
     conflict: str
+    stakes: str
     outcome: str
+    ending_beat: str
 
 
 def plan_next_scene(
@@ -25,15 +27,27 @@ def plan_next_scene(
 
     if active_arc and active_arc.lower() != "unknown":
         conflict = f"Preserve tension consistent with {active_arc}."
+        stakes = f"Failure should visibly damage momentum in {active_arc}."
     else:
         conflict = "Preserve narrative tension and continuity with prior beats."
+        stakes = "Failure should cost the protagonist trust, leverage, or time."
 
     if active_scene and active_scene.lower() != "unknown":
         outcome = f"Resolve this turn with a concrete shift in scene '{active_scene}'."
+        ending_beat = (
+            f"Close with an actionable pivot that changes '{active_scene}' dynamics."
+        )
     else:
         outcome = "Resolve this turn with a concrete shift and clear next beat."
+        ending_beat = "Close with an actionable pivot that sets the next scene."
 
-    return ScenePlan(goal=goal, conflict=conflict, outcome=outcome)
+    return ScenePlan(
+        goal=goal,
+        conflict=conflict,
+        stakes=stakes,
+        outcome=outcome,
+        ending_beat=ending_beat,
+    )
 
 
 def _truncate(text: str, limit: int) -> str:

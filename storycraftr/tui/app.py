@@ -143,6 +143,7 @@ class TuiApp(App[None]):
         self._last_state_extraction_report: dict[str, Any] | None = None
         self._load_mode_session_state()
         self._load_session_summary_state()
+        self._last_memory_persist_error: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -174,6 +175,7 @@ class TuiApp(App[None]):
             )
             user_input.disabled = True
             return
+        self.state_engine.configure(self.config)
 
         self.model_override = self.config.llm_model
         output.write(
@@ -386,7 +388,15 @@ class TuiApp(App[None]):
     async def _post_generation_hooks(self, *, user_prompt: str, response: str) -> None:
         """Run mode-gated post-generation policy hooks."""
 
-        _ = user_prompt  # Reserved for future structured policy decisions.
+        try:
+            await asyncio.to_thread(
+                self.state_engine.record_turn_memory,
+                user_prompt=user_prompt,
+                assistant_response=response,
+            )
+        except Exception as exc:
+            # Long-term memory is best-effort and must not block generation flow.
+            self._last_memory_persist_error = str(exc)
         await self._apply_extracted_state_patch(response)
         await self._warn_about_canon_conflicts(response)
         if self.mode_config.mode is ExecutionMode.HYBRID:
@@ -792,7 +802,7 @@ class TuiApp(App[None]):
                 "/state audit [limit=<n>] [entity=<id>] [type=<type>]",
                 "/state extract-last [apply]",
                 "/summary [clear]",
-                "/context [summary|budget|models|conflicts|clear-summary|refresh-models]",
+                "/context [summary|budget|models|memory|conflicts|clear-summary|refresh-models|refresh-memory]",
                 "/mode [manual|hybrid|autopilot [max_turns]]",
                 "/stop",
                 "/clear",
@@ -1040,13 +1050,20 @@ class TuiApp(App[None]):
             return self._build_context_budget_text()
         if subcommand == "models":
             return await asyncio.to_thread(self._build_context_models_text, False)
+        if subcommand == "memory":
+            return self._build_context_memory_text()
         if subcommand == "conflicts":
             return self._build_context_conflicts_text()
         if subcommand == "clear-summary":
             return self._handle_summary_command(["clear"])
         if subcommand == "refresh-models":
             return await asyncio.to_thread(self._build_context_models_text, True)
-        return "Usage: /context [summary|budget|models|conflicts|clear-summary|refresh-models]"
+        if subcommand == "refresh-memory":
+            return self._build_context_memory_text(refreshed=True)
+        return (
+            "Usage: /context "
+            "[summary|budget|models|memory|conflicts|clear-summary|refresh-models|refresh-memory]"
+        )
 
     async def _build_context_overview_text(self) -> str:
         """Render compact cross-system diagnostics in one dashboard view."""
@@ -1079,10 +1096,17 @@ class TuiApp(App[None]):
         model_cache_status = (
             f"{cache.cache_status} ({cache.free_model_count} free models, {age})"
         )
+        memory_diag = self.state_engine.memory_diagnostics()
+        memory_status = (
+            f"enabled ({memory_diag.get('provider', 'unknown')})"
+            if memory_diag.get("enabled")
+            else f"disabled ({memory_diag.get('reason') or 'unavailable'})"
+        )
 
         lines = [
             "Runtime Context Snapshot",
             f"- Active Model: {self._active_model()}",
+            f"- Memory Layer: {memory_status}",
             f"- Session Summary: {summary_status}",
             f"- Prompt Budget: {budget_status}",
             f"- Pruning: {pruning_status}",
@@ -1111,9 +1135,30 @@ class TuiApp(App[None]):
                 "Current Session Summary",
                 self._session_summary or "No summary generated yet.",
                 "",
-                "Use /context summary, /context budget, /context models, /context conflicts for details.",
+                "Use /context summary, /context budget, /context models, /context memory, /context conflicts for details.",
             ]
         )
+        return "\n".join(lines)
+
+    def _build_context_memory_text(self, *, refreshed: bool = False) -> str:
+        """Render long-term memory diagnostics for current runtime."""
+
+        diag = (
+            self.state_engine.refresh_memory_runtime()
+            if refreshed
+            else self.state_engine.memory_diagnostics()
+        )
+        enabled = bool(diag.get("enabled"))
+        lines = [
+            "Long-Term Memory",
+            f"- Refreshed: {'yes' if refreshed else 'no'}",
+            f"- Status: {'enabled' if enabled else 'disabled'}",
+            f"- Provider Mode: {diag.get('provider', 'unknown')}",
+            f"- Story ID: {diag.get('story_id', 'unknown')}",
+            f"- Storage Path: {diag.get('storage_path', 'unknown')}",
+        ]
+        if not enabled and diag.get("reason"):
+            lines.append(f"- Reason: {diag['reason']}")
         return "\n".join(lines)
 
     def _build_context_summary_text(self) -> str:

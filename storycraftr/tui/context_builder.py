@@ -97,7 +97,9 @@ def build_scoped_context_block(
         "[Scene Plan]",
         f"Goal: {scoped.scene_plan.goal}",
         f"Conflict: {scoped.scene_plan.conflict}",
+        f"Stakes: {scoped.scene_plan.stakes}",
         f"Outcome: {scoped.scene_plan.outcome}",
+        f"Ending Beat: {scoped.scene_plan.ending_beat}",
         "[/Scene Plan]",
         "",
         "[Scoped Context]",
@@ -229,8 +231,10 @@ def compose_budgeted_prompt_with_diagnostics(
         lines = ["[Scene Plan]", f"Goal: {scene_plan.goal}"]
         if include_scene_conflict:
             lines.append(f"Conflict: {scene_plan.conflict}")
+        lines.append(f"Stakes: {scene_plan.stakes}")
         if include_scene_outcome:
             lines.append(f"Outcome: {scene_plan.outcome}")
+        lines.append(f"Ending Beat: {scene_plan.ending_beat}")
         lines.extend(["[/Scene Plan]", "", "[Scoped Context]"])
         lines.append(f"Active Chapter: {chapter_value}")
         lines.append(f"Active Scene: {state.active_scene}")

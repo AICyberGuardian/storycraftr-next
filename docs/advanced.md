@@ -56,3 +56,47 @@ This command will:
 - **Reload Files**: Use `storycraftr reload-files` to update the assistant's context after making manual changes.
 
 These advanced features provide greater control over your workflow and ensure that your project evolves smoothly and consistently.
+
+### Mem0 Operator Playbook
+
+Use these controls when you need deterministic memory behavior during debugging,
+CI automation, or provider troubleshooting.
+
+#### Runtime Toggles
+
+- `STORYCRAFTR_MEM0_ENABLED=true|false` enables or disables Mem0 integration.
+- `STORYCRAFTR_MEM0_FORCE_PROVIDER=ollama|openrouter|openai` forces the memory runtime provider.
+- `STORYCRAFTR_MEM0_FORCE_OPENROUTER=true|false` explicitly enables/disables OpenRouter-compatible routing.
+
+#### Diagnostics Commands
+
+```bash
+# Human-readable diagnostics
+storycraftr memory status
+
+# JSON diagnostics for scripts/CI
+storycraftr memory status --format json
+
+# Search memory recalls (JSON array)
+storycraftr memory search --query "Where is Elias?" --chapter 3 --format json
+
+# Search memory recalls (line-delimited JSON)
+storycraftr memory search --query "Where is Elias?" --limit 5 --format ndjson
+```
+
+#### TUI Diagnostics
+
+- `/context memory` prints current memory runtime diagnostics.
+- `/context refresh-memory` rebinds the memory runtime and prints refreshed diagnostics.
+
+#### Provider Recipes
+
+```bash
+# Local-first memory runtime
+export STORYCRAFTR_MEM0_FORCE_PROVIDER=ollama
+export OLLAMA_BASE_URL=http://localhost:11434
+
+# OpenRouter-compatible memory runtime
+export STORYCRAFTR_MEM0_FORCE_PROVIDER=openrouter
+export OPENROUTER_API_KEY=sk-or-v1-...
+```

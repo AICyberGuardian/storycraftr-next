@@ -252,6 +252,16 @@ Control-plane CLI groups are also available for scripting and CI workflows:
 - `storycraftr canon check --chapter <n> --text "..."`
 - `storycraftr mode show|set|stop`
 - `storycraftr models list|refresh`
+- `storycraftr memory status|search|remember`
+
+Memory diagnostics examples:
+
+```bash
+storycraftr memory status
+storycraftr memory status --format json
+storycraftr memory search --query "Where is Elias?" --chapter 3 --format json
+storycraftr memory search --query "Where is Elias?" --limit 5 --format ndjson
+```
 
 These control-plane surfaces now share a single implementation layer (`storycraftr/services/control_plane.py`) used by both CLI and TUI to keep runtime behavior consistent.
 
@@ -271,8 +281,8 @@ Current TUI slash commands include:
 - `/state extract-last [apply]` to preview or apply deterministic prose-to-state patch extraction from the latest assistant response, including verification/retry diagnostics
 - `/summary` and `/summary clear` to inspect or reset rolling compacted session context
 - `/context` for an overview dashboard of summary/budget/model-cache diagnostics
-- `/context summary`, `/context budget`, `/context models` for focused runtime diagnostics
-- `/context clear-summary` and `/context refresh-models` for summary reset and forced OpenRouter cache refresh
+- `/context summary`, `/context budget`, `/context models`, `/context memory` for focused runtime diagnostics
+- `/context clear-summary`, `/context refresh-models`, and `/context refresh-memory` for summary reset, forced OpenRouter cache refresh, and memory runtime rebind diagnostics
 - `/progress` to show canonical generation checkpoint status
 - `/wizard` and `/wizard next` for guided pipeline recommendations
 - `/pipeline` and `/pipeline next` as aliases for the wizard flow
@@ -313,6 +323,29 @@ Command discovery:
 For regular prompts, the TUI prepends a compact scene-scoped block
 (`[Scene Plan]` + `[Scoped Context]`) before dispatching to the existing
 assistant pipeline.
+
+When Mem0 is installed locally, the scoped context can also include compact
+long-term memory recalls (intent/event snippets) from prior turns. If Mem0 is
+not installed or unavailable, generation behavior degrades safely with no
+memory-layer dependency.
+
+Mem0 runtime behavior can be adjusted with environment flags:
+
+- `STORYCRAFTR_MEM0_ENABLED=true|false` enables or disables Mem0 integration.
+- `STORYCRAFTR_MEM0_FORCE_PROVIDER=ollama|openrouter|openai` forces provider mode.
+- `STORYCRAFTR_MEM0_FORCE_OPENROUTER=true|false` explicitly toggles OpenRouter mode.
+
+Provider recipes:
+
+```bash
+# Local-first Mem0 runtime (Ollama)
+export STORYCRAFTR_MEM0_FORCE_PROVIDER=ollama
+export OLLAMA_BASE_URL=http://localhost:11434
+
+# OpenRouter-compatible Mem0 runtime
+export STORYCRAFTR_MEM0_FORCE_PROVIDER=openrouter
+export OPENROUTER_API_KEY=sk-or-v1-...
+```
 
 Generated responses now pass through deterministic state extraction before canon
 diagnostics. Valid patches are applied through the existing narrative-state

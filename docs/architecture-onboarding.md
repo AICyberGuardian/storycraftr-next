@@ -68,6 +68,7 @@ explicit attributes.
 - `storycraftr/agent/execution_mode.py`: shared execution-mode policy model (`ExecutionMode`, `ModeConfig`) and policy helpers for runtime gates.
 - `storycraftr/agent/narrative_state.py`: Pydantic-validated narrative state store with character, location, and plot-thread entities. Includes patch validation and application, and version-aware prompt rendering with metadata headers (DSVL Phase 1A-1C, 2C).
 - `storycraftr/agent/state_extractor.py`: deterministic prose-to-state extraction with validation-ready `StatePatch` proposals. Includes verification pass that fails closed on unsafe operations (e.g., dead-character movement), performs bounded operation-order retry, and drops unsafe operations (DSVL Phase 3-4).
+- `storycraftr/agent/memory_manager.py`: optional Mem0 adapter for long-term narrative memory (Chroma-backed local store), with provider-aware modes (`ollama` local inference, OpenRouter-compatible, or OpenAI fallback), explicit env toggles/forced-provider controls, fail-closed fallback when Mem0 is unavailable, and prompt-ready memory context retrieval.
 - `storycraftr/agent/state_audit.py`: append-only audit trail logging of all state mutations with timestamped entries, queryable filters by entity/type, and actor attribution (DSVL Phase 2A).
 - `storycraftr/services/control_plane.py`: shared service layer for runtime mode controls, state-audit queries, canon verification checks, and extraction verification/retry logic. Both CLI commands and TUI slash commands call shared implementations to prevent behavior drift (Phase 2B).
 - `storycraftr/tui/app.py`: Textual terminal command center and slash-command router with `/state audit` subcommand for audit history inspection (DSVL Phase 2B). Includes bounded state-critic regeneration retry in `_generate_with_mode_awareness()` when extraction verification detects unsafe state transitions (Phase 5).
@@ -77,7 +78,7 @@ explicit attributes.
 - `storycraftr/tui/canon_verify.py`: fail-closed canon candidate verification for autopilot commits.
 - `storycraftr/tui/context_builder.py`: scene-scoped prompt assembly, model-aware budgeting, deterministic pruning, and diagnostics metadata.
 - `storycraftr/tui/state_engine.py`: read-only narrative state extraction and prompt orchestration with diagnostics output.
-- `storycraftr/agent/story/scene_planner.py`: deterministic scene Goal/Conflict/Outcome planning helper.
+- `storycraftr/agent/story/scene_planner.py`: deterministic scene directive helper producing Goal/Conflict/Stakes/Outcome/Ending Beat.
 - `src/extension.ts`: VS Code event stream watcher and UI integration.
 - `src/event-contract.ts`: typed event parser and contract for extension event payloads.
 - `src/event-contract.test.ts`: event-contract regression tests.
@@ -105,7 +106,8 @@ TUI autonomy note:
 - `/autopilot` only runs when mode is `autopilot` and performs bounded steps.
 - Canon commits in autopilot flow are verified against accepted chapter facts and skip duplicate or conflicting candidates.
 - Post-generation state extraction runs in preview mode in all flows; if verification reports unsafe state transitions (e.g., dead-character location change), hybrid/autopilot modes request one bounded critic regeneration before applying state patches or advancing autonomy (Phase 5).
-- `/summary` and `/context` expose compaction, prompt-budget, pruning, and OpenRouter model-cache diagnostics to keep model-aware pruning visible to writers.
+- Post-generation turns are persisted to optional long-term memory (Mem0 when installed) and memory context is injected into scoped prompt retrieval blocks when available.
+- `/summary` and `/context` expose compaction, prompt-budget, pruning, OpenRouter model-cache, and memory-runtime diagnostics (`/context memory`, `/context refresh-memory`) to keep model-aware pruning visible to writers.
 - `/state` displays current narrative state snapshot with version and timestamp (DSVL Phase 2C).
 - `/state extract-last [apply]` shows last extraction attempt including verification status, issues, and dropped operations; optional `apply` commits verified patches to narrative state.
 - `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]` queries audit trail with optional filters for entity ID, entity type, and result limit (DSVL Phase 2B).

@@ -71,9 +71,11 @@ assistant/backend flow.
 - `/context summary` — Show full rolling summary state (status, compacted turns, summary text).
 - `/context budget` — Show latest prompt budget and deterministic pruning/truncation diagnostics.
 - `/context models` — Show OpenRouter cache metadata and resolved active-model limits/source.
+- `/context memory` — Show long-term memory runtime diagnostics (status, provider mode, storage path).
 - `/context conflicts` — Show the latest canon conflict diagnostics (candidate counts, grouped reasons, details).
 - `/context clear-summary` — Clear compacted summary while retaining recent transcript tail.
 - `/context refresh-models` — Force-refresh OpenRouter model discovery cache and report status.
+- `/context refresh-memory` — Rebind the memory runtime and print refreshed diagnostics.
 - `/progress` — Show canonical writing-pipeline checkpoint completion.
 - `/wizard` and `/wizard next` — Guided pipeline view and next-step recommendation.
 - `/pipeline` and `/pipeline next` — Alias for wizard-guided pipeline flow.
@@ -100,6 +102,9 @@ assistant/backend flow.
 - `storycraftr canon check --chapter <n> --text "..."` — Verify candidate facts against accepted chapter canon.
 - `storycraftr mode show|set|stop` — Inspect or mutate persisted execution mode state.
 - `storycraftr models list|refresh` — List or refresh free OpenRouter discovery results.
+- `storycraftr memory status [--format text|json]` — Show long-term memory runtime status and provider diagnostics.
+- `storycraftr memory search --query "..." [--chapter N] [--limit K] [--format table|json|ndjson]` — Search persisted memory recalls.
+- `storycraftr memory remember --user "..." --assistant "..." [--chapter N] [--scene LABEL]` — Persist one explicit memory turn.
 
 The control-plane runtime logic is centralized in `storycraftr/services/control_plane.py` and shared by both Click commands and TUI slash commands to avoid feature drift.
 
@@ -122,6 +127,33 @@ For normal prompts, the TUI prepends structured sections before calling the
 existing assistant pipeline: `[Canon Constraints]`, `[Scene Plan]`,
 `[Scoped Context]`, optional `[Structured Narrative State]`, optional
 `[Session Summary]` and `[Recent Dialogue]`, then `[User Instruction]`.
+
+When Mem0 is available in the local environment, `[Scoped Context]` may include
+compact long-term memory recalls (intent/event snippets) to reduce narrative
+drift across long autonomous runs. If Mem0 is unavailable, this layer is
+silently skipped and standard context composition continues.
+
+Mem0 runtime mode follows StoryCraftr provider settings:
+- `llm_provider=ollama` uses local Ollama inference for memory extraction plus local embedding model.
+- `llm_provider=openrouter` uses OpenRouter-compatible Mem0 LLM routing when `OPENROUTER_API_KEY` is present.
+- Other providers fall back to Mem0's OpenAI-compatible mode.
+
+Mem0 behavior can be overridden with environment flags:
+- `STORYCRAFTR_MEM0_ENABLED=true|false` enables/disables Mem0 integration.
+- `STORYCRAFTR_MEM0_FORCE_PROVIDER=ollama|openrouter|openai` forces provider mode.
+- `STORYCRAFTR_MEM0_FORCE_OPENROUTER=true|false` explicitly toggles OpenRouter mode.
+
+Example provider setups:
+
+```bash
+# Local-first memory runtime
+export STORYCRAFTR_MEM0_FORCE_PROVIDER=ollama
+export OLLAMA_BASE_URL=http://localhost:11434
+
+# OpenRouter-compatible memory runtime
+export STORYCRAFTR_MEM0_FORCE_PROVIDER=openrouter
+export OPENROUTER_API_KEY=sk-or-v1-...
+```
 
 After generation, the TUI runs a lightweight, warn-only canon conflict check
 against accepted chapter facts and surfaces likely duplicates/contradictions as

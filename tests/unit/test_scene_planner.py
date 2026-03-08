@@ -12,7 +12,9 @@ def test_plan_next_scene_uses_prompt_as_goal() -> None:
 
     assert plan.goal == "Push the confrontation to a decisive emotional beat."
     assert "Act II" in plan.conflict
+    assert "Act II" in plan.stakes
     assert "Revelation" in plan.outcome
+    assert "Revelation" in plan.ending_beat
 
 
 def test_plan_next_scene_has_safe_fallbacks() -> None:
@@ -24,4 +26,6 @@ def test_plan_next_scene_has_safe_fallbacks() -> None:
 
     assert plan.goal == "Advance the current scene clearly."
     assert "continuity" in plan.conflict.lower()
+    assert "cost" in plan.stakes.lower()
     assert "clear next beat" in plan.outcome.lower()
+    assert "next scene" in plan.ending_beat.lower()

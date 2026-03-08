@@ -1056,6 +1056,8 @@ class TuiApp(App[None]):
         if subcommand == "models":
             return await asyncio.to_thread(self._build_context_models_text, False)
         if subcommand == "memory":
+            if len(args) > 1 and args[1].lower() == "explain":
+                return self._build_context_memory_explain_text()
             return self._build_context_memory_text()
         if subcommand == "conflicts":
             return self._build_context_conflicts_text()
@@ -1067,7 +1069,7 @@ class TuiApp(App[None]):
             return self._build_context_memory_text(refreshed=True)
         return (
             "Usage: /context "
-            "[summary|budget|models|memory|conflicts|clear-summary|refresh-models|refresh-memory]"
+            "[summary|budget|models|memory [explain]|conflicts|clear-summary|refresh-models|refresh-memory]"
         )
 
     async def _build_context_overview_text(self) -> str:
@@ -1180,6 +1182,49 @@ class TuiApp(App[None]):
                 lines.append(f"- Last Recall Sources: {source_summary}")
         if self._last_memory_persist_status:
             lines.append(f"- Last Persist: {self._last_memory_persist_status}")
+        return "\n".join(lines)
+
+    def _build_context_memory_explain_text(self) -> str:
+        """Render detailed explain view for latest memory recall composition."""
+
+        diag = self.state_engine.memory_diagnostics()
+        retrieval = diag.get("last_retrieval")
+        if not isinstance(retrieval, dict):
+            return (
+                "Memory Recall Explain\n"
+                "- Status: unavailable\n"
+                "- Run a normal generation turn first so memory recall diagnostics are captured."
+            )
+
+        lines = [
+            "Memory Recall Explain",
+            f"- Enabled: {'yes' if retrieval.get('enabled') else 'no'}",
+            f"- Hits Returned: {retrieval.get('hits_returned', 0)}",
+            (
+                "- Query Stages: "
+                f"{retrieval.get('queries_run', 0)}/"
+                f"{retrieval.get('queries_attempted', 0)}"
+            ),
+        ]
+
+        source_order = retrieval.get("source_order") or []
+        if source_order:
+            lines.append(f"- Source Order: {', '.join(str(s) for s in source_order)}")
+
+        selected_items = retrieval.get("selected_items") or []
+        if selected_items:
+            lines.append("- Selected Items:")
+            for idx, item in enumerate(selected_items, start=1):
+                if not isinstance(item, dict):
+                    continue
+                source = str(item.get("source") or "unknown")
+                text = " ".join(str(item.get("text") or "").split())
+                if len(text) > 180:
+                    text = f"{text[:177]}..."
+                lines.append(f"  {idx}. [{source}] {text}")
+        else:
+            lines.append("- Selected Items: none")
+
         return "\n".join(lines)
 
     def _build_context_summary_text(self) -> str:

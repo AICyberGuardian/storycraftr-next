@@ -131,14 +131,13 @@ class NarrativeMemoryManager:
 
         memory = self._ensure_client()
         if memory is None:
-            self._last_retrieval = {
-                "enabled": False,
-                "hits_returned": 0,
-                "queries_attempted": 0,
-                "queries_run": 0,
-                "source_order": [],
-                "hits_by_source": {},
-            }
+            self._set_last_retrieval(
+                enabled=False,
+                queries=[],
+                queries_run=0,
+                hits_by_source={},
+                items=[],
+            )
             return []
 
         chapter_hint = chapter if chapter is not None else 0
@@ -218,14 +217,13 @@ class NarrativeMemoryManager:
         for index, (source, query_text, filters) in enumerate(queries):
             remaining_slots = max_items - len(items)
             if remaining_slots <= 0:
-                self._last_retrieval = {
-                    "enabled": True,
-                    "hits_returned": len(items),
-                    "queries_attempted": len(queries),
-                    "queries_run": queries_run,
-                    "source_order": [source_name for source_name, _, _ in queries],
-                    "hits_by_source": hits_by_source,
-                }
+                self._set_last_retrieval(
+                    enabled=True,
+                    queries=queries,
+                    queries_run=queries_run,
+                    hits_by_source=hits_by_source,
+                    items=items,
+                )
                 return items
             remaining_queries = len(queries) - index
             per_query_limit = min(3, max(1, remaining_slots - (remaining_queries - 1)))
@@ -242,25 +240,46 @@ class NarrativeMemoryManager:
                 items.append(MemoryContextItem(source=source, text=normalized))
                 hits_by_source[source] = hits_by_source.get(source, 0) + 1
                 if len(items) >= max_items:
-                    self._last_retrieval = {
-                        "enabled": True,
-                        "hits_returned": len(items),
-                        "queries_attempted": len(queries),
-                        "queries_run": queries_run,
-                        "source_order": [source_name for source_name, _, _ in queries],
-                        "hits_by_source": hits_by_source,
-                    }
+                    self._set_last_retrieval(
+                        enabled=True,
+                        queries=queries,
+                        queries_run=queries_run,
+                        hits_by_source=hits_by_source,
+                        items=items,
+                    )
                     return items
 
+        self._set_last_retrieval(
+            enabled=True,
+            queries=queries,
+            queries_run=queries_run,
+            hits_by_source=hits_by_source,
+            items=items,
+        )
+        return items
+
+    def _set_last_retrieval(
+        self,
+        *,
+        enabled: bool,
+        queries: list[tuple[str, str, dict[str, Any]]],
+        queries_run: int,
+        hits_by_source: dict[str, int],
+        items: list[MemoryContextItem],
+    ) -> None:
+        """Persist a stable snapshot for runtime retrieval diagnostics."""
+
         self._last_retrieval = {
-            "enabled": True,
+            "enabled": enabled,
             "hits_returned": len(items),
             "queries_attempted": len(queries),
             "queries_run": queries_run,
             "source_order": [source_name for source_name, _, _ in queries],
-            "hits_by_source": hits_by_source,
+            "hits_by_source": dict(hits_by_source),
+            "selected_items": [
+                {"source": item.source, "text": item.text} for item in items
+            ],
         }
-        return items
 
     def _ensure_client(self) -> Any | None:
         if self._memory is not None:

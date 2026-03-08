@@ -236,3 +236,9 @@ def test_memory_manager_prioritizes_recent_and_storyline_queries(
     assert retrieval.get("queries_run", 0) >= 1
     assert retrieval.get("hits_returned", 0) >= 1
     assert isinstance(retrieval.get("hits_by_source"), dict)
+    selected = retrieval.get("selected_items")
+    assert isinstance(selected, list)
+    assert selected
+    assert isinstance(selected[0], dict)
+    assert "source" in selected[0]
+    assert "text" in selected[0]

@@ -401,6 +401,42 @@ def test_context_memory_includes_last_recall_telemetry(tmp_path) -> None:
     assert "Last Recall Sources: relevant=1, recent=2" in result
 
 
+def test_context_memory_explain_reports_selected_items(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.state_engine.memory_manager.get_runtime_diagnostics = lambda: {
+        "enabled": True,
+        "provider": "openrouter",
+        "story_id": "demo-story",
+        "storage_path": str(tmp_path / "memory"),
+        "reason": None,
+        "last_retrieval": {
+            "enabled": True,
+            "hits_returned": 2,
+            "queries_run": 3,
+            "queries_attempted": 5,
+            "source_order": ["relevant", "recent", "scene"],
+            "selected_items": [
+                {
+                    "source": "relevant",
+                    "text": "Elias suspects Mara tampered with bridge telemetry.",
+                },
+                {
+                    "source": "recent",
+                    "text": "Quartermaster logs implicate unauthorized access last night.",
+                },
+            ],
+        },
+    }
+
+    result = asyncio.run(app._dispatch_slash_command("/context memory explain"))
+
+    assert "Memory Recall Explain" in result
+    assert "Source Order: relevant, recent, scene" in result
+    assert "1. [relevant] Elias suspects Mara" in result
+    assert "2. [recent] Quartermaster logs" in result
+
+
 def test_dispatch_context_conflicts_reports_latest_conflict_snapshot(tmp_path) -> None:
     TuiApp = _load_tui_app()
     app = TuiApp(book_path=str(tmp_path))

@@ -72,6 +72,7 @@ assistant/backend flow.
 - `/context budget` — Show latest prompt budget and deterministic pruning/truncation diagnostics.
 - `/context models` — Show OpenRouter cache metadata and resolved active-model limits/source.
 - `/context memory` — Show long-term memory runtime diagnostics (status, provider mode, storage path, last persist status).
+- `/context memory explain` — Show detailed breakdown of the latest recall pass, including source order and selected memory lines by source.
 - `/context conflicts` — Show the latest canon conflict diagnostics (candidate counts, grouped reasons, details).
 - `/context clear-summary` — Clear compacted summary while retaining recent transcript tail.
 - `/context refresh-models` — Force-refresh OpenRouter model discovery cache and report status.
@@ -153,6 +154,8 @@ operator review.
 `/context memory` and `storycraftr memory status` now include recall telemetry
 from the latest retrieval pass (hits returned, query stages run/attempted, and
 hit distribution by source label) to help tune memory strategy behavior.
+Use `/context memory explain` to inspect which source label contributed each
+selected memory line in the latest retrieval snapshot.
 
 Mem0 runtime mode follows StoryCraftr provider settings:
 - `llm_provider=ollama` uses local Ollama inference for memory extraction plus local embedding model.

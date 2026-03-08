@@ -73,6 +73,9 @@ def build_scoped_context_block(
     canon_facts: list[str],
     retrieved_context: list[str] | None = None,
     narrative_state_json: str | None = None,
+    planner_rules: str | None = None,
+    drafter_rules: str | None = None,
+    editor_rules: str | None = None,
     max_facts: int = 5,
     max_retrieval_chunks: int = 3,
 ) -> str:
@@ -101,14 +104,28 @@ def build_scoped_context_block(
         f"Outcome: {scoped.scene_plan.outcome}",
         f"Ending Beat: {scoped.scene_plan.ending_beat}",
         "[/Scene Plan]",
-        "",
-        "[Scoped Context]",
-        f"Active Chapter: {chapter_value}",
-        f"Active Scene: {scoped.state.active_scene}",
-        f"Current Arc: {scoped.state.active_arc}",
-        f"Narrative Memory: {scoped.state.memory_strip}",
-        f"Scene Timeline: {scoped.state.timeline_strip}",
     ]
+
+    if planner_rules and planner_rules.strip():
+        lines.extend(["", "[Planner Rules]", planner_rules.strip(), "[/Planner Rules]"])
+
+    if drafter_rules and drafter_rules.strip():
+        lines.extend(["", "[Drafter Rules]", drafter_rules.strip(), "[/Drafter Rules]"])
+
+    if editor_rules and editor_rules.strip():
+        lines.extend(["", "[Editor Rules]", editor_rules.strip(), "[/Editor Rules]"])
+
+    lines.extend(
+        [
+            "",
+            "[Scoped Context]",
+            f"Active Chapter: {chapter_value}",
+            f"Active Scene: {scoped.state.active_scene}",
+            f"Current Arc: {scoped.state.active_arc}",
+            f"Narrative Memory: {scoped.state.memory_strip}",
+            f"Scene Timeline: {scoped.state.timeline_strip}",
+        ]
+    )
 
     if scoped.canon_facts:
         lines.append("[Canon Constraints]")
@@ -139,6 +156,9 @@ def compose_budgeted_prompt(
     retrieved_context: list[str] | None = None,
     recent_turns: list[str] | None = None,
     narrative_state_json: str | None = None,
+    planner_rules: str | None = None,
+    drafter_rules: str | None = None,
+    editor_rules: str | None = None,
     max_facts: int = 5,
     max_retrieval_chunks: int = 3,
     max_recent_turns: int = 3,
@@ -156,6 +176,9 @@ def compose_budgeted_prompt(
         retrieved_context=retrieved_context,
         recent_turns=recent_turns,
         narrative_state_json=narrative_state_json,
+        planner_rules=planner_rules,
+        drafter_rules=drafter_rules,
+        editor_rules=editor_rules,
         max_facts=max_facts,
         max_retrieval_chunks=max_retrieval_chunks,
         max_recent_turns=max_recent_turns,
@@ -175,6 +198,9 @@ def compose_budgeted_prompt_with_diagnostics(
     retrieved_context: list[str] | None = None,
     recent_turns: list[str] | None = None,
     narrative_state_json: str | None = None,
+    planner_rules: str | None = None,
+    drafter_rules: str | None = None,
+    editor_rules: str | None = None,
     max_facts: int = 5,
     max_retrieval_chunks: int = 3,
     max_recent_turns: int = 3,
@@ -197,6 +223,9 @@ def compose_budgeted_prompt_with_diagnostics(
     canon_items = _clean_items(canon_facts, limit=max_facts)
     rag_items = _clean_items(retrieved_context or [], limit=max_retrieval_chunks)
     recent_items = _clean_items(recent_turns or [], limit=max_recent_turns)
+    normalized_planner_rules = (planner_rules or "").strip()
+    normalized_drafter_rules = (drafter_rules or "").strip()
+    normalized_editor_rules = (editor_rules or "").strip()
 
     # Priority-5 (lowest): extra state strips.
     include_memory_strip = True
@@ -218,6 +247,9 @@ def compose_budgeted_prompt_with_diagnostics(
     include_scene_conflict = True
     include_scene_outcome = True
     include_narrative_state = bool((narrative_state_json or "").strip())
+    include_planner_rules = bool(normalized_planner_rules)
+    include_drafter_rules = bool(normalized_drafter_rules)
+    include_editor_rules = bool(normalized_editor_rules)
     # Priority-1 (highest): canon constraints.
     active_canon = list(canon_items)
 
@@ -235,7 +267,24 @@ def compose_budgeted_prompt_with_diagnostics(
         if include_scene_outcome:
             lines.append(f"Outcome: {scene_plan.outcome}")
         lines.append(f"Ending Beat: {scene_plan.ending_beat}")
-        lines.extend(["[/Scene Plan]", "", "[Scoped Context]"])
+        lines.append("[/Scene Plan]")
+
+        if include_planner_rules and normalized_planner_rules:
+            lines.extend(
+                ["", "[Planner Rules]", normalized_planner_rules, "[/Planner Rules]"]
+            )
+
+        if include_drafter_rules and normalized_drafter_rules:
+            lines.extend(
+                ["", "[Drafter Rules]", normalized_drafter_rules, "[/Drafter Rules]"]
+            )
+
+        if include_editor_rules and normalized_editor_rules:
+            lines.extend(
+                ["", "[Editor Rules]", normalized_editor_rules, "[/Editor Rules]"]
+            )
+
+        lines.extend(["", "[Scoped Context]"])
         lines.append(f"Active Chapter: {chapter_value}")
         lines.append(f"Active Scene: {state.active_scene}")
         if include_arc_line:
@@ -285,6 +334,12 @@ def compose_budgeted_prompt_with_diagnostics(
             active_rag.pop()
         elif active_recent:
             active_recent.pop()
+        elif include_editor_rules:
+            include_editor_rules = False
+        elif include_drafter_rules:
+            include_drafter_rules = False
+        elif include_planner_rules:
+            include_planner_rules = False
         elif include_arc_line:
             include_arc_line = False
         elif include_scene_outcome:
@@ -317,6 +372,9 @@ def compose_budgeted_prompt_with_diagnostics(
     has_narrative_state = include_narrative_state or bool(
         (narrative_state_json or "").strip()
     )
+    has_planner_rules = bool(normalized_planner_rules)
+    has_drafter_rules = bool(normalized_drafter_rules)
+    has_editor_rules = bool(normalized_editor_rules)
 
     included_sections = [
         "scene_plan",
@@ -354,6 +412,21 @@ def compose_budgeted_prompt_with_diagnostics(
         included_sections.append("narrative_state")
     elif has_narrative_state:
         pruned_sections.append("narrative_state")
+
+    if include_planner_rules and has_planner_rules:
+        included_sections.append("planner_rules")
+    elif has_planner_rules:
+        pruned_sections.append("planner_rules")
+
+    if include_drafter_rules and has_drafter_rules:
+        included_sections.append("drafter_rules")
+    elif has_drafter_rules:
+        pruned_sections.append("drafter_rules")
+
+    if include_editor_rules and has_editor_rules:
+        included_sections.append("editor_rules")
+    elif has_editor_rules:
+        pruned_sections.append("editor_rules")
 
     if not include_memory_strip:
         pruned_sections.append("memory_strip")
@@ -410,6 +483,15 @@ def compose_budgeted_prompt_with_diagnostics(
             narrative_state_json
             if include_narrative_state and narrative_state_json
             else ""
+        ),
+        "planner_rules": _estimate_tokens(
+            normalized_planner_rules if include_planner_rules else ""
+        ),
+        "drafter_rules": _estimate_tokens(
+            normalized_drafter_rules if include_drafter_rules else ""
+        ),
+        "editor_rules": _estimate_tokens(
+            normalized_editor_rules if include_editor_rules else ""
         ),
         "full_prompt": _estimate_tokens(prompt),
     }

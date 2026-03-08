@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from storycraftr.agent.narrative_state import SceneDirective
+
 
 @dataclass(frozen=True)
 class ScenePlan:
@@ -41,11 +43,18 @@ def plan_next_scene(
         outcome = "Resolve this turn with a concrete shift and clear next beat."
         ending_beat = "Close with an actionable pivot that sets the next scene."
 
-    return ScenePlan(
+    directive = SceneDirective(
         goal=goal,
         conflict=conflict,
         stakes=stakes,
         outcome=outcome,
+    )
+
+    return ScenePlan(
+        goal=directive.goal,
+        conflict=directive.conflict,
+        stakes=directive.stakes,
+        outcome=directive.outcome,
         ending_beat=ending_beat,
     )
 

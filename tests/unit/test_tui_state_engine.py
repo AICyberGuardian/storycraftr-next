@@ -105,10 +105,39 @@ Body
     assert "[Scene Plan]" in prompt
     assert "Goal: Draft the next scene with sharper tension." in prompt
     assert "[Scoped Context]" in prompt
+    assert "[Planner Rules]" in prompt
+    assert "[Drafter Rules]" in prompt
+    assert "[Editor Rules]" in prompt
     assert "Active Chapter: 3" in prompt
     assert "Active Scene: Reveal" in prompt
     assert "[User Instruction]" in prompt
     assert "Draft the next scene with sharper tension." in prompt
+
+
+def test_compose_prompt_with_editor_rule_profile_only_includes_editor_rules(
+    tmp_path,
+) -> None:
+    _write(
+        tmp_path / "chapters" / "chapter-1.md",
+        """---
+title: Turning Point
+scene: Reveal
+arc: Act II
+---
+# Chapter 1
+Body
+""",
+    )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+    prompt = engine.compose_prompt(
+        "Revise the scene.",
+        rule_profile="editor",
+    )
+
+    assert "[Editor Rules]" in prompt
+    assert "[Planner Rules]" not in prompt
+    assert "[Drafter Rules]" not in prompt
 
 
 def test_state_engine_tolerates_malformed_frontmatter(tmp_path) -> None:

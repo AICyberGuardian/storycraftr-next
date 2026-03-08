@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import json
 
-from storycraftr.agent.narrative_state import NarrativeStateStore
+import pytest
+from pydantic import ValidationError
+
+from storycraftr.agent.narrative_state import (
+    CharacterState,
+    NarrativeStateStore,
+    SceneDirective,
+)
 
 
 def test_narrative_state_store_upsert_and_load(tmp_path) -> None:
@@ -66,6 +73,39 @@ def test_narrative_state_store_handles_invalid_json(tmp_path) -> None:
 
     assert snapshot.characters == {}
     assert snapshot.world == {}
+
+
+def test_character_state_supports_story_engine_fields() -> None:
+    character = CharacterState(
+        name="Mira",
+        ghost="Abandoned during the first evacuation.",
+        character_lie="Trust always ends in betrayal.",
+        external_want="Secure command of the bridge.",
+        internal_need="Accept shared leadership.",
+    )
+
+    assert character.ghost is not None
+    assert "evacuation" in character.ghost.lower()
+    assert "trust" in (character.character_lie or "").lower()
+
+
+def test_scene_directive_requires_core_fields() -> None:
+    directive = SceneDirective(
+        goal="Expose the sabotage before dawn.",
+        conflict="The quartermaster blocks records access.",
+        stakes="If delayed, the fleet launches compromised.",
+        outcome="No-and: access denied and evidence is erased.",
+    )
+
+    assert "sabotage" in directive.goal.lower()
+
+    with pytest.raises(ValidationError):
+        SceneDirective(
+            goal="",
+            conflict="Active resistance.",
+            stakes="High cost.",
+            outcome="Failure.",
+        )
 
 
 # ============================================================================

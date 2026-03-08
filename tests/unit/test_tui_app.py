@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from rich.markup import render
 
+from storycraftr.agent.narrative_state import SceneDirective
 from storycraftr.tui.canon import add_fact
 from storycraftr.tui.canon_extract import CanonCandidate
 
@@ -57,6 +58,10 @@ def test_tui_help_includes_required_commands(tmp_path) -> None:
     assert "/stop" in help_text
     assert "/summary [clear]" in help_text
     assert "/context" in help_text
+    assert (
+        "/context [summary|budget|prompt|models|memory|conflicts|clear-summary|refresh-models|refresh-memory]"
+        in help_text
+    )
     assert "/model-list" in help_text
     assert "/model-list refresh" in help_text
     assert "/model-change <model_id>" in help_text
@@ -296,6 +301,51 @@ def test_dispatch_context_budget_reports_latest_diagnostics(tmp_path) -> None:
     assert "Context Window: 32768" in result
     assert "[~] Recent Dialogue" in result
     assert "[ ] Retrieved Context" in result
+
+
+def test_dispatch_context_prompt_reports_stage_diagnostics(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    budget = SimpleNamespace(
+        input_budget_tokens=4096,
+    )
+    diagnostics = SimpleNamespace(
+        included_sections=("scene_plan", "planner_rules", "user_instruction"),
+        pruned_sections=("retrieved_context",),
+        truncated_sections=(),
+        estimated_tokens={
+            "scene_plan": 40,
+            "planner_rules": 120,
+            "user_instruction": 20,
+            "full_prompt": 820,
+        },
+    )
+    app._last_prompt_stage_diagnostics = {
+        "planner": (budget, diagnostics),
+        "editor": (budget, diagnostics),
+    }
+
+    result = asyncio.run(app._dispatch_slash_command("/context prompt"))
+
+    assert "Prompt Composition" in result
+    assert "[Planner Stage]" in result
+    assert "Planner Rules" in result
+    assert "Estimated Full Prompt: 820" in result
+
+
+def test_context_prompt_debug_toggle_roundtrip(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    status = asyncio.run(app._dispatch_slash_command("/context prompt debug"))
+    enabled = asyncio.run(app._dispatch_slash_command("/context prompt debug on"))
+    status_after = asyncio.run(app._dispatch_slash_command("/context prompt"))
+    disabled = asyncio.run(app._dispatch_slash_command("/context prompt debug off"))
+
+    assert "Planner directive logging: off" in status
+    assert enabled == "Planner directive debug logging enabled."
+    assert "Planner Directive Debug: on" in status_after
+    assert disabled == "Planner directive debug logging disabled."
 
 
 def test_dispatch_context_models_routes_to_renderer(tmp_path, monkeypatch) -> None:
@@ -599,7 +649,6 @@ def test_generate_mode_awareness_retries_once_on_state_issues(
     app.thread_id = "thread-1"
     asyncio.run(app._dispatch_slash_command("/mode hybrid"))
 
-    prompts: list[str] = []
     responses = iter(
         [
             ("Elias entered the bridge.", False),
@@ -607,12 +656,10 @@ def test_generate_mode_awareness_retries_once_on_state_issues(
         ]
     )
 
-    async def _fake_compose(prompt: str) -> str:
-        prompts.append(prompt)
-        return prompt
+    observed_prompts: list[str] = []
 
-    async def _fake_run(prompt: str) -> tuple[str, bool]:
-        _ = prompt
+    async def _fake_pipeline(prompt: str) -> tuple[str, bool]:
+        observed_prompts.append(prompt)
         return next(responses)
 
     async def _fake_canon(*, response: str, chapter: int) -> dict[str, object]:
@@ -648,8 +695,7 @@ def test_generate_mode_awareness_retries_once_on_state_issues(
         _ = response
         return next(state_reports)
 
-    monkeypatch.setattr(app, "_compose_prompt_with_tracking", _fake_compose)
-    monkeypatch.setattr(app, "_run_assistant_turn", _fake_run)
+    monkeypatch.setattr(app, "_generate_with_sequential_pipeline", _fake_pipeline)
     monkeypatch.setattr(app, "_analyze_canon_conflicts", _fake_canon)
     monkeypatch.setattr(app, "_analyze_state_extraction_issues", _fake_state_issues)
 
@@ -657,9 +703,9 @@ def test_generate_mode_awareness_retries_once_on_state_issues(
 
     assert streamed is False
     assert response == "Elias remained at the dock."
-    assert len(prompts) == 2
-    assert "Revise once using these constraints" in prompts[1]
-    assert "dead character cannot move" in prompts[1]
+    assert len(observed_prompts) == 2
+    assert "Revise once using these constraints" in observed_prompts[1]
+    assert "dead character cannot move" in observed_prompts[1]
 
 
 def test_generate_mode_awareness_skips_state_retry_in_manual_mode(
@@ -672,22 +718,156 @@ def test_generate_mode_awareness_skips_state_retry_in_manual_mode(
 
     calls = {"runs": 0}
 
-    async def _fake_compose(prompt: str) -> str:
-        return prompt
-
-    async def _fake_run(prompt: str) -> tuple[str, bool]:
+    async def _fake_pipeline(prompt: str) -> tuple[str, bool]:
         _ = prompt
         calls["runs"] += 1
         return "Elias entered the bridge.", False
 
-    monkeypatch.setattr(app, "_compose_prompt_with_tracking", _fake_compose)
-    monkeypatch.setattr(app, "_run_assistant_turn", _fake_run)
+    monkeypatch.setattr(app, "_generate_with_sequential_pipeline", _fake_pipeline)
 
     response, streamed = asyncio.run(app._generate_with_mode_awareness("Draft scene"))
 
     assert streamed is False
     assert response == "Elias entered the bridge."
     assert calls["runs"] == 1
+
+
+def test_sequential_pipeline_reuses_last_valid_directive_after_double_parse_failure(
+    tmp_path, monkeypatch
+) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.assistant = SimpleNamespace(last_documents=[])
+    app.thread_id = "thread-1"
+    app._last_valid_scene_directive = SceneDirective(
+        goal="Hold the bridge.",
+        conflict="Boarders breach the lower hatch.",
+        stakes="If command falls, civilians die.",
+        outcome="No-and: command fractures under pressure.",
+    )
+
+    async def _fake_compose(
+        prompt: str,
+        *,
+        rule_profile: str = "all",
+        stage: str = "default",
+    ) -> str:
+        _ = (rule_profile, stage)
+        return prompt
+
+    responses = iter(
+        [
+            ("planner output (invalid)", False),
+            ("repair output still invalid", False),
+            ("Draft prose based on fallback directive.", False),
+            ("Edited prose based on fallback directive.", False),
+        ]
+    )
+
+    async def _fake_turn(
+        _prompt: str, *, allow_stream: bool = True
+    ) -> tuple[str, bool]:
+        _ = allow_stream
+        return next(responses)
+
+    monkeypatch.setattr(app, "_compose_prompt_with_tracking", _fake_compose)
+    monkeypatch.setattr(app, "_run_assistant_turn", _fake_turn)
+
+    response, streamed = asyncio.run(
+        app._generate_with_sequential_pipeline("Draft a bridge defense scene.")
+    )
+
+    assert streamed is False
+    assert response == "Edited prose based on fallback directive."
+    assert app._last_pipeline_artifacts is not None
+    assert app._last_pipeline_artifacts.directive.goal == "Hold the bridge."
+
+
+def test_on_input_submitted_runs_pipeline_plus_state_extract_and_canon_warning(
+    tmp_path, monkeypatch
+) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.config = SimpleNamespace(
+        llm_provider="openrouter",
+        llm_model="openrouter/free",
+        max_tokens=4096,
+    )
+
+    class _FakeInput:
+        def __init__(self, value: str) -> None:
+            self.value = value
+            self.disabled = False
+
+        def focus(self) -> None:
+            return
+
+    class _CaptureLog:
+        def __init__(self) -> None:
+            self.rendered_plain: list[str] = []
+
+        def write(self, value) -> None:
+            if isinstance(value, str):
+                self.rendered_plain.append(render(value).plain)
+            else:
+                self.rendered_plain.append(str(value))
+
+    fake_log = _CaptureLog()
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: fake_log)
+
+    async def _fake_pipeline(prompt: str) -> tuple[str, bool]:
+        assert "Continue with tactical pressure" in prompt
+        return "Mira is not the ship navigator.", False
+
+    async def _fake_analyze_canon_conflicts(*, response: str, chapter: int):
+        _ = (response, chapter)
+        return {
+            "chapter": 1,
+            "checked_candidates": 1,
+            "duplicate_count": 0,
+            "negation_conflict_count": 1,
+            "conflicts": [
+                {
+                    "reason": "negation conflict",
+                    "candidate": "Mira is not the ship navigator.",
+                    "conflicting_fact": "Mira is the ship navigator.",
+                }
+            ],
+        }
+
+    class _FakePatch:
+        operations = [SimpleNamespace(operation="add")]
+
+    class _FakeExtracted:
+        patch = _FakePatch()
+
+    class _FakeExtractResult:
+        extracted = _FakeExtracted()
+        verification_issues: list[str] = []
+        dropped_operations = 0
+        applied_version = 2
+
+    monkeypatch.setattr(app, "_generate_with_sequential_pipeline", _fake_pipeline)
+    monkeypatch.setattr(app, "_analyze_canon_conflicts", _fake_analyze_canon_conflicts)
+    monkeypatch.setattr(
+        "storycraftr.tui.app.state_extract_impl",
+        lambda *_args, **_kwargs: _FakeExtractResult(),
+    )
+    monkeypatch.setattr(app.state_engine, "record_turn_memory", lambda **_kwargs: True)
+
+    add_fact(str(tmp_path), chapter=1, text="Mira is the ship navigator.")
+    event = SimpleNamespace(
+        input=_FakeInput("Continue with tactical pressure"),
+        value="Continue with tactical pressure",
+    )
+
+    asyncio.run(app.on_input_submitted(event))
+
+    combined = "\n".join(fake_log.rendered_plain)
+    assert "State Extractor:" in combined
+    assert "applied 1 patch operation(s)" in combined
+    assert "Potential Canon Conflicts" in combined
+    assert "negation conflict" in combined
 
 
 def test_state_output_includes_canon_constraints_when_canon_exists(tmp_path) -> None:
@@ -1294,39 +1474,11 @@ def test_on_input_submitted_warns_on_canon_conflicts(tmp_path, monkeypatch) -> N
 
     fake_log = _CaptureLog()
     monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: fake_log)
-    monkeypatch.setattr(
-        app.state_engine,
-        "compose_prompt_with_diagnostics",
-        lambda *_args, **_kwargs: (
-            "[User Instruction]\nKeep continuity.",
-            SimpleNamespace(
-                context_window_tokens=32768,
-                output_reserve_tokens=4096,
-                input_budget_tokens=28672,
-                model_source="test",
-            ),
-            SimpleNamespace(
-                included_sections=("canon_constraints",),
-                pruned_sections=(),
-                truncated_sections=(),
-                estimated_tokens={
-                    "canon": 10,
-                    "scene_plan": 5,
-                    "scoped_context": 10,
-                    "recent_dialogue": 0,
-                    "retrieved_context": 0,
-                    "user_instruction": 5,
-                    "summary": 0,
-                    "full_prompt": 30,
-                },
-            ),
-        ),
-    )
 
-    async def _fake_turn(_prompt: str) -> tuple[str, bool]:
+    async def _fake_pipeline(_prompt: str) -> tuple[str, bool]:
         return "Mira is not the ship navigator.", False
 
-    monkeypatch.setattr(app, "_run_assistant_turn", _fake_turn)
+    monkeypatch.setattr(app, "_generate_with_sequential_pipeline", _fake_pipeline)
 
     async def _fake_analyze_canon_conflicts(*, response: str, chapter: int):
         assert "Mira is not the ship navigator." in response

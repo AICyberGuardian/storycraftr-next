@@ -70,6 +70,8 @@ assistant/backend flow.
 - `/context` — Show a compact runtime diagnostics dashboard (summary, budget, model cache).
 - `/context summary` — Show full rolling summary state (status, compacted turns, summary text).
 - `/context budget` — Show latest prompt budget and deterministic pruning/truncation diagnostics.
+- `/context prompt` — Show stage-by-stage prompt composition diagnostics for planner, drafter, and editor turns.
+- `/context prompt debug [on|off]` — Toggle planner-directive debug logging after each planner stage.
 - `/context models` — Show OpenRouter cache metadata and resolved active-model limits/source.
 - `/context memory` — Show long-term memory runtime diagnostics (status, provider mode, storage path, last persist status).
 - `/context memory explain` — Show detailed breakdown of the latest recall pass, including source order and selected memory lines by source.
@@ -126,8 +128,19 @@ The TUI help menu is grouped by intent (`Writing`, `Planning`, `World`, `Project
 
 For normal prompts, the TUI prepends structured sections before calling the
 existing assistant pipeline: `[Canon Constraints]`, `[Scene Plan]`,
-`[Scoped Context]`, optional `[Structured Narrative State]`, optional
+`[Planner Rules]`, `[Drafter Rules]`, `[Editor Rules]`, `[Scoped Context]`, optional `[Structured Narrative State]`, optional
 `[Session Summary]` and `[Recent Dialogue]`, then `[User Instruction]`.
+
+The three craft-rule sections are loaded from static prompt fragments in
+`storycraftr/prompts/planner_rules.md`, `storycraftr/prompts/drafter_rules.md`,
+and `storycraftr/prompts/editor_rules.md` (derived from the canonical
+`storycraftr/prompts/corpus.md`). They are injected deterministically to avoid
+retrieval misses for universal storytelling mechanics.
+
+Planner-stage JSON parsing remains fail-closed. If planner output is invalid,
+the runtime performs one bounded repair pass. If that also fails and a prior
+valid `SceneDirective` exists, the system reuses that last validated directive
+for continuity and emits a visible warning in the output pane.
 
 When Mem0 is available in the local environment, `[Scoped Context]` may include
 compact long-term memory recalls (intent/event snippets) to reduce narrative

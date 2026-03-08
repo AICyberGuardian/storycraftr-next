@@ -30,6 +30,11 @@ from storycraftr.agent.execution_mode import (
     ExecutionMode,
     ModeConfig,
 )
+from storycraftr.agent.generation_pipeline import (
+    PipelineStepArtifacts,
+    SceneGenerationPipeline,
+)
+from storycraftr.agent.narrative_state import SceneDirective
 from storycraftr.chat.commands import CommandContext, handle_command
 from storycraftr.chat.module_runner import ModuleCommandError, run_module_command
 from storycraftr.chat.session import SessionManager
@@ -138,7 +143,11 @@ class TuiApp(App[None]):
         self._last_prompt_diagnostics: Any | None = None
         self._last_prompt_provider = "<unknown>"
         self._last_prompt_model = "<unknown>"
+        self._last_prompt_stage_diagnostics: dict[str, tuple[Any, Any]] = {}
         self._last_assistant_response = ""
+        self._last_pipeline_artifacts: PipelineStepArtifacts | None = None
+        self._last_valid_scene_directive: SceneDirective | None = None
+        self._planner_directive_debug_enabled = False
         self._last_canon_conflict_report: dict[str, Any] | None = None
         self._last_state_extraction_report: dict[str, Any] | None = None
         self._load_mode_session_state()
@@ -265,11 +274,13 @@ class TuiApp(App[None]):
         user_input.value = replacement
         event.stop()
 
-    async def _run_assistant_turn(self, prompt: str) -> tuple[str, bool]:
+    async def _run_assistant_turn(
+        self, prompt: str, *, allow_stream: bool = True
+    ) -> tuple[str, bool]:
         if not self.assistant or not self.thread_id:
             return "Assistant is not initialized.", False
         stream_fn = getattr(self.assistant, "astream", None)
-        if callable(stream_fn):
+        if allow_stream and callable(stream_fn):
             parts: list[str] = []
             self.query_one(RichLog).write("[bold green]Assistant:[/bold green]")
             async for token in stream_fn(prompt):
@@ -281,7 +292,13 @@ class TuiApp(App[None]):
         response = await asyncio.to_thread(self._invoke_assistant_sync, prompt)
         return response, False
 
-    async def _compose_prompt_with_tracking(self, user_prompt: str) -> str:
+    async def _compose_prompt_with_tracking(
+        self,
+        user_prompt: str,
+        *,
+        rule_profile: str = "all",
+        stage: str = "default",
+    ) -> str:
         """Compose a scoped prompt and persist latest budget diagnostics."""
 
         provider = self._active_provider()
@@ -296,12 +313,120 @@ class TuiApp(App[None]):
                 self.config.max_tokens if self.config is not None else None
             ),
             recent_turns=recent_turns,
+            rule_profile=rule_profile,
         )
         self._last_prompt_budget = budget
         self._last_prompt_diagnostics = diagnostics
         self._last_prompt_provider = provider
         self._last_prompt_model = model_id
+        self._last_prompt_stage_diagnostics[stage] = (budget, diagnostics)
         return prompt
+
+    async def _generate_with_sequential_pipeline(
+        self, user_prompt: str
+    ) -> tuple[str, bool]:
+        """Generate output via role-isolated planner, drafter, then editor turns."""
+
+        rules = self.state_engine.get_craft_rules()
+        pipeline = SceneGenerationPipeline(
+            planner_rules=rules.planner,
+            drafter_rules=rules.drafter,
+            editor_rules=rules.editor,
+        )
+
+        planner_user_prompt = pipeline.build_planner_user_prompt(user_prompt)
+        planner_prompt = await self._compose_prompt_with_tracking(
+            planner_user_prompt,
+            rule_profile="planner",
+            stage="planner",
+        )
+        planner_response, _ = await self._run_assistant_turn(
+            planner_prompt,
+            allow_stream=False,
+        )
+        try:
+            directive = pipeline.parse_scene_directive(planner_response)
+        except Exception:
+            repair_user_prompt = "\n".join(
+                [
+                    "Planner output violated JSON contract.",
+                    "Rewrite as JSON only with keys: goal, conflict, stakes, outcome.",
+                    "Invalid planner output:",
+                    planner_response,
+                ]
+            )
+            repair_prompt = await self._compose_prompt_with_tracking(
+                repair_user_prompt,
+                rule_profile="planner",
+                stage="planner",
+            )
+            planner_response, _ = await self._run_assistant_turn(
+                repair_prompt,
+                allow_stream=False,
+            )
+            try:
+                directive = pipeline.parse_scene_directive(planner_response)
+            except Exception as exc:
+                if self._last_valid_scene_directive is None:
+                    raise RuntimeError(
+                        "Planner output did not satisfy JSON contract after repair."
+                    ) from exc
+                directive = self._last_valid_scene_directive
+                self._log_output_message(
+                    "[yellow]Planner:[/yellow] "
+                    "JSON parse failed after repair; reusing last valid directive."
+                )
+
+        self._last_valid_scene_directive = directive
+        if self._planner_directive_debug_enabled:
+            self._log_output_message(
+                "\n".join(
+                    [
+                        "[cyan]Planner Directive:[/cyan]",
+                        f"- Goal: {escape(directive.goal)}",
+                        f"- Conflict: {escape(directive.conflict)}",
+                        f"- Stakes: {escape(directive.stakes)}",
+                        f"- Outcome: {escape(directive.outcome)}",
+                    ]
+                )
+            )
+
+        drafter_user_prompt = pipeline.build_drafter_user_prompt(
+            user_input=user_prompt,
+            directive=directive,
+        )
+        drafter_prompt = await self._compose_prompt_with_tracking(
+            drafter_user_prompt,
+            rule_profile="drafter",
+            stage="drafter",
+        )
+        draft_response, _ = await self._run_assistant_turn(
+            drafter_prompt,
+            allow_stream=False,
+        )
+
+        editor_user_prompt = pipeline.build_editor_user_prompt(
+            user_input=user_prompt,
+            directive=directive,
+            draft=draft_response,
+        )
+        editor_prompt = await self._compose_prompt_with_tracking(
+            editor_user_prompt,
+            rule_profile="editor",
+            stage="editor",
+        )
+        final_response, streamed = await self._run_assistant_turn(
+            editor_prompt,
+            allow_stream=False,
+        )
+
+        self._last_pipeline_artifacts = PipelineStepArtifacts(
+            directive=directive,
+            planner_response=planner_response,
+            draft_response=draft_response,
+            final_response=final_response,
+        )
+        return final_response, streamed
 
     async def _generate_with_mode_awareness(
         self,
@@ -309,8 +434,8 @@ class TuiApp(App[None]):
     ) -> tuple[str, bool]:
         """Generate assistant output under execution-mode policy controls."""
 
-        prompt = await self._compose_prompt_with_tracking(user_prompt)
-        response, streamed = await self._run_assistant_turn(prompt)
+        self._last_prompt_stage_diagnostics = {}
+        response, streamed = await self._generate_with_sequential_pipeline(user_prompt)
 
         if self.mode_config.should_auto_regenerate_on_conflict() and not streamed:
             chapter = self._active_chapter_for_canon()
@@ -332,8 +457,9 @@ class TuiApp(App[None]):
                     canon_report=canon_report,
                     state_report=state_report,
                 )
-                revised = await self._compose_prompt_with_tracking(revise_prompt)
-                response, streamed = await self._run_assistant_turn(revised)
+                response, streamed = await self._generate_with_sequential_pipeline(
+                    revise_prompt
+                )
 
                 refreshed_canon = await self._analyze_canon_conflicts(
                     response=response,
@@ -807,7 +933,7 @@ class TuiApp(App[None]):
                 "/state audit [limit=<n>] [entity=<id>] [type=<type>]",
                 "/state extract-last [apply]",
                 "/summary [clear]",
-                "/context [summary|budget|models|memory|conflicts|clear-summary|refresh-models|refresh-memory]",
+                "/context [summary|budget|prompt|models|memory|conflicts|clear-summary|refresh-models|refresh-memory]",
                 "/mode [manual|hybrid|autopilot [max_turns]]",
                 "/stop",
                 "/clear",
@@ -1053,6 +1179,10 @@ class TuiApp(App[None]):
             return self._build_context_summary_text()
         if subcommand == "budget":
             return self._build_context_budget_text()
+        if subcommand == "prompt":
+            if len(args) > 1 and args[1].lower() == "debug":
+                return self._handle_prompt_debug_command(args[2:])
+            return self._build_context_prompt_text()
         if subcommand == "models":
             return await asyncio.to_thread(self._build_context_models_text, False)
         if subcommand == "memory":
@@ -1069,8 +1199,27 @@ class TuiApp(App[None]):
             return self._build_context_memory_text(refreshed=True)
         return (
             "Usage: /context "
-            "[summary|budget|models|memory [explain]|conflicts|clear-summary|refresh-models|refresh-memory]"
+            "[summary|budget|prompt [debug [on|off]]|models|memory [explain]|conflicts|clear-summary|refresh-models|refresh-memory]"
         )
+
+    def _handle_prompt_debug_command(self, args: list[str]) -> str:
+        """Inspect or update planner-directive debug logging behavior."""
+
+        if not args:
+            return (
+                "Prompt Debug\n"
+                f"- Planner directive logging: {'on' if self._planner_directive_debug_enabled else 'off'}\n"
+                "- Usage: /context prompt debug [on|off]"
+            )
+
+        toggle = args[0].lower()
+        if toggle == "on":
+            self._planner_directive_debug_enabled = True
+            return "Planner directive debug logging enabled."
+        if toggle == "off":
+            self._planner_directive_debug_enabled = False
+            return "Planner directive debug logging disabled."
+        return "Usage: /context prompt debug [on|off]"
 
     async def _build_context_overview_text(self) -> str:
         """Render compact cross-system diagnostics in one dashboard view."""
@@ -1142,7 +1291,7 @@ class TuiApp(App[None]):
                 "Current Session Summary",
                 self._session_summary or "No summary generated yet.",
                 "",
-                "Use /context summary, /context budget, /context models, /context memory, /context conflicts for details.",
+                "Use /context summary, /context budget, /context prompt, /context models, /context memory, /context conflicts for details.",
             ]
         )
         return "\n".join(lines)
@@ -1276,6 +1425,9 @@ class TuiApp(App[None]):
                 "Estimated Usage",
                 f"- Canon: {token_map.get('canon', 0)}",
                 f"- Scene Plan: {token_map.get('scene_plan', 0)}",
+                f"- Planner Rules: {token_map.get('planner_rules', 0)}",
+                f"- Drafter Rules: {token_map.get('drafter_rules', 0)}",
+                f"- Editor Rules: {token_map.get('editor_rules', 0)}",
                 f"- Scoped Context: {token_map.get('scoped_context', 0)}",
                 f"- Narrative State: {token_map.get('narrative_state', 0)}",
                 f"- Recent Dialogue: {token_map.get('recent_dialogue', 0)}",
@@ -1303,6 +1455,9 @@ class TuiApp(App[None]):
         section_order = [
             ("canon_constraints", "Canon Constraints", "canon"),
             ("scene_plan", "Scene Plan", "scene_plan"),
+            ("planner_rules", "Planner Rules", "planner_rules"),
+            ("drafter_rules", "Drafter Rules", "drafter_rules"),
+            ("editor_rules", "Editor Rules", "editor_rules"),
             ("scoped_context", "Scoped Context", "scoped_context"),
             ("narrative_state", "Structured Narrative State", "narrative_state"),
             ("recent_dialogue", "Recent Dialogue", "recent_dialogue"),
@@ -1328,6 +1483,54 @@ class TuiApp(App[None]):
             else:
                 lines.append(f"{marker} {label}")
         return lines
+
+    def _build_context_prompt_text(self) -> str:
+        """Render stage-aware prompt composition diagnostics for the latest turn."""
+
+        if not self._last_prompt_stage_diagnostics:
+            return (
+                "Prompt Composition\n"
+                f"- Planner Directive Debug: {'on' if self._planner_directive_debug_enabled else 'off'}\n"
+                "- Status: unavailable\n"
+                "- Run a normal generation turn first, then inspect /context prompt."
+            )
+
+        lines = [
+            "Prompt Composition",
+            (
+                "- Planner Directive Debug: "
+                f"{'on' if self._planner_directive_debug_enabled else 'off'}"
+            ),
+        ]
+        stage_order = ["planner", "drafter", "editor", "default"]
+        for stage in stage_order:
+            payload = self._last_prompt_stage_diagnostics.get(stage)
+            if payload is None:
+                continue
+            budget, diagnostics = payload
+            token_map = diagnostics.estimated_tokens
+            lines.extend(
+                [
+                    "",
+                    f"[{stage.title()} Stage]",
+                    f"- Input Budget: {budget.input_budget_tokens}",
+                    f"- Estimated Full Prompt: {token_map.get('full_prompt', 0)}",
+                    *self._build_budget_section_lines(
+                        diagnostics,
+                        include_estimates=True,
+                    ),
+                ]
+            )
+
+        return "\n".join(lines)
+
+    def _log_output_message(self, message: str) -> None:
+        """Write a best-effort message to the output pane without raising."""
+
+        try:
+            self.query_one("#output", RichLog).write(message)
+        except Exception:
+            return
 
     def _build_context_models_text(self, force_refresh: bool) -> str:
         """Render OpenRouter discovery/cache diagnostics and current model limits."""

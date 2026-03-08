@@ -160,7 +160,7 @@ class NarrativeStateEngine:
 
         state = self.get_state()
         canon_facts = self.get_active_canon_facts(state=state)
-        memory_context = self.get_memory_context(state=state)
+        memory_context = self.get_memory_context(state=state, user_query=user_prompt)
         merged_retrieved_context = list(memory_context)
         if retrieved_context:
             merged_retrieved_context.extend(retrieved_context)
@@ -195,7 +195,7 @@ class NarrativeStateEngine:
 
         state = self.get_state()
         canon_facts = self.get_active_canon_facts(state=state)
-        memory_context = self.get_memory_context(state=state)
+        memory_context = self.get_memory_context(state=state, user_query=user_prompt)
         merged_retrieved_context = list(memory_context)
         if retrieved_context:
             merged_retrieved_context.extend(retrieved_context)
@@ -227,6 +227,7 @@ class NarrativeStateEngine:
         self,
         *,
         state: NarrativeState,
+        user_query: str | None = None,
         max_items: int = 4,
         max_tokens: int = 320,
     ) -> list[str]:
@@ -234,11 +235,15 @@ class NarrativeStateEngine:
 
         A local memory token ceiling keeps long recalled snippets from consuming
         most of the budget before downstream prompt pruning runs.
+
+        When user_query is provided, memory retrieval becomes semantically aware
+        of the current prompt for improved relevance ranking.
         """
 
         items = self.memory_manager.get_context_items(
             chapter=state.active_chapter,
             max_items=max_items,
+            query=user_query,
         )
         lines: list[str] = []
         consumed_tokens = 0

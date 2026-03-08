@@ -2,6 +2,17 @@
 
 ## Change History
 
+### 2026-03-08 — Phase 6B: query-aware memory retrieval
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/state_engine.py::compose_prompt_with_diagnostics` and `build_scoped_context` to pass `user_query=user_prompt` to `get_memory_context()`.
+	- Updated `storycraftr/tui/state_engine.py::get_memory_context()` to accept optional `user_query` parameter and pass it through to memory manager as `query`.
+	- Updated `storycraftr/agent/memory_manager.py::get_context_items()` to accept optional `query` parameter and use it as the primary semantic retrieval query before fallback queries (intent/events).
+	- Added regression tests in `tests/unit/test_memory_manager.py` validating that user query is used as first retrieval source, and in `tests/unit/test_tui_state_engine.py` confirming query parameter passes through correctly.
+	- Updated `docs/chat.md` to document query-aware retrieval behavior.
+	- Synced release docs in `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-08 — Phase 6B: memory-context token budget guard
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

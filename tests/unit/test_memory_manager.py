@@ -162,3 +162,26 @@ def test_memory_manager_force_provider_overrides_config(monkeypatch, tmp_path) -
     assert manager.is_enabled is True
     cfg = _FakeMemoryFactory.last_config
     assert cfg["llm"]["provider"] == "ollama"
+
+
+def test_memory_manager_uses_user_query_for_semantic_retrieval(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(mm, "_Mem0Memory", _FakeMemoryFactory)
+
+    manager = NarrativeMemoryManager(book_path=str(tmp_path))
+
+    manager._ensure_client()
+    client = manager._memory
+
+    items = manager.get_context_items(
+        chapter=2,
+        max_items=3,
+        query="What are the artifact's properties?",
+    )
+
+    search_queries = [call["query"] for call in client.search_calls]
+
+    assert "What are the artifact's properties?" in search_queries
+    assert search_queries[0] == "What are the artifact's properties?"
+    assert len(items) >= 0

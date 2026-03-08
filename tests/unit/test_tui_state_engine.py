@@ -358,6 +358,44 @@ Body
     assert lines == []
 
 
+def test_get_memory_context_passes_user_query_for_relevance(tmp_path) -> None:
+    _write(
+        tmp_path / "chapters" / "chapter-1.md",
+        """---
+title: Arrival
+scene: Setup
+arc: Act I
+---
+# Chapter 1
+Body
+""",
+    )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+    state = engine.get_state()
+    captured_query = None
+
+    def mock_get_items(**kwargs):
+        nonlocal captured_query
+        captured_query = kwargs.get("query")
+        return [
+            MemoryContextItem(
+                source="relevant",
+                text="The artifact pulses when Elias approaches.",
+            )
+        ]
+
+    engine.memory_manager.get_context_items = mock_get_items
+
+    lines = engine.get_memory_context(
+        state=state, user_query="Describe the mysterious artifact.", max_items=4
+    )
+
+    assert captured_query == "Describe the mysterious artifact."
+    assert len(lines) == 1
+    assert "Memory: The artifact pulses when Elias approaches." in lines[0]
+
+
 def test_compose_prompt_includes_recent_turns_when_budget_allows(tmp_path) -> None:
     _write(
         tmp_path / "chapters" / "chapter-1.md",

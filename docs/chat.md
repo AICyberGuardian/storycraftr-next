@@ -130,8 +130,10 @@ existing assistant pipeline: `[Canon Constraints]`, `[Scene Plan]`,
 
 When Mem0 is available in the local environment, `[Scoped Context]` may include
 compact long-term memory recalls (intent/event snippets) to reduce narrative
-drift across long autonomous runs. If Mem0 is unavailable, this layer is
-silently skipped and standard context composition continues.
+drift across long autonomous runs. Memory retrieval is **query-aware**: the
+system uses the user's current prompt to retrieve semantically relevant memories
+before falling back to generic intent/event queries. If Mem0 is unavailable,
+this layer is silently skipped and standard context composition continues.
 
 Mem0 runtime mode follows StoryCraftr provider settings:
 - `llm_provider=ollama` uses local Ollama inference for memory extraction plus local embedding model.

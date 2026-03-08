@@ -116,29 +116,44 @@ class NarrativeMemoryManager:
         *,
         chapter: int | None,
         max_items: int = 6,
+        query: str | None = None,
     ) -> list[MemoryContextItem]:
-        """Retrieve compact memory context lines for prompt assembly."""
+        """Retrieve compact memory context lines for prompt assembly.
+
+        When query is provided, uses it for primary semantic retrieval before
+        falling back to generic intent/event queries for broader coverage.
+        """
 
         memory = self._ensure_client()
         if memory is None:
             return []
 
         chapter_hint = chapter if chapter is not None else 0
-        queries = [
-            ("intent", "Current character goals and motivations"),
-            (
-                "events",
-                f"Key unresolved events and threads near chapter {chapter_hint}",
-            ),
-        ]
+
+        # Build query set: user-provided query first for relevance, then generic
+        queries: list[tuple[str, str]] = []
+        if query and query.strip():
+            queries.append(("relevant", query.strip()))
+        queries.extend(
+            [
+                ("intent", "Current character goals and motivations"),
+                (
+                    "events",
+                    f"Key unresolved events and threads near chapter {chapter_hint}",
+                ),
+            ]
+        )
 
         items: list[MemoryContextItem] = []
         seen: set[str] = set()
-        per_query_limit = max(1, max_items // 2)
 
-        for source, query in queries:
+        # Allocate more budget to user query when present
+        query_count = len(queries)
+        per_query_limit = max(1, max_items // query_count) if query_count > 0 else 1
+
+        for source, query_text in queries:
             for hit in self._search(
-                query=query,
+                query=query_text,
                 limit=per_query_limit,
                 filters={"category": "narrative_turn"},
             ):

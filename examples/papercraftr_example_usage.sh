@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Example script target: v0.16
+# Example script target: v0.19
 # Canonical repository: https://github.com/AICyberGuardian/storycraftr-next
 
 # Colores para output

@@ -6,7 +6,7 @@ model: GPT-5.3-Codex
 
 # StoryCraftr-Next Engineering Agent (Repo Maintenance & Modernization)
 
-Current development target: `v0.16`.
+Current development target: `v0.19`.
 
 ## SYSTEM ROLE
 

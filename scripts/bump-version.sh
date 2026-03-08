@@ -38,7 +38,7 @@ fs.writeFileSync(path, JSON.stringify(data, null, 2) + "\n");
 NODE
 
 if grep -q "Current development target set to" CHANGELOG.md; then
-    perl -pi -e 's#Current development target set to `v[0-9]+\.[0-9]+\.x` \(`[^`]+`\)\.#Current development target set to `v'"$series"'.x` (`'"$version"'`).#' CHANGELOG.md
+    perl -pi -e 's#Current development target set to `v[0-9]+\.[0-9]+(?:\.x)?` \(`[^`]+`\)\.#Current development target set to `v'"$series"'` (`'"$version"'`).#' CHANGELOG.md
 else
     echo "CHANGELOG.md is missing the development target line under [Unreleased]." >&2
     exit 1

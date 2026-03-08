@@ -1,6 +1,6 @@
 # Copilot Coding Agent Instructions
 
-Current development target: v0.16.
+Current development target: v0.19.
 
 ## Repository Invariants
 

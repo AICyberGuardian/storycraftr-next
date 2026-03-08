@@ -6,7 +6,7 @@ This document is the deep architecture reference for StoryCraftr-Next.
 For routine contributor onboarding, start with `docs/architecture-onboarding.md`.
 This file is intentionally secondary and deeper.
 
-Current development target: `v0.16` (`0.16.0-dev`).
+Current development target: `v0.19` (`0.19.0-dev`).
 
 ## System Summary
 

@@ -1,7 +1,7 @@
 # StoryCraftr Phases 2B–5: Complete Implementation Summary
 
 **Development Period**: March 7, 2026  
-**Target Version**: v0.16 (0.16.0-dev)  
+**Target Version**: v0.19 (0.19.0-dev)
 **Branch**: `feat/tui-service-unification`  
 **Commits**: `9f75f88` → `0d47527` → `d25dd07` → `e2cd39c`  
 
@@ -488,7 +488,7 @@ Phases 2B–5 transform StoryCraftr from a collection of independent CLI and TUI
 **Next Steps**:
 1. Code review of all four commits
 2. Integration testing in CI pipeline
-3. Merge to main and version bump to v0.16
+3. Merge to main and version bump to v0.19
 4. User testing and feedback cycle for Phase 6 roadmap
 
 ---

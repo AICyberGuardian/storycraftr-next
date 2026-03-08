@@ -13,9 +13,9 @@ Welcome to [**StoryCraftr**](https://storycraftr.app), the open-source project d
 
 ---
 
-## Development Cycle v0.16
+## Development Cycle v0.19
 
-Current development target: `v0.16` (`0.16.0-dev`).
+Current development target: `v0.19` (`0.19.0-dev`).
 
 For in-progress changes, see `CHANGELOG.md` under `[Unreleased]`.
 

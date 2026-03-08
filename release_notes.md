@@ -1,6 +1,6 @@
 ## Draft Update - 2026-03-07 (Dynamic OpenRouter Discovery, Prompt Budgeting, Sub-Agent Cooldown, and Click Control-Plane)
 
-Current development target: `v0.16` (`0.16.0-dev`).
+Current development target: `v0.19` (`0.19.0-dev`).
 
 ### Highlights
 
@@ -23,7 +23,7 @@ For complete line-item history, see `CHANGELOG.md` and `docs/CHANGE_IMPACT_CHECK
 
 ## Draft Update - 2026-03-06 (CI, TUI UX, and Documentation Sync)
 
-Current development target: `v0.16` (`0.16.0-dev`).
+Current development target: `v0.19` (`0.19.0-dev`).
 
 ### Highlights
 
@@ -55,7 +55,7 @@ For full step-level details, see `CHANGELOG.md` under `[Unreleased]`.
 
 ## Draft Update - 2026-03-03 (Security, Reliability, and Path Hardening)
 
-Current development target: `v0.16` (`0.16.0-dev`).
+Current development target: `v0.19` (`0.19.0-dev`).
 
 ### Highlights
 

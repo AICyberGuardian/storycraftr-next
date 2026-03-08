@@ -2,6 +2,14 @@
 
 ## Change History
 
+### 2026-03-08 — Development target bump to v0.19 (`0.19.0-dev`)
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Bumped manifest/lock metadata to `0.19.0-dev` in `pyproject.toml`, `package.json`, and `package-lock.json` via `make bump-version VERSION=0.19.0-dev`.
+	- Updated current development target references to `v0.19` (`0.19.0-dev`) across project docs and agent guidance (`README.md`, `CHANGELOG.md`, `release_notes.md`, `docs/getting_started.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `docs/index.html`, `AGENTS.md`, `.github/copilot-instructions.md`, `.github/agents/storycraftr-engineering.agent.md`, `PHASES_2B_TO_5_IMPLEMENTATION_SUMMARY.md`, and `examples/*_example_usage.sh`).
+	- Updated `scripts/bump-version.sh` changelog-target matcher to support existing `vX.Y` format (and legacy `vX.Y.x`) so future bumps keep `CHANGELOG.md` in sync automatically.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no runtime behavior changes to CLI/TUI/sub-agents/provider routing/vector-store/VS Code events; no security-tooling policy changes).
+
 ### 2026-03-08 — CI stabilization: deterministic canon-conflict warning test
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

@@ -256,6 +256,8 @@ class NarrativeStateEngine:
 
         items = self.memory_manager.get_context_items(
             chapter=state.active_chapter,
+            active_scene=state.active_scene,
+            active_arc=state.active_arc,
             max_items=max_items,
             query=user_query,
         )

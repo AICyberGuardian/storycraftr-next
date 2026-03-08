@@ -115,13 +115,16 @@ class NarrativeMemoryManager:
         self,
         *,
         chapter: int | None,
+        active_scene: str | None = None,
+        active_arc: str | None = None,
         max_items: int = 6,
         query: str | None = None,
     ) -> list[MemoryContextItem]:
         """Retrieve compact memory context lines for prompt assembly.
 
         When query is provided, uses it for primary semantic retrieval before
-        falling back to generic intent/event queries for broader coverage.
+        falling back to chapter/scene/arc continuity and generic intent/event
+        queries for broader coverage.
         """
 
         memory = self._ensure_client()
@@ -129,17 +132,67 @@ class NarrativeMemoryManager:
             return []
 
         chapter_hint = chapter if chapter is not None else 0
+        scene_hint = " ".join((active_scene or "").split()).strip()
+        arc_hint = " ".join((active_arc or "").split()).strip()
 
-        # Build query set: user-provided query first for relevance, then generic
-        queries: list[tuple[str, str]] = []
+        # Build weighted query set: prompt relevance first, then continuity
+        # signals (recent chapter + scene/arc), then broad intent/event recall.
+        queries: list[tuple[str, str, dict[str, Any]]] = []
         if query and query.strip():
-            queries.append(("relevant", query.strip()))
+            queries.append(("relevant", query.strip(), {"category": "narrative_turn"}))
+        if chapter is not None:
+            queries.append(
+                (
+                    "recent",
+                    f"Recent chapter {chapter} developments and unresolved continuity details",
+                    {"category": "narrative_turn", "chapter": chapter},
+                )
+            )
+            if chapter > 1:
+                queries.append(
+                    (
+                        "recent",
+                        f"Carry-over continuity from chapter {chapter - 1}",
+                        {"category": "narrative_turn", "chapter": chapter - 1},
+                    )
+                )
+        if scene_hint:
+            queries.append(
+                (
+                    "scene",
+                    f"Scene continuity cues for '{scene_hint}'",
+                    {"category": "narrative_turn"},
+                )
+            )
+        if arc_hint:
+            queries.append(
+                (
+                    "arc",
+                    f"Arc-level constraints and unresolved beats for '{arc_hint}'",
+                    {"category": "narrative_turn"},
+                )
+            )
         queries.extend(
             [
-                ("intent", "Current character goals and motivations"),
+                (
+                    "character_state",
+                    "Current character states, motivations, and interpersonal tension",
+                    {"category": "narrative_turn"},
+                ),
+                (
+                    "plot_thread",
+                    f"Key unresolved plot threads near chapter {chapter_hint}",
+                    {"category": "narrative_turn"},
+                ),
+                (
+                    "intent",
+                    "Current character goals and motivations",
+                    {"category": "narrative_turn"},
+                ),
                 (
                     "events",
                     f"Key unresolved events and threads near chapter {chapter_hint}",
+                    {"category": "narrative_turn"},
                 ),
             ]
         )
@@ -147,15 +200,19 @@ class NarrativeMemoryManager:
         items: list[MemoryContextItem] = []
         seen: set[str] = set()
 
-        # Allocate more budget to user query when present
-        query_count = len(queries)
-        per_query_limit = max(1, max_items // query_count) if query_count > 0 else 1
-
-        for source, query_text in queries:
+        # Front-loaded weighted allocation: earlier (higher-priority) queries
+        # can return up to 3 hits while preserving at least one slot per
+        # remaining query.
+        for index, (source, query_text, filters) in enumerate(queries):
+            remaining_slots = max_items - len(items)
+            if remaining_slots <= 0:
+                return items
+            remaining_queries = len(queries) - index
+            per_query_limit = min(3, max(1, remaining_slots - (remaining_queries - 1)))
             for hit in self._search(
                 query=query_text,
                 limit=per_query_limit,
-                filters={"category": "narrative_turn"},
+                filters=filters,
             ):
                 normalized = " ".join(hit.split())
                 if not normalized or normalized in seen:

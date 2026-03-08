@@ -140,6 +140,11 @@ receive proportionally larger memory budgets (up to 1280 tokens) to take advanta
 of available capacity, while smaller models (e.g., 8k tokens) use conservative
 budgets (160+ tokens) to preserve space for critical prompt sections.
 
+Memory retrieval strategy is now **storyline-aware**: after the user's prompt
+query, recall prioritizes recent chapter continuity (active chapter and previous
+chapter), then active scene/arc cues, then broader character-state and
+plot-thread signals before generic fallback intent/event queries.
+
 After generation, the system attempts to persist the turn to long-term memory.
 When memory is enabled and persistence fails, a warning is displayed in the
 output pane and the failure is logged to `/context memory` diagnostics for

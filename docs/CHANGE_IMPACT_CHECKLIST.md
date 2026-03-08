@@ -2,6 +2,17 @@
 
 ## Change History
 
+### 2026-03-07 — Phase 6B: storyline-aware weighted memory retrieval
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/agent/memory_manager.py::get_context_items` to accept optional `active_scene` and `active_arc` hints and to prioritize retrieval in weighted order: user query -> recent chapter continuity (active + previous chapter) -> scene/arc cues -> character-state and plot-thread context -> generic intent/events.
+	- Added chapter-scoped memory filters for recent continuity lookups and preserved fail-closed behavior via existing `_search` fallback semantics.
+	- Updated `storycraftr/tui/state_engine.py::get_memory_context` to pass active scene/arc hints from `NarrativeState` to memory retrieval.
+	- Added/updated regression coverage in `tests/unit/test_memory_manager.py` validating recent chapter filters, scene/arc hint queries, and updated source-label expectations.
+	- Updated `docs/chat.md` to document storyline-aware retrieval strategy.
+	- Synced release docs in `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-08 — Phase 6B: model-aware memory token budgeting
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

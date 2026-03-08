@@ -400,7 +400,7 @@ If you prefer a structured terminal interface, launch the Textual TUI command
 center:
 
 ```bash
-python -m storycraftr.tui.app --book-path "/path/to/your/project"
+storycraftr tui --book-path "/path/to/your/project"
 ```
 
 The TUI keeps the same assistant/back-end architecture and adds a narrative
@@ -434,6 +434,10 @@ CLI discovery commands:
 
 - `storycraftr model-list` prints free OpenRouter model IDs with discovered limits.
 - `storycraftr model-list --refresh` forces live refresh before listing.
+- `storycraftr state show|validate|audit` exposes narrative-state operations outside the TUI.
+- `storycraftr canon check --chapter <n> --text "..."` runs fail-closed canon verification from scripts.
+- `storycraftr mode show|set|stop` manages persisted execution-mode runtime state.
+- `storycraftr models list|refresh` provides grouped model discovery commands.
 
 Regular prompts are prefixed with a scene-scoped context block (scene
 Goal/Conflict/Outcome + active chapter constraints + compact state summary)

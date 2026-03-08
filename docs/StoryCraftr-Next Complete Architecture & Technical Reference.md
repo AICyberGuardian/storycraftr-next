@@ -99,7 +99,7 @@ Default logical locations:
 ## TUI Command Center
 
 - The TUI is a thin UI layer over existing assistant/chat APIs and does not replace core generation logic.
-- It supports slash-command UX including `/help`, `/status`, `/mode <manual|hybrid|autopilot>`, `/autopilot <steps> <prompt>`, `/state`, `/summary [clear]`, `/context [summary|budget|models|clear-summary|refresh-models]`, `/progress`, `/wizard`, `/pipeline`, `/canon`, `/toggle-tree`, `/chapter <number>`, `/scene <label>`, `/session ...`, `/sub-agent ...`, `/model-list`, and `/model-change <model_id>`.
+- It supports slash-command UX including `/help`, `/status`, `/mode <manual|hybrid|autopilot>`, `/autopilot <steps> <prompt>`, `/state`, `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]`, `/summary [clear]`, `/context [summary|budget|models|clear-summary|refresh-models]`, `/progress`, `/wizard`, `/pipeline`, `/canon`, `/toggle-tree`, `/chapter <number>`, `/scene <label>`, `/session ...`, `/sub-agent ...`, `/model-list`, and `/model-change <model_id>`.
 - The project tree defaults to hidden and can be shown on-demand for filesystem inspection.
 - `/model-list` reads from dynamic OpenRouter free-model discovery cache and supports `/model-list refresh` to force catalog refresh.
 - `/model-change` rebuilds the active TUI assistant via existing safe assistant creation paths with model override, while preserving project and retrieval context and reporting continuity limits explicitly.

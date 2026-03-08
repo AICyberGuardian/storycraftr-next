@@ -2,6 +2,19 @@
 
 ## Change History
 
+### 2026-03-07 — Documentation parity sync for DSVL Phase 2A/2B/2C
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `docs/architecture-onboarding.md` to include DSVL narrative state/audit modules, runtime files, and TUI autonomy notes for `/state` and `/state audit`.
+	- Updated `docs/contributor-reference.md` to catalog `storycraftr/agent/state_audit.py`, `tests/unit/test_state_audit.py`, and recent architecture context for audit workflow visibility.
+	- Updated user-facing TUI docs for command parity:
+		- `README.md`
+		- `docs/chat.md`
+		- `docs/getting_started.md`
+		- `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`
+	- Aligned `/state` wording to version-aware state snapshot semantics and documented `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]` filter usage.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (documentation-only updates with no code/runtime/lockfile/provider/event-schema/security behavior changes).
+
 ### 2026-03-07 — DSVL Phase 2C: Version-aware prompt injection
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

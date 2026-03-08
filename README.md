@@ -255,7 +255,8 @@ Current TUI slash commands include:
 - `/status` for project/assistant/runtime status
 - `/mode <manual|hybrid|autopilot>` to control TUI execution autonomy level
 - `/autopilot <steps> <prompt>` to run bounded autonomous turns when mode is `autopilot`
-- `/state` to inspect current narrative context and exact injected prompt block
+- `/state` to inspect current narrative context snapshot with version/timestamp metadata
+- `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]` to inspect append-only narrative state mutation history with optional filters
 - `/summary` and `/summary clear` to inspect or reset rolling compacted session context
 - `/context` for an overview dashboard of summary/budget/model-cache diagnostics
 - `/context summary`, `/context budget`, `/context models` for focused runtime diagnostics

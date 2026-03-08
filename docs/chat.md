@@ -63,7 +63,8 @@ assistant/backend flow.
 - `/status` — Show active project/provider/model and assistant retrieval status.
 - `/mode <manual|hybrid|autopilot>` — Set execution mode for manual, assisted, or autopilot workflows.
 - `/autopilot <steps> <prompt>` — Run bounded autonomous turns when execution mode is `autopilot`.
-- `/state` — Show active narrative state and injected prompt block.
+- `/state` — Show active narrative state snapshot with version and timestamp metadata.
+- `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]` — Query append-only state audit history with optional filters.
 - `/summary` and `/summary clear` — Inspect or reset rolling compacted session summary state.
 - `/context` — Show a compact runtime diagnostics dashboard (summary, budget, model cache).
 - `/context summary` — Show full rolling summary state (status, compacted turns, summary text).

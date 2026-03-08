@@ -412,7 +412,8 @@ Useful slash commands:
 - `/status` shows project/assistant runtime status.
 - `/mode <manual|hybrid|autopilot>` sets the execution mode control layer for TUI workflows.
 - `/autopilot <steps> <prompt>` runs bounded autonomous turns when mode is `autopilot`.
-- `/state` shows active narrative state plus the exact injected prompt block, including `[Active Constraints]` when canon facts exist.
+- `/state` shows active narrative state snapshot with version/timestamp metadata and the injected narrative-state context.
+- `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]` shows append-only state mutation history with optional filters.
 - `/summary` and `/summary clear` inspect or reset rolling compacted session summary state.
 - `/context` shows a compact runtime dashboard for summary, prompt budget, pruning, and model-cache status.
 - `/context summary`, `/context budget`, `/context models`, `/context clear-summary`, and `/context refresh-models` expose detailed diagnostics and maintenance actions.

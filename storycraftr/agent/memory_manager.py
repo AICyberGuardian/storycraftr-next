@@ -36,6 +36,7 @@ class NarrativeMemoryManager:
         self._config = config
         self._memory: Any | None = None
         self._disabled_reason: str | None = None
+        self._last_retrieval: dict[str, Any] | None = None
 
     def configure(self, config: Any | None) -> None:
         """Rebind config and reset Mem0 client so path overrides are respected."""
@@ -45,6 +46,7 @@ class NarrativeMemoryManager:
         self.storage_path = project_paths.internal_state_root / "memory"
         self._memory = None
         self._disabled_reason = None
+        self._last_retrieval = None
 
     @property
     def is_enabled(self) -> bool:
@@ -129,6 +131,14 @@ class NarrativeMemoryManager:
 
         memory = self._ensure_client()
         if memory is None:
+            self._last_retrieval = {
+                "enabled": False,
+                "hits_returned": 0,
+                "queries_attempted": 0,
+                "queries_run": 0,
+                "source_order": [],
+                "hits_by_source": {},
+            }
             return []
 
         chapter_hint = chapter if chapter is not None else 0
@@ -199,6 +209,8 @@ class NarrativeMemoryManager:
 
         items: list[MemoryContextItem] = []
         seen: set[str] = set()
+        hits_by_source: dict[str, int] = {}
+        queries_run = 0
 
         # Front-loaded weighted allocation: earlier (higher-priority) queries
         # can return up to 3 hits while preserving at least one slot per
@@ -206,9 +218,18 @@ class NarrativeMemoryManager:
         for index, (source, query_text, filters) in enumerate(queries):
             remaining_slots = max_items - len(items)
             if remaining_slots <= 0:
+                self._last_retrieval = {
+                    "enabled": True,
+                    "hits_returned": len(items),
+                    "queries_attempted": len(queries),
+                    "queries_run": queries_run,
+                    "source_order": [source_name for source_name, _, _ in queries],
+                    "hits_by_source": hits_by_source,
+                }
                 return items
             remaining_queries = len(queries) - index
             per_query_limit = min(3, max(1, remaining_slots - (remaining_queries - 1)))
+            queries_run += 1
             for hit in self._search(
                 query=query_text,
                 limit=per_query_limit,
@@ -219,9 +240,26 @@ class NarrativeMemoryManager:
                     continue
                 seen.add(normalized)
                 items.append(MemoryContextItem(source=source, text=normalized))
+                hits_by_source[source] = hits_by_source.get(source, 0) + 1
                 if len(items) >= max_items:
+                    self._last_retrieval = {
+                        "enabled": True,
+                        "hits_returned": len(items),
+                        "queries_attempted": len(queries),
+                        "queries_run": queries_run,
+                        "source_order": [source_name for source_name, _, _ in queries],
+                        "hits_by_source": hits_by_source,
+                    }
                     return items
 
+        self._last_retrieval = {
+            "enabled": True,
+            "hits_returned": len(items),
+            "queries_attempted": len(queries),
+            "queries_run": queries_run,
+            "source_order": [source_name for source_name, _, _ in queries],
+            "hits_by_source": hits_by_source,
+        }
         return items
 
     def _ensure_client(self) -> Any | None:
@@ -354,6 +392,7 @@ class NarrativeMemoryManager:
             "provider": provider,
             "story_id": self.story_id,
             "storage_path": str(self.storage_path),
+            "last_retrieval": self._last_retrieval,
         }
 
     def _effective_provider(self) -> str:

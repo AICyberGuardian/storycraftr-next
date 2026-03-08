@@ -2,6 +2,16 @@
 
 ## Change History
 
+### 2026-03-07 — Phase 6B: memory retrieval telemetry diagnostics
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/agent/memory_manager.py` to track latest retrieval telemetry (`hits_returned`, `queries_run`, `queries_attempted`, `hits_by_source`, `source_order`) and expose it via `get_runtime_diagnostics()`.
+	- Updated `storycraftr/tui/app.py::_build_context_memory_text` to render recall telemetry summary lines in `/context memory` diagnostics.
+	- Updated `storycraftr/cmd/memory.py::memory_status` to render recall telemetry summary lines in text output while preserving JSON output compatibility.
+	- Added regression tests in `tests/unit/test_memory_manager.py`, `tests/unit/test_tui_app.py`, and `tests/test_cli.py` validating telemetry population and rendering.
+	- Updated `docs/chat.md` and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Phase 6B: storyline-aware weighted memory retrieval
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

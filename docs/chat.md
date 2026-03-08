@@ -150,6 +150,10 @@ When memory is enabled and persistence fails, a warning is displayed in the
 output pane and the failure is logged to `/context memory` diagnostics for
 operator review.
 
+`/context memory` and `storycraftr memory status` now include recall telemetry
+from the latest retrieval pass (hits returned, query stages run/attempted, and
+hit distribution by source label) to help tune memory strategy behavior.
+
 Mem0 runtime mode follows StoryCraftr provider settings:
 - `llm_provider=ollama` uses local Ollama inference for memory extraction plus local embedding model.
 - `llm_provider=openrouter` uses OpenRouter-compatible Mem0 LLM routing when `OPENROUTER_API_KEY` is present.

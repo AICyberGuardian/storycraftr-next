@@ -229,3 +229,10 @@ def test_memory_manager_prioritizes_recent_and_storyline_queries(
     all_queries = [call["query"] for call in calls]
     assert any("Bridge Infiltration" in query for query in all_queries)
     assert any("Act II" in query for query in all_queries)
+
+    diagnostics = manager.get_runtime_diagnostics()
+    retrieval = diagnostics.get("last_retrieval")
+    assert isinstance(retrieval, dict)
+    assert retrieval.get("queries_run", 0) >= 1
+    assert retrieval.get("hits_returned", 0) >= 1
+    assert isinstance(retrieval.get("hits_by_source"), dict)

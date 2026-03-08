@@ -376,6 +376,31 @@ def test_context_memory_includes_last_persist_status_when_available(tmp_path) ->
     assert "Last Persist: success" in result
 
 
+def test_context_memory_includes_last_recall_telemetry(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    memory_path = str(tmp_path / "memory")
+    app.state_engine.memory_manager.get_runtime_diagnostics = lambda: {
+        "enabled": True,
+        "provider": "openrouter",
+        "story_id": "demo-story",
+        "storage_path": memory_path,
+        "reason": None,
+        "last_retrieval": {
+            "hits_returned": 3,
+            "queries_run": 4,
+            "queries_attempted": 6,
+            "hits_by_source": {"relevant": 1, "recent": 2},
+        },
+    }
+
+    result = asyncio.run(app._dispatch_slash_command("/context memory"))
+
+    assert "Long-Term Memory" in result
+    assert "Last Recall Hits: 3 (queries run: 4/6)" in result
+    assert "Last Recall Sources: relevant=1, recent=2" in result
+
+
 def test_dispatch_context_conflicts_reports_latest_conflict_snapshot(tmp_path) -> None:
     TuiApp = _load_tui_app()
     app = TuiApp(book_path=str(tmp_path))

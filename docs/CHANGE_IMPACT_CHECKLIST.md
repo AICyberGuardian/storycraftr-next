@@ -2,6 +2,16 @@
 
 ## Change History
 
+### 2026-03-07 — Phase 4: extraction verification and bounded retry repair
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/services/control_plane.py::state_extract_impl` to add a fail-closed verification pass for extracted `StatePatch` operations before write attempts.
+	- Added one deterministic dependency-order retry for extraction operations (location adds before character mutations) and operation dropping when still unsafe.
+	- Extended extraction result metadata across shared service/CLI/TUI outputs with verification status, retry-performed flag, dropped-operation count, and verification issue details.
+	- Added regression test coverage in `tests/unit/test_control_plane_service.py` for dead-character movement rejection in extraction apply flow.
+	- Synced docs in `README.md`, `docs/chat.md`, `release_notes.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Phase 3: deterministic state extraction integration
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

@@ -352,11 +352,16 @@ class TuiApp(App[None]):
             )
         except Exception as exc:
             self.query_one("#output", RichLog).write(
-                "[yellow]State Extractor:[/yellow] " f"{escape(str(exc))}"
+                f"[yellow]State Extractor:[/yellow] {escape(str(exc))}"
             )
             return
 
         op_count = len(result.extracted.patch.operations)
+        if result.verification_issues:
+            self.query_one("#output", RichLog).write(
+                "[yellow]State Extractor:[/yellow] "
+                f"verification adjusted patch ({result.dropped_operations} dropped)."
+            )
         if op_count <= 0:
             return
 
@@ -927,6 +932,13 @@ class TuiApp(App[None]):
                 "State Extraction",
                 f"- Operations: {len(result.extracted.patch.operations)}",
                 f"- Events: {len(result.extracted.events)}",
+                (
+                    "- Verification: passed"
+                    if result.verification_passed
+                    else "- Verification: adjusted"
+                ),
+                f"- Retry performed: {'yes' if result.retry_performed else 'no'}",
+                f"- Dropped operations: {result.dropped_operations}",
             ]
             if result.extracted.patch.operations:
                 lines.append("- Patch operations:")
@@ -945,6 +957,11 @@ class TuiApp(App[None]):
                     lines.append("- Applied: no (no operations extracted)")
             else:
                 lines.append("- Applied: no (preview mode)")
+
+            if result.verification_issues:
+                lines.append("- Verification issues:")
+                for issue in result.verification_issues:
+                    lines.append(f"  * {issue}")
 
             return "\n".join(lines)
 

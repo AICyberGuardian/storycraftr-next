@@ -98,3 +98,44 @@ def test_state_extract_impl_can_apply_patch(tmp_path) -> None:
     snapshot = store.load()
     assert "elias" in snapshot.characters
     assert snapshot.characters["elias"].location == "bridge"
+
+
+def test_state_extract_impl_drops_invalid_dead_character_move(tmp_path) -> None:
+    from storycraftr.agent.narrative_state import (
+        CharacterState,
+        LocationState,
+        NarrativeStateSnapshot,
+        NarrativeStateStore,
+    )
+
+    store = NarrativeStateStore(str(tmp_path))
+    store.save(
+        NarrativeStateSnapshot(
+            characters={
+                "elias": CharacterState(
+                    name="Elias",
+                    status="dead",
+                    location="dock",
+                )
+            },
+            locations={
+                "dock": LocationState(name="Dock"),
+                "bridge": LocationState(name="Bridge"),
+            },
+        )
+    )
+
+    result = state_extract_impl(
+        tmp_path,
+        text="Elias entered the bridge.",
+        apply_patch=True,
+        actor="service-extractor-test",
+    )
+
+    assert result.applied is False
+    assert result.retry_performed is True
+    assert result.verification_passed is False
+    assert result.dropped_operations == 1
+    assert any(
+        "dead character cannot move" in issue for issue in result.verification_issues
+    )

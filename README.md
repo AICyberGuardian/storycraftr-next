@@ -248,7 +248,7 @@ storycraftr tui --book-path /path/to/your/book
 Control-plane CLI groups are also available for scripting and CI workflows:
 
 - `storycraftr state show|validate|audit`
-- `storycraftr state extract --text "..." [--apply]`
+- `storycraftr state extract --text "..." [--apply]` with verification status (`passed` vs `adjusted`), dropped-operation count, and surfaced verification issues.
 - `storycraftr canon check --chapter <n> --text "..."`
 - `storycraftr mode show|set|stop`
 - `storycraftr models list|refresh`
@@ -268,7 +268,7 @@ Current TUI slash commands include:
 - `/autopilot <steps> <prompt>` to run bounded autonomous turns when mode is `autopilot`
 - `/state` to inspect current narrative context snapshot with version/timestamp metadata
 - `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]` to inspect append-only narrative state mutation history with optional filters
-- `/state extract-last [apply]` to preview or apply deterministic prose-to-state patch extraction from the latest assistant response
+- `/state extract-last [apply]` to preview or apply deterministic prose-to-state patch extraction from the latest assistant response, including verification/retry diagnostics
 - `/summary` and `/summary clear` to inspect or reset rolling compacted session context
 - `/context` for an overview dashboard of summary/budget/model-cache diagnostics
 - `/context summary`, `/context budget`, `/context models` for focused runtime diagnostics

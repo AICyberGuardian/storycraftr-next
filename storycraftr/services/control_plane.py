@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from storycraftr.agent.execution_mode import ExecutionMode, parse_execution_mode
-from storycraftr.agent.narrative_state import NarrativeStateStore
+from storycraftr.agent.narrative_state import (
+    NarrativeStateSnapshot,
+    NarrativeStateStore,
+    PatchOperation,
+    StatePatch,
+)
 from storycraftr.agent.state_extractor import StateExtractionResult, extract_state_patch
 from storycraftr.chat.session import SessionManager
 from storycraftr.tui.canon_extract import extract_canon_candidates
@@ -48,6 +53,175 @@ class StateExtractResult:
     extracted: StateExtractionResult
     applied: bool
     applied_version: int | None
+    verification_passed: bool
+    verification_issues: list[str]
+    retry_performed: bool
+    dropped_operations: int
+
+
+def _operation_priority(operation: PatchOperation) -> int:
+    """Return deterministic operation priority for dependency-aware retries."""
+
+    if operation.entity_type == "location" and operation.operation == "add":
+        return 0
+    if operation.entity_type == "character" and operation.operation == "add":
+        return 1
+    if operation.entity_type == "character" and operation.operation == "update":
+        return 2
+    return 3
+
+
+def _reorder_patch_operations(
+    operations: list[PatchOperation],
+) -> list[PatchOperation]:
+    """Return deterministic dependency-first ordering for verification retries."""
+
+    indexed = list(enumerate(operations))
+    indexed.sort(key=lambda pair: (_operation_priority(pair[1]), pair[0]))
+    return [operation for _idx, operation in indexed]
+
+
+def _verify_patch_operations(
+    snapshot: NarrativeStateSnapshot,
+    operations: list[PatchOperation],
+) -> tuple[list[PatchOperation], list[str]]:
+    """Verify patch operations against current state and keep only safe operations."""
+
+    known_locations = set(snapshot.locations.keys())
+    known_characters = set(snapshot.characters.keys())
+    known_plot_threads = set(snapshot.plot_threads.keys())
+    character_locations = {
+        key: character.location for key, character in snapshot.characters.items()
+    }
+    dead_characters = {
+        key
+        for key, character in snapshot.characters.items()
+        if character.status == "dead"
+    }
+
+    verified: list[PatchOperation] = []
+    issues: list[str] = []
+
+    for operation in operations:
+        if operation.entity_type == "location":
+            if operation.operation == "add":
+                if operation.entity_id in known_locations:
+                    issues.append(
+                        f"drop location add '{operation.entity_id}': already exists"
+                    )
+                    continue
+                known_locations.add(operation.entity_id)
+            elif operation.operation == "update":
+                if operation.entity_id not in known_locations:
+                    issues.append(
+                        f"drop location update '{operation.entity_id}': location missing"
+                    )
+                    continue
+            elif operation.operation == "remove":
+                if operation.entity_id not in known_locations:
+                    issues.append(
+                        f"drop location remove '{operation.entity_id}': location missing"
+                    )
+                    continue
+                occupied = [
+                    char_id
+                    for char_id, location in character_locations.items()
+                    if location == operation.entity_id
+                ]
+                if occupied:
+                    issues.append(
+                        "drop location remove "
+                        f"'{operation.entity_id}': occupied by {', '.join(sorted(occupied))}"
+                    )
+                    continue
+                known_locations.discard(operation.entity_id)
+            verified.append(operation)
+            continue
+
+        if operation.entity_type == "character":
+            location = None
+            if operation.data is not None:
+                location = operation.data.get("location")
+
+            if operation.operation == "add":
+                if operation.entity_id in known_characters:
+                    issues.append(
+                        f"drop character add '{operation.entity_id}': already exists"
+                    )
+                    continue
+                if location and location not in known_locations:
+                    issues.append(
+                        "drop character add "
+                        f"'{operation.entity_id}': unknown location '{location}'"
+                    )
+                    continue
+                known_characters.add(operation.entity_id)
+                character_locations[operation.entity_id] = location
+                status = (operation.data or {}).get("status")
+                if status == "dead":
+                    dead_characters.add(operation.entity_id)
+            elif operation.operation == "update":
+                if operation.entity_id not in known_characters:
+                    issues.append(
+                        f"drop character update '{operation.entity_id}': character missing"
+                    )
+                    continue
+                if location and location not in known_locations:
+                    issues.append(
+                        "drop character update "
+                        f"'{operation.entity_id}': unknown location '{location}'"
+                    )
+                    continue
+                current_location = character_locations.get(operation.entity_id)
+                if (
+                    operation.entity_id in dead_characters
+                    and location is not None
+                    and location != current_location
+                ):
+                    issues.append(
+                        "drop character update "
+                        f"'{operation.entity_id}': dead character cannot move"
+                    )
+                    continue
+                if location is not None:
+                    character_locations[operation.entity_id] = location
+                status = (operation.data or {}).get("status")
+                if status == "dead":
+                    dead_characters.add(operation.entity_id)
+                elif status in {"alive", "injured", "unknown"}:
+                    dead_characters.discard(operation.entity_id)
+            elif operation.operation == "remove":
+                if operation.entity_id not in known_characters:
+                    issues.append(
+                        f"drop character remove '{operation.entity_id}': character missing"
+                    )
+                    continue
+                known_characters.discard(operation.entity_id)
+                character_locations.pop(operation.entity_id, None)
+                dead_characters.discard(operation.entity_id)
+            verified.append(operation)
+            continue
+
+        if operation.entity_type == "plot_thread":
+            if operation.operation == "add":
+                if operation.entity_id in known_plot_threads:
+                    issues.append(
+                        f"drop plot-thread add '{operation.entity_id}': already exists"
+                    )
+                    continue
+                known_plot_threads.add(operation.entity_id)
+            elif operation.operation in {"update", "remove"}:
+                if operation.entity_id not in known_plot_threads:
+                    issues.append(
+                        "drop plot-thread "
+                        f"{operation.operation} '{operation.entity_id}': thread missing"
+                    )
+                    continue
+                if operation.operation == "remove":
+                    known_plot_threads.discard(operation.entity_id)
+            verified.append(operation)
+
+    return verified, issues
 
 
 def _resolve_book_path(book_path: str | Path | None) -> str:
@@ -193,35 +367,86 @@ def state_extract_impl(
     store = NarrativeStateStore(_resolve_book_path(book_path))
     snapshot = store.load()
     extracted = extract_state_patch(text, snapshot=snapshot)
+    operations = list(extracted.patch.operations)
 
-    if not apply_patch or not extracted.patch.operations:
+    verified_operations: list[PatchOperation] = operations
+    verification_issues: list[str] = []
+    retry_performed = False
+    if operations:
+        first_pass_operations, first_pass_issues = _verify_patch_operations(
+            snapshot,
+            operations,
+        )
+        verified_operations = first_pass_operations
+        verification_issues = first_pass_issues
+
+        if first_pass_issues:
+            retry_performed = True
+            repaired = _reorder_patch_operations(operations)
+            retry_operations, retry_issues = _verify_patch_operations(
+                snapshot, repaired
+            )
+            if len(retry_operations) >= len(first_pass_operations):
+                verified_operations = retry_operations
+                verification_issues = retry_issues
+
+    dropped_operations = max(0, len(operations) - len(verified_operations))
+    verification_passed = dropped_operations == 0 and not verification_issues
+
+    effective_patch = StatePatch(
+        operations=verified_operations,
+        description=extracted.patch.description,
+    )
+    extracted_effective = StateExtractionResult(
+        patch=effective_patch,
+        events=extracted.events,
+    )
+
+    if not apply_patch or not verified_operations:
         return StateExtractResult(
-            extracted=extracted,
+            extracted=extracted_effective,
             applied=False,
             applied_version=None,
+            verification_passed=verification_passed,
+            verification_issues=verification_issues,
+            retry_performed=retry_performed,
+            dropped_operations=dropped_operations,
         )
 
     updated = None
     # Apply one operation at a time so strict validators can resolve
     # dependencies (e.g., add location before assigning character location).
-    for operation in extracted.patch.operations:
-        updated = store.apply_patch(
-            type(extracted.patch)(
-                operations=[operation],
-                description=extracted.patch.description,
-            ),
-            actor=actor,
-        )
+    for operation in verified_operations:
+        try:
+            updated = store.apply_patch(
+                type(extracted.patch)(
+                    operations=[operation],
+                    description=extracted.patch.description,
+                ),
+                actor=actor,
+            )
+        except Exception as exc:
+            verification_issues = [*verification_issues, str(exc)]
+            verification_passed = False
+            break
 
     if updated is None:
         return StateExtractResult(
-            extracted=extracted,
+            extracted=extracted_effective,
             applied=False,
             applied_version=None,
+            verification_passed=verification_passed,
+            verification_issues=verification_issues,
+            retry_performed=retry_performed,
+            dropped_operations=dropped_operations,
         )
 
     return StateExtractResult(
-        extracted=extracted,
+        extracted=extracted_effective,
         applied=True,
         applied_version=updated.version,
+        verification_passed=verification_passed,
+        verification_issues=verification_issues,
+        retry_performed=retry_performed,
+        dropped_operations=dropped_operations,
     )

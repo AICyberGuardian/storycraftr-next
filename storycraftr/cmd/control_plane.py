@@ -207,6 +207,10 @@ def state_extract(
                     "patch": result.extracted.patch.model_dump(),
                     "applied": result.applied,
                     "applied_version": result.applied_version,
+                    "verification_passed": result.verification_passed,
+                    "verification_issues": result.verification_issues,
+                    "retry_performed": result.retry_performed,
+                    "dropped_operations": result.dropped_operations,
                 },
                 indent=2,
             )
@@ -217,6 +221,13 @@ def state_extract(
         "State Extraction",
         f"- Operations: {len(result.extracted.patch.operations)}",
         f"- Events: {len(result.extracted.events)}",
+        (
+            "- Verification: passed"
+            if result.verification_passed
+            else "- Verification: adjusted"
+        ),
+        f"- Retry performed: {'yes' if result.retry_performed else 'no'}",
+        f"- Dropped operations: {result.dropped_operations}",
     ]
     if result.extracted.patch.operations:
         lines.append("- Patch operations:")
@@ -233,6 +244,11 @@ def state_extract(
             lines.append(f"- Applied: yes (version {result.applied_version})")
         else:
             lines.append("- Applied: no (no operations extracted)")
+
+    if result.verification_issues:
+        lines.append("- Verification issues:")
+        for issue in result.verification_issues:
+            lines.append(f"  * {issue}")
 
     click.echo("\n".join(lines))
 

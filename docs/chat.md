@@ -135,6 +135,11 @@ system uses the user's current prompt to retrieve semantically relevant memories
 before falling back to generic intent/event queries. If Mem0 is unavailable,
 this layer is silently skipped and standard context composition continues.
 
+Memory token budgets are **model-aware**: larger context models (e.g., 128k tokens)
+receive proportionally larger memory budgets (up to 1280 tokens) to take advantage
+of available capacity, while smaller models (e.g., 8k tokens) use conservative
+budgets (160+ tokens) to preserve space for critical prompt sections.
+
 After generation, the system attempts to persist the turn to long-term memory.
 When memory is enabled and persistence fails, a warning is displayed in the
 output pane and the failure is logged to `/context memory` diagnostics for

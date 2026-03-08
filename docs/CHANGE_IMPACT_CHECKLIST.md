@@ -2,6 +2,18 @@
 
 ## Change History
 
+### 2026-03-08 — Phase 6B: model-aware memory token budgeting
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/state_engine.py::get_memory_context` to accept optional `provider` and `model_id` parameters for dynamic budget computation.
+	- Added `storycraftr/tui/state_engine.py::_compute_memory_budget` helper that scales memory budget as ~2% of model context window (160-1280 token range).
+	- Updated `storycraftr/tui/state_engine.py::compose_prompt_with_diagnostics` to pass provider/model_id through to `get_memory_context()`.
+	- Backward compatibility preserved: when provider/model_id are None, budgets default to previous behavior.
+	- Added regression test in `tests/unit/test_tui_state_engine.py` validating budget scaling for large and small context models.
+	- Updated `docs/chat.md` to document model-aware budget behavior.
+	- Synced release docs in `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-08 — Phase 6B: memory persistence diagnostics
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

@@ -396,6 +396,35 @@ Body
     assert "Memory: The artifact pulses when Elias approaches." in lines[0]
 
 
+def test_get_memory_context_scales_budget_with_model_context_window(tmp_path) -> None:
+    _write(
+        tmp_path / "chapters" / "chapter-1.md",
+        """---
+title: Arrival
+scene: Setup
+arc: Act I
+---
+# Chapter 1
+Body
+""",
+    )
+
+    engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)
+    state = engine.get_state()
+
+    # Large context model (128k) should get larger memory budget
+    budget_large = engine._compute_memory_budget(provider="openai", model_id="gpt-4o")
+    assert budget_large > 320  # Should be > default
+    assert budget_large <= 1280  # Capped at max
+
+    # Small context model (8k default) should get conservative budget
+    budget_small = engine._compute_memory_budget(
+        provider="unknown", model_id="unknown-model"
+    )
+    assert budget_small == 163  # 8192 * 0.02 = 163.84 truncated
+    assert budget_small >= 160  # Floor enforced
+
+
 def test_compose_prompt_includes_recent_turns_when_budget_allows(tmp_path) -> None:
     _write(
         tmp_path / "chapters" / "chapter-1.md",

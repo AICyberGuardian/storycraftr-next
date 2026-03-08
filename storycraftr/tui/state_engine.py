@@ -160,7 +160,9 @@ class NarrativeStateEngine:
 
         state = self.get_state()
         canon_facts = self.get_active_canon_facts(state=state)
-        memory_context = self.get_memory_context(state=state, user_query=user_prompt)
+        memory_context = self.get_memory_context(
+            state=state, user_query=user_prompt, provider=provider, model_id=model_id
+        )
         merged_retrieved_context = list(memory_context)
         if retrieved_context:
             merged_retrieved_context.extend(retrieved_context)
@@ -195,6 +197,7 @@ class NarrativeStateEngine:
 
         state = self.get_state()
         canon_facts = self.get_active_canon_facts(state=state)
+        # Use default budget when provider/model_id unavailable (e.g., diagnostics)
         memory_context = self.get_memory_context(state=state, user_query=user_prompt)
         merged_retrieved_context = list(memory_context)
         if retrieved_context:
@@ -228,8 +231,10 @@ class NarrativeStateEngine:
         *,
         state: NarrativeState,
         user_query: str | None = None,
+        provider: str | None = None,
+        model_id: str | None = None,
         max_items: int = 4,
-        max_tokens: int = 320,
+        max_tokens: int | None = None,
     ) -> list[str]:
         """Return prompt-ready memory context bullets when available.
 
@@ -238,7 +243,16 @@ class NarrativeStateEngine:
 
         When user_query is provided, memory retrieval becomes semantically aware
         of the current prompt for improved relevance ranking.
+
+        When provider/model_id are provided and max_tokens is None, the budget
+        is scaled dynamically based on the model's context window (larger models
+        receive larger memory budgets, capped at reasonable bounds).
         """
+
+        if max_tokens is None:
+            max_tokens = self._compute_memory_budget(
+                provider=provider, model_id=model_id
+            )
 
         items = self.memory_manager.get_context_items(
             chapter=state.active_chapter,
@@ -257,6 +271,29 @@ class NarrativeStateEngine:
             lines.append(line)
             consumed_tokens += estimated
         return lines
+
+    def _compute_memory_budget(
+        self, *, provider: str | None, model_id: str | None
+    ) -> int:
+        """Compute memory recall token budget based on model context window.
+
+        Larger models (e.g., 128k context) receive larger memory budgets to take
+        advantage of available capacity. Smaller models (e.g., 8k context) use
+        conservative budgets to preserve space for critical prompt sections.
+
+        Returns a value between 160 and 1280 tokens, scaled as a percentage of
+        the model's effective context window.
+        """
+
+        from storycraftr.llm.model_context import resolve_model_context
+
+        spec = resolve_model_context(provider, model_id)
+        context_window = spec.context_window_tokens
+
+        # Memory budget as ~2% of context window, clamped to reasonable bounds
+        budget = int(context_window * 0.02)
+        budget = max(160, min(budget, 1280))
+        return budget
 
     def memory_diagnostics(self) -> dict[str, Any]:
         """Return current long-term memory diagnostics for observability views."""

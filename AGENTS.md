@@ -12,6 +12,16 @@ Current development target: v0.19.
 ## Project Structure & Module Organization
 StoryCraftr ships a Python CLI plus a lightweight VS Code companion extension. Python sources live in `storycraftr/` (agents, CLI entrypoints, prompts, templates, and a Textual TUI under `storycraftr/tui/`) with tests under `tests/` partitioned into `unit/` and `integration/`. The extension code sits in `src/` (TypeScript) and compiles to `out/` during builds. Shared documentation belongs in `docs/`, while runnable samples and starter outlines live in `examples/`. Treat `behavior.txt` as the canonical agent contract when adjusting automated behaviors.
 
+### Key Architecture: Sequential Scene Generation Pipeline
+
+StoryCraftr uses a role-isolated three-stage architecture for scene generation:
+
+1. **Planner Stage**: Produces a validated `SceneDirective` JSON (goal, conflict, stakes, outcome) from user prompt and narrative context.
+2. **Drafter Stage**: Writes initial scene prose anchored to the directive without revision concerns.
+3. **Editor Stage**: Revises draft prose against directive and static craft rules for quality and consistency.
+
+This separation prevents instruction dilution and improves narrative coherence. The pipeline implementation lives in `storycraftr/agent/generation_pipeline.py` with static craft-rule injection from `storycraftr/prompts/planner_rules.md`, `drafter_rules.md`, and `editor_rules.md`.
+
 ## Build, Test, and Development Commands
 - Unified dependency runner: `make sync-deps` updates Python/Node lock files together and stages them.
 - Version bump runner: `make bump-version VERSION=0.19.0-dev` updates version metadata + lock files atomically.

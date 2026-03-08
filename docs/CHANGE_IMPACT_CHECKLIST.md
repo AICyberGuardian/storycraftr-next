@@ -2,6 +2,20 @@
 
 ## Change History
 
+### 2026-03-08 — Documentation comprehensive update for sequential pipeline architecture
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `docs/architecture-onboarding.md` to document sequential generation pipeline components (`generation_pipeline.py`, static craft-rule files, and enhanced `tui/app.py` orchestration) in Core Code Map.
+	- Updated `.github/copilot-instructions.md` Repository Layout to include `generation_pipeline.py` and static craft-rule prompt fragments with deterministic loader reference.
+	- Updated `AGENTS.md` to add "Key Architecture: Sequential Scene Generation Pipeline" section documenting three-stage architecture (Planner → Drafter → Editor) and implementation file references.
+	- Updated `README.md` project overview to highlight sequential pipeline architecture as a key differentiator with a brief explanation of role separation benefits.
+	- Updated `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`:
+		- Added pipeline module entries (`generation_pipeline.py`, craft-rule files) to Primary Components section with implementation details.
+		- Added new "Sequential Scene Generation Pipeline" subsection under "Assistant and RAG Behavior" documenting three-stage flow, bounded JSON repair, static craft-rule injection, operator controls (`/context prompt`, `/context prompt debug`), and fail-closed fallback reuse behavior.
+		- Updated TUI Command Center section to document `/context prompt` and `/context prompt debug on|off` commands, stage-by-stage diagnostics capabilities, and sequential pipeline orchestration in generation flow.
+	- All updates preserve existing documentation structure and maintain consistency with prior architectural descriptions.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (documentation-only changes; no code/runtime/config/schema/test modifications).
+
 ### 2026-03-08 — CLI model-list test ANSI normalization
 - **Sections reviewed:** 8 (Documentation & Versioning contract review)
 - **Impact:**

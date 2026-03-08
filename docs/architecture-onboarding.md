@@ -70,15 +70,18 @@ explicit attributes.
 - `storycraftr/agent/state_extractor.py`: deterministic prose-to-state extraction with validation-ready `StatePatch` proposals. Includes verification pass that fails closed on unsafe operations (e.g., dead-character movement), performs bounded operation-order retry, and drops unsafe operations (DSVL Phase 3-4).
 - `storycraftr/agent/memory_manager.py`: optional Mem0 adapter for long-term narrative memory (Chroma-backed local store), with provider-aware modes (`ollama` local inference, OpenRouter-compatible, or OpenAI fallback), explicit env toggles/forced-provider controls, fail-closed fallback when Mem0 is unavailable, and prompt-ready memory context retrieval.
 - `storycraftr/agent/state_audit.py`: append-only audit trail logging of all state mutations with timestamped entries, queryable filters by entity/type, and actor attribution (DSVL Phase 2A).
+- `storycraftr/agent/generation_pipeline.py`: role-isolated sequential scene generation (planner → drafter → editor) with bounded JSON repair. `SceneGenerationPipeline` builds stage-specific prompts and parses planner `SceneDirective` responses.
+- `storycraftr/prompts/craft_rules.py`: deterministic static prompt fragment loader for `planner_rules.md`, `drafter_rules.md`, and `editor_rules.md` (corpus-derived universal storytelling mechanics).
 - `storycraftr/services/control_plane.py`: shared service layer for runtime mode controls, state-audit queries, canon verification checks, and extraction verification/retry logic. Both CLI commands and TUI slash commands call shared implementations to prevent behavior drift (Phase 2B).
 - `storycraftr/tui/app.py`: Textual terminal command center and slash-command router with `/state audit` subcommand for audit history inspection (DSVL Phase 2B). Includes bounded state-critic regeneration retry in `_generate_with_mode_awareness()` when extraction verification detects unsafe state transitions (Phase 5).
 - `storycraftr/tui/session.py`: TUI runtime-session state serialization (`mode_config`, `autopilot_turns_remaining`) with backward-compatible runtime metadata handling.
 - `storycraftr/tui/canon.py`: chapter-scoped canon ledger helpers for writer-approved constraints.
 - `storycraftr/tui/canon_extract.py`: conservative canon-candidate extraction for hybrid review.
 - `storycraftr/tui/canon_verify.py`: fail-closed canon candidate verification for autopilot commits.
-- `storycraftr/tui/context_builder.py`: scene-scoped prompt assembly, model-aware budgeting, deterministic pruning, and diagnostics metadata.
+- `storycraftr/tui/context_builder.py`: scene-scoped prompt assembly, model-aware budgeting, deterministic pruning, stage-aware diagnostics metadata, and static craft-rule injection for planner/drafter/editor stages.
 - `storycraftr/tui/state_engine.py`: read-only narrative state extraction and prompt orchestration with diagnostics output.
 - `storycraftr/agent/story/scene_planner.py`: deterministic scene directive helper producing Goal/Conflict/Stakes/Outcome/Ending Beat.
+- `storycraftr/tui/app.py`: now orchestrates generation through sequential pipeline with `/context prompt debug [on|off]` toggle for planner directive inspection and fail-closed fallback reuse when planner JSON parsing fails twice.
 - `src/extension.ts`: VS Code event stream watcher and UI integration.
 - `src/event-contract.ts`: typed event parser and contract for extension event payloads.
 - `src/event-contract.test.ts`: event-contract regression tests.

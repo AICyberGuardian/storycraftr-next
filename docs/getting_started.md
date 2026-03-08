@@ -428,6 +428,7 @@ Useful slash commands:
 - `/model-list` shows current free OpenRouter models from the local discovery cache.
 - `/model-list refresh` forces a live OpenRouter catalog refresh.
 - `/model-change <model_id>` switches the active TUI session model.
+- `/state extract-last [apply]` previews or applies deterministic extraction from the latest assistant response.
 - `/session ...` and `/sub-agent ...` route to existing StoryCraftr commands.
 
 CLI discovery commands:
@@ -435,9 +436,11 @@ CLI discovery commands:
 - `storycraftr model-list` prints free OpenRouter model IDs with discovered limits.
 - `storycraftr model-list --refresh` forces live refresh before listing.
 - `storycraftr state show|validate|audit` exposes narrative-state operations outside the TUI.
+- `storycraftr state extract --text "..." [--apply]` previews or applies deterministic state patch proposals from prose.
 - `storycraftr canon check --chapter <n> --text "..."` runs fail-closed canon verification from scripts.
 - `storycraftr mode show|set|stop` manages persisted execution-mode runtime state.
 - `storycraftr models list|refresh` provides grouped model discovery commands.
+- CLI and TUI control-plane mode/audit/canon checks now share one service layer (`storycraftr/services/control_plane.py`) to keep behavior and edge-case handling aligned.
 
 Regular prompts are prefixed with a scene-scoped context block (scene
 Goal/Conflict/Outcome + active chapter constraints + compact state summary)

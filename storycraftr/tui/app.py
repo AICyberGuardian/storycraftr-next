@@ -29,7 +29,6 @@ from storycraftr.agent.agents import (
 from storycraftr.agent.execution_mode import (
     ExecutionMode,
     ModeConfig,
-    parse_execution_mode,
 )
 from storycraftr.chat.commands import CommandContext, handle_command
 from storycraftr.chat.module_runner import ModuleCommandError, run_module_command
@@ -37,6 +36,13 @@ from storycraftr.chat.session import SessionManager
 from storycraftr.llm.model_context import resolve_model_context
 from storycraftr.llm.openrouter_discovery import get_cache_metadata
 from storycraftr.subagents import SubAgentJobManager
+from storycraftr.services.control_plane import (
+    canon_check_impl,
+    mode_set_impl,
+    mode_show_impl,
+    state_audit_impl,
+    state_extract_impl,
+)
 from storycraftr.tui.openrouter_models import (
     OpenRouterModel,
     fetch_free_openrouter_models,
@@ -134,6 +140,7 @@ class TuiApp(App[None]):
         self._last_prompt_model = "<unknown>"
         self._last_assistant_response = ""
         self._last_canon_conflict_report: dict[str, Any] | None = None
+        self._last_state_extraction_report: dict[str, Any] | None = None
         self._load_mode_session_state()
         self._load_session_summary_state()
 
@@ -305,29 +312,121 @@ class TuiApp(App[None]):
 
         if self.mode_config.should_auto_regenerate_on_conflict() and not streamed:
             chapter = self._active_chapter_for_canon()
-            report = await self._analyze_canon_conflicts(
+            canon_report = await self._analyze_canon_conflicts(
                 response=response,
                 chapter=chapter,
             )
-            self._last_canon_conflict_report = report
-            if report["conflicts"]:
-                revise_prompt = (
-                    f"{user_prompt}\n\n"
-                    "Revise once to resolve canon conflicts and contradictions "
-                    "while preserving intent."
+            self._last_canon_conflict_report = canon_report
+            state_report = await self._analyze_state_extraction_issues(
+                response=response
+            )
+            self._last_state_extraction_report = state_report
+
+            has_canon_conflicts = bool(canon_report["conflicts"])
+            has_state_issues = bool(state_report["issues"])
+            if has_canon_conflicts or has_state_issues:
+                revise_prompt = self._build_critic_repair_prompt(
+                    user_prompt=user_prompt,
+                    canon_report=canon_report,
+                    state_report=state_report,
                 )
                 revised = await self._compose_prompt_with_tracking(revise_prompt)
                 response, streamed = await self._run_assistant_turn(revised)
 
+                refreshed_canon = await self._analyze_canon_conflicts(
+                    response=response,
+                    chapter=chapter,
+                )
+                self._last_canon_conflict_report = refreshed_canon
+                self._last_state_extraction_report = (
+                    await self._analyze_state_extraction_issues(response=response)
+                )
+
         return response, streamed
+
+    def _build_critic_repair_prompt(
+        self,
+        *,
+        user_prompt: str,
+        canon_report: dict[str, Any],
+        state_report: dict[str, Any],
+    ) -> str:
+        """Build one bounded repair prompt from canon and state-critic diagnostics."""
+
+        lines = [user_prompt, "", "Revise once using these constraints:"]
+        if canon_report.get("conflicts"):
+            lines.append("- Resolve canon contradictions and duplicate canon claims.")
+        if state_report.get("issues"):
+            lines.append("- Keep extracted narrative-state transitions valid.")
+            for issue in state_report["issues"][:3]:
+                lines.append(f"  - {issue}")
+        lines.append("Preserve intent, tone, and scene trajectory.")
+        return "\n".join(lines)
+
+    async def _analyze_state_extraction_issues(
+        self, *, response: str
+    ) -> dict[str, Any]:
+        """Run extraction verifier in preview mode to detect unsafe state transitions."""
+
+        result = await asyncio.to_thread(
+            state_extract_impl,
+            str(self.book_path),
+            text=response,
+            apply_patch=False,
+            actor="tui-state-critic",
+        )
+        return {
+            "operation_count": len(result.extracted.patch.operations),
+            "verification_passed": result.verification_passed,
+            "issues": list(result.verification_issues),
+            "dropped_operations": result.dropped_operations,
+            "retry_performed": result.retry_performed,
+        }
 
     async def _post_generation_hooks(self, *, user_prompt: str, response: str) -> None:
         """Run mode-gated post-generation policy hooks."""
 
         _ = user_prompt  # Reserved for future structured policy decisions.
+        await self._apply_extracted_state_patch(response)
         await self._warn_about_canon_conflicts(response)
         if self.mode_config.mode is ExecutionMode.HYBRID:
             await self._maybe_queue_hybrid_canon_candidates(response)
+
+    async def _apply_extracted_state_patch(self, response: str) -> None:
+        """Apply deterministic state extraction patch after generation."""
+
+        if not response.strip():
+            return
+
+        try:
+            result = await asyncio.to_thread(
+                state_extract_impl,
+                str(self.book_path),
+                text=response,
+                apply_patch=True,
+                actor="tui-state-extractor",
+            )
+        except Exception as exc:
+            self.query_one("#output", RichLog).write(
+                f"[yellow]State Extractor:[/yellow] {escape(str(exc))}"
+            )
+            return
+
+        op_count = len(result.extracted.patch.operations)
+        if result.verification_issues:
+            self.query_one("#output", RichLog).write(
+                "[yellow]State Extractor:[/yellow] "
+                f"verification adjusted patch ({result.dropped_operations} dropped)."
+            )
+        if op_count <= 0:
+            return
+
+        version = result.applied_version if result.applied_version is not None else "?"
+        self.query_one("#output", RichLog).write(
+            "[cyan]State Extractor:[/cyan] "
+            f"applied {op_count} patch operation(s) "
+            f"(state version {version})."
+        )
 
     def _invoke_assistant_sync(self, prompt: str) -> str:
         if self.assistant is None or self.thread_id is None:
@@ -691,6 +790,7 @@ class TuiApp(App[None]):
                 "/status",
                 "/state",
                 "/state audit [limit=<n>] [entity=<id>] [type=<type>]",
+                "/state extract-last [apply]",
                 "/summary [clear]",
                 "/context [summary|budget|models|conflicts|clear-summary|refresh-models]",
                 "/mode [manual|hybrid|autopilot [max_turns]]",
@@ -803,20 +903,17 @@ class TuiApp(App[None]):
                 else:
                     return f"Unknown filter: {key}"
 
-        # Access audit log through narrative state store
         try:
-            store = self.state_engine.narrative_state_store
-            audit_log = store._get_audit_log()
-
-            if audit_log is None:
-                return "Audit logging is disabled for this project."
-
-            # Query with filters
-            entries = audit_log.query_entries(
-                entity_id=entity_id,
+            result = state_audit_impl(
+                str(self.book_path),
                 entity_type=entity_type,
+                entity_id=entity_id,
                 limit=limit,
+                store=self.state_engine.narrative_state_store,
             )
+            if not result.enabled:
+                return "Audit logging is disabled for this project."
+            entries = result.entries
 
             if not entries:
                 return "No audit entries found matching the specified filters."
@@ -871,8 +968,64 @@ class TuiApp(App[None]):
         subcommand = args[0].lower()
         if subcommand == "audit":
             return await asyncio.to_thread(self._build_state_audit_text, args[1:])
+        if subcommand in {"extract-last", "extract_last", "extractlast"}:
+            if not self._last_assistant_response.strip():
+                return "No assistant response available. Generate output first."
 
-        return "Usage: /state [audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]]"
+            should_apply = bool(args[1:]) and args[1].lower() == "apply"
+            try:
+                result = await asyncio.to_thread(
+                    state_extract_impl,
+                    str(self.book_path),
+                    text=self._last_assistant_response,
+                    apply_patch=should_apply,
+                    actor="tui-state-extractor-manual",
+                )
+            except Exception as exc:
+                return f"State extraction failed: {exc}"
+
+            lines = [
+                "State Extraction",
+                f"- Operations: {len(result.extracted.patch.operations)}",
+                f"- Events: {len(result.extracted.events)}",
+                (
+                    "- Verification: passed"
+                    if result.verification_passed
+                    else "- Verification: adjusted"
+                ),
+                f"- Retry performed: {'yes' if result.retry_performed else 'no'}",
+                f"- Dropped operations: {result.dropped_operations}",
+            ]
+            if result.extracted.patch.operations:
+                lines.append("- Patch operations:")
+                for operation in result.extracted.patch.operations:
+                    lines.append(
+                        "  "
+                        f"* {operation.operation} {operation.entity_type}:{operation.entity_id}"
+                    )
+            else:
+                lines.append("- Patch operations: <none>")
+
+            if should_apply:
+                if result.applied:
+                    lines.append(f"- Applied: yes (version {result.applied_version})")
+                else:
+                    lines.append("- Applied: no (no operations extracted)")
+            else:
+                lines.append("- Applied: no (preview mode)")
+
+            if result.verification_issues:
+                lines.append("- Verification issues:")
+                for issue in result.verification_issues:
+                    lines.append(f"  * {issue}")
+
+            return "\n".join(lines)
+
+        return (
+            "Usage: /state "
+            "[audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]"
+            "|extract-last [apply]]"
+        )
 
     async def _handle_context_command(self, args: list[str]) -> str:
         """Dispatch /context diagnostics subcommands."""
@@ -1328,6 +1481,9 @@ class TuiApp(App[None]):
         """Show or update execution mode state for TUI workflows."""
 
         if not args:
+            state = mode_show_impl(str(self.book_path))
+            self.mode_config = state.mode_config
+            self.autopilot_turns_remaining = state.autopilot_turns_remaining
             return (
                 f"Execution mode: {self.execution_mode.value}\n"
                 f"Max autopilot turns: {self.mode_config.max_autopilot_turns}\n"
@@ -1335,28 +1491,29 @@ class TuiApp(App[None]):
                 "Usage: /mode [manual|hybrid|autopilot [max_turns]]"
             )
 
-        requested = parse_execution_mode(args[0])
-        if requested is None:
+        requested_mode = args[0].lower().strip()
+        if requested_mode not in {"manual", "hybrid", "autopilot"}:
             return "Usage: /mode [manual|hybrid|autopilot [max_turns]]"
 
-        config = self.mode_config.with_mode(requested)
-        if requested is ExecutionMode.AUTOPILOT:
-            if len(args) > 1:
-                if not args[1].isdigit():
-                    return "Usage: /mode autopilot [max_turns]"
-                config = config.with_autopilot_limit(int(args[1]))
-            self.autopilot_turns_remaining = config.max_autopilot_turns
-        else:
-            self.autopilot_turns_remaining = 0
+        turns: int | None = None
+        if requested_mode == "autopilot" and len(args) > 1:
+            if not args[1].isdigit():
+                return "Usage: /mode autopilot [max_turns]"
+            turns = int(args[1])
 
-        self.mode_config = config
         try:
-            self._persist_mode_session_state()
+            updated = mode_set_impl(
+                str(self.book_path),
+                requested_mode,
+                turns=turns,
+            )
         except Exception as exc:
-            return f"Failed to persist execution mode: {exc}"
+            return f"Failed to persist execution mode: {str(exc)}"
 
+        self.mode_config = updated.mode_config
+        self.autopilot_turns_remaining = updated.autopilot_turns_remaining
         self._refresh_mode_indicator()
-        if requested is ExecutionMode.AUTOPILOT:
+        if updated.mode_config.mode is ExecutionMode.AUTOPILOT:
             return (
                 f"Execution mode set to {self.execution_mode.value} "
                 f"({self.autopilot_turns_remaining} turns available)."
@@ -1366,17 +1523,24 @@ class TuiApp(App[None]):
     def _handle_stop_command(self) -> str:
         """Force manual mode and stop any further autonomous generation turns."""
 
-        self.mode_config = self.mode_config.with_mode(ExecutionMode.MANUAL)
-        self.autopilot_turns_remaining = 0
-        self._persist_mode_session_state()
+        try:
+            updated = mode_set_impl(
+                str(self.book_path),
+                ExecutionMode.MANUAL.value,
+                turns=0,
+            )
+        except Exception as exc:
+            return f"Failed to persist execution mode: {str(exc)}"
+
+        self.mode_config = updated.mode_config
+        self.autopilot_turns_remaining = updated.autopilot_turns_remaining
         self._refresh_mode_indicator()
         return "Execution stopped. Mode set to manual."
 
     def _load_mode_session_state(self) -> None:
         """Restore mode configuration and counters from runtime session metadata."""
 
-        state = self.session_manager.load_runtime_state()
-        session_state = TuiSessionState.from_dict(state)
+        session_state = mode_show_impl(str(self.book_path))
         self.mode_config = session_state.mode_config
         self.autopilot_turns_remaining = session_state.autopilot_turns_remaining
 
@@ -1503,44 +1667,39 @@ class TuiApp(App[None]):
     ) -> dict[str, Any]:
         """Analyze response against canon and return structured conflict report."""
 
-        candidates = await asyncio.to_thread(
-            extract_canon_candidates,
-            response,
+        result = await asyncio.to_thread(
+            canon_check_impl,
+            str(self.book_path),
             chapter=chapter,
+            text=response,
             max_candidates=5,
         )
         conflicts: list[dict[str, str]] = []
         duplicate_count = 0
         negation_count = 0
-        for candidate in candidates:
-            result = await asyncio.to_thread(
-                verify_candidate_against_canon,
-                book_path=str(self.book_path),
-                chapter=chapter,
-                candidate_text=candidate.text,
-            )
-            if result.reason == "negation-conflict":
+        for row in result.rows:
+            if row.reason == "negation-conflict":
                 negation_count += 1
                 conflicts.append(
                     {
                         "reason": "negation conflict",
-                        "candidate": candidate.text,
-                        "conflicting_fact": result.conflicting_fact or "",
+                        "candidate": row.candidate,
+                        "conflicting_fact": row.conflicting_fact or "",
                     }
                 )
-            elif result.reason == "duplicate":
+            elif row.reason == "duplicate":
                 duplicate_count += 1
                 conflicts.append(
                     {
                         "reason": "duplicate canon fact",
-                        "candidate": candidate.text,
+                        "candidate": row.candidate,
                         "conflicting_fact": "",
                     }
                 )
 
         return {
             "chapter": chapter,
-            "checked_candidates": len(candidates),
+            "checked_candidates": result.checked_candidates,
             "duplicate_count": duplicate_count,
             "negation_conflict_count": negation_count,
             "conflicts": conflicts,

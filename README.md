@@ -248,9 +248,12 @@ storycraftr tui --book-path /path/to/your/book
 Control-plane CLI groups are also available for scripting and CI workflows:
 
 - `storycraftr state show|validate|audit`
+- `storycraftr state extract --text "..." [--apply]` with verification status (`passed` vs `adjusted`), dropped-operation count, and surfaced verification issues.
 - `storycraftr canon check --chapter <n> --text "..."`
 - `storycraftr mode show|set|stop`
 - `storycraftr models list|refresh`
+
+These control-plane surfaces now share a single implementation layer (`storycraftr/services/control_plane.py`) used by both CLI and TUI to keep runtime behavior consistent.
 
 The v0.1 TUI is now state-driven: the project tree starts hidden by default,
 the top bar shows a Narrative strip and Scene Timeline strip, and input routes
@@ -265,6 +268,7 @@ Current TUI slash commands include:
 - `/autopilot <steps> <prompt>` to run bounded autonomous turns when mode is `autopilot`
 - `/state` to inspect current narrative context snapshot with version/timestamp metadata
 - `/state audit [limit=<n>] [entity=<id>] [type=<character|location|plot_thread>]` to inspect append-only narrative state mutation history with optional filters
+- `/state extract-last [apply]` to preview or apply deterministic prose-to-state patch extraction from the latest assistant response, including verification/retry diagnostics
 - `/summary` and `/summary clear` to inspect or reset rolling compacted session context
 - `/context` for an overview dashboard of summary/budget/model-cache diagnostics
 - `/context summary`, `/context budget`, `/context models` for focused runtime diagnostics
@@ -309,6 +313,14 @@ Command discovery:
 For regular prompts, the TUI prepends a compact scene-scoped block
 (`[Scene Plan]` + `[Scoped Context]`) before dispatching to the existing
 assistant pipeline.
+
+Generated responses now pass through deterministic state extraction before canon
+diagnostics. Valid patches are applied through the existing narrative-state
+validation and audit trail pipeline.
+
+In `hybrid` and `autopilot` modes, generation now includes one bounded
+state-critic retry: when extraction verification surfaces unsafe transitions,
+the TUI requests a single constrained revision before post-generation hooks run.
 
 During long sessions, the TUI automatically rolls older transcript turns into a
 persisted summary (`sessions/session.json`) and injects that summary as

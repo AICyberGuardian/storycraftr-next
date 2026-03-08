@@ -2,6 +2,58 @@
 
 ## Change History
 
+### 2026-03-07 — Complete documentation sync for Phases 2B–5 (service unification, extraction, verification, state-critic regeneration)
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `docs/architecture-onboarding.md` to include Phase 2B-5 modules in Core Code Map: `storycraftr/services/control_plane.py`, extended description of `storycraftr/agent/state_extractor.py` (verification, retry logic), and phase attribution for state-critic regeneration in `storycraftr/tui/app.py`.
+	- Enhanced "Runtime Files and State" section to document canonical file (`outline/canon.yml`) with phase attribution.
+	- Extended "TUI autonomy note" section with post-generation state extraction workflow, state-critic retry explanation (`/state extract-last [apply]`), and phase attributions.
+	- Updated `docs/contributor-reference.md` "Recent Architecture Context" section: added state extraction & verification, control-plane service layer, state-critic regeneration with phase references, and cross-references to DSVL phase numbers.
+	- Created comprehensive Phase 2B–5 implementation summary in `PHASES_2B_TO_5_IMPLEMENTATION_SUMMARY.md`: detailed phase-by-phase breakdown, architectural diagrams, complete file inventory, design patterns, test coverage, developer experience improvements, migration guide, and commit status.
+	- All documentation updates reinforce phase attributions, architectural relationships, and cross-references across onboarding, contributor reference, and new summary document.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (documentation-only updates with no code/runtime/lockfile/provider/event-schema/security behavior changes).
+
+### 2026-03-07 — Phase 5: mode-gated state critic regeneration
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/tui/app.py::_generate_with_mode_awareness` to include a bounded state-critic pass using extraction verification diagnostics.
+	- Added one constrained regeneration attempt (single retry) in hybrid/autopilot mode when extraction verification reports unsafe transitions.
+	- Added helper diagnostics in `storycraftr/tui/app.py` (`_analyze_state_extraction_issues`, `_build_critic_repair_prompt`) and tracked latest state-extraction report metadata for runtime inspection.
+	- Added tests in `tests/unit/test_tui_app.py` covering retry-on-state-issues and no-retry behavior in manual mode.
+	- Synced docs in `README.md`, `docs/chat.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Phase 4: extraction verification and bounded retry repair
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/services/control_plane.py::state_extract_impl` to add a fail-closed verification pass for extracted `StatePatch` operations before write attempts.
+	- Added one deterministic dependency-order retry for extraction operations (location adds before character mutations) and operation dropping when still unsafe.
+	- Extended extraction result metadata across shared service/CLI/TUI outputs with verification status, retry-performed flag, dropped-operation count, and verification issue details.
+	- Added regression test coverage in `tests/unit/test_control_plane_service.py` for dead-character movement rejection in extraction apply flow.
+	- Synced docs in `README.md`, `docs/chat.md`, `release_notes.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider routing contract changes, no sub-agent lifecycle changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Phase 3: deterministic state extraction integration
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/agent/state_extractor.py` for deterministic prose-to-patch extraction (character movement and inventory-drop events).
+	- Extended shared services in `storycraftr/services/control_plane.py` with `state_extract_impl` for CLI/TUI parity.
+	- Added `storycraftr state extract --text "..." [--apply]` in `storycraftr/cmd/control_plane.py`.
+	- Updated `storycraftr/tui/app.py` to apply deterministic extraction in post-generation hooks and added `/state extract-last [apply]` preview/apply command.
+	- Added regression coverage in `tests/unit/test_state_extractor.py`, `tests/unit/test_control_plane_service.py`, `tests/test_cli.py`, and `tests/unit/test_tui_app.py`.
+	- Updated docs: `README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/contributor-reference.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `release_notes.md`, and `CHANGELOG.md`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no provider-routing contract changes, no sub-agent lifecycle contract changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-07 — Phase 2B: CLI/TUI service unification for control-plane runtime logic
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/services/control_plane.py` with shared implementations: `mode_show_impl`, `mode_set_impl`, `state_audit_impl`, and `canon_check_impl`.
+	- Refactored `storycraftr/cmd/control_plane.py` to delegate mode, canon-check, and state-audit behavior to the shared service layer.
+	- Refactored `storycraftr/tui/app.py` slash-command paths (`/mode`, `/stop`, `/state audit`, canon conflict analysis) to call the same service implementations used by CLI commands.
+	- Added regression tests for the shared service layer (`tests/unit/test_control_plane_service.py`) and delegation-path assertions in `tests/test_cli.py` and `tests/unit/test_tui_app.py`.
+	- Updated user and architecture documentation (`README.md`, `docs/chat.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/contributor-reference.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `release_notes.md`, and `CHANGELOG.md`).
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema updates, no provider contract changes, no sub-agent lifecycle model changes, no vector-store/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-07 — Click control-plane command surface (tui/state/canon/mode/models)
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

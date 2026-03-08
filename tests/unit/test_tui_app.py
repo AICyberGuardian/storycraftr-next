@@ -360,6 +360,35 @@ def test_dispatch_mode_sets_and_reports_execution_mode(tmp_path) -> None:
     assert "Execution mode: hybrid" in show_result
 
 
+def test_dispatch_mode_calls_shared_service_impl(tmp_path, monkeypatch) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+
+    calls: dict[str, object] = {}
+
+    class _FakeModeConfig:
+        mode = SimpleNamespace(value="hybrid")
+        max_autopilot_turns = 3
+
+    class _FakeSessionState:
+        mode_config = _FakeModeConfig()
+        autopilot_turns_remaining = 0
+
+    def _fake_mode_set(book_path, mode_name, *, turns=None):
+        calls["book_path"] = book_path
+        calls["mode_name"] = mode_name
+        calls["turns"] = turns
+        return _FakeSessionState()
+
+    monkeypatch.setattr("storycraftr.tui.app.mode_set_impl", _fake_mode_set)
+
+    result = asyncio.run(app._dispatch_slash_command("/mode hybrid"))
+
+    assert "Execution mode set to hybrid." in result
+    assert calls["mode_name"] == "hybrid"
+    assert str(tmp_path) in str(calls["book_path"])
+
+
 def test_dispatch_mode_autopilot_accepts_turn_limit(tmp_path) -> None:
     TuiApp = _load_tui_app()
     app = TuiApp(book_path=str(tmp_path))
@@ -440,6 +469,106 @@ def test_autopilot_commits_verified_candidates_only(tmp_path, monkeypatch) -> No
     assert "Final skipped: 1" in result
     assert "Mira is the ship navigator." in show
     assert "Mira is not the ship navigator." not in show
+
+
+def test_generate_mode_awareness_retries_once_on_state_issues(
+    tmp_path, monkeypatch
+) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.assistant = SimpleNamespace(last_documents=[])
+    app.thread_id = "thread-1"
+    asyncio.run(app._dispatch_slash_command("/mode hybrid"))
+
+    prompts: list[str] = []
+    responses = iter(
+        [
+            ("Elias entered the bridge.", False),
+            ("Elias remained at the dock.", False),
+        ]
+    )
+
+    async def _fake_compose(prompt: str) -> str:
+        prompts.append(prompt)
+        return prompt
+
+    async def _fake_run(prompt: str) -> tuple[str, bool]:
+        _ = prompt
+        return next(responses)
+
+    async def _fake_canon(*, response: str, chapter: int) -> dict[str, object]:
+        _ = (response, chapter)
+        return {
+            "chapter": 1,
+            "checked_candidates": 0,
+            "duplicate_count": 0,
+            "negation_conflict_count": 0,
+            "conflicts": [],
+        }
+
+    state_reports = iter(
+        [
+            {
+                "operation_count": 1,
+                "verification_passed": False,
+                "issues": ["drop character update 'elias': dead character cannot move"],
+                "dropped_operations": 1,
+                "retry_performed": True,
+            },
+            {
+                "operation_count": 0,
+                "verification_passed": True,
+                "issues": [],
+                "dropped_operations": 0,
+                "retry_performed": False,
+            },
+        ]
+    )
+
+    async def _fake_state_issues(*, response: str) -> dict[str, object]:
+        _ = response
+        return next(state_reports)
+
+    monkeypatch.setattr(app, "_compose_prompt_with_tracking", _fake_compose)
+    monkeypatch.setattr(app, "_run_assistant_turn", _fake_run)
+    monkeypatch.setattr(app, "_analyze_canon_conflicts", _fake_canon)
+    monkeypatch.setattr(app, "_analyze_state_extraction_issues", _fake_state_issues)
+
+    response, streamed = asyncio.run(app._generate_with_mode_awareness("Draft scene"))
+
+    assert streamed is False
+    assert response == "Elias remained at the dock."
+    assert len(prompts) == 2
+    assert "Revise once using these constraints" in prompts[1]
+    assert "dead character cannot move" in prompts[1]
+
+
+def test_generate_mode_awareness_skips_state_retry_in_manual_mode(
+    tmp_path, monkeypatch
+) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app.assistant = SimpleNamespace(last_documents=[])
+    app.thread_id = "thread-1"
+
+    calls = {"runs": 0}
+
+    async def _fake_compose(prompt: str) -> str:
+        return prompt
+
+    async def _fake_run(prompt: str) -> tuple[str, bool]:
+        _ = prompt
+        calls["runs"] += 1
+        return "Elias entered the bridge.", False
+
+    monkeypatch.setattr(app, "_compose_prompt_with_tracking", _fake_compose)
+    monkeypatch.setattr(app, "_run_assistant_turn", _fake_run)
+
+    response, streamed = asyncio.run(app._generate_with_mode_awareness("Draft scene"))
+
+    assert streamed is False
+    assert response == "Elias entered the bridge."
+    assert calls["runs"] == 1
 
 
 def test_state_output_includes_canon_constraints_when_canon_exists(tmp_path) -> None:
@@ -1385,6 +1514,10 @@ def test_state_command_dispatch_to_subcommands(tmp_path) -> None:
     result = asyncio.run(app._dispatch_slash_command("/state audit"))
     assert "Audit Trail" in result or "No audit entries" in result
 
+    # Test extract-last without prior assistant output
+    result = asyncio.run(app._dispatch_slash_command("/state extract-last"))
+    assert "No assistant response available" in result
+
     # Test invalid subcommand
     result = asyncio.run(app._dispatch_slash_command("/state invalid"))
     assert "Usage:" in result
@@ -1399,3 +1532,17 @@ def test_state_audit_help_text_updated(tmp_path) -> None:
 
     assert "/state" in help_text
     assert "/state audit" in help_text
+    assert "/state extract-last" in help_text
+
+
+def test_state_extract_last_preview_and_apply(tmp_path) -> None:
+    TuiApp = _load_tui_app()
+    app = TuiApp(book_path=str(tmp_path))
+    app._last_assistant_response = "Elias entered the bridge."
+
+    preview = asyncio.run(app._dispatch_slash_command("/state extract-last"))
+    assert "State Extraction" in preview
+    assert "Applied: no (preview mode)" in preview
+
+    applied = asyncio.run(app._dispatch_slash_command("/state extract-last apply"))
+    assert "Applied: yes" in applied

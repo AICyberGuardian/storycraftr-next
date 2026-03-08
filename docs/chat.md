@@ -96,9 +96,18 @@ assistant/backend flow.
 - `storycraftr state show` — Print the current narrative-state snapshot.
 - `storycraftr state validate` — Run consistency checks on narrative-state data.
 - `storycraftr state audit --format json` — Query append-only state audit history.
+- `storycraftr state extract --text "..." [--apply]` — Build deterministic state patch proposals from prose and optionally apply them; output includes verification status, dropped-operation count, and any verification issues.
 - `storycraftr canon check --chapter <n> --text "..."` — Verify candidate facts against accepted chapter canon.
 - `storycraftr mode show|set|stop` — Inspect or mutate persisted execution mode state.
 - `storycraftr models list|refresh` — List or refresh free OpenRouter discovery results.
+
+The control-plane runtime logic is centralized in `storycraftr/services/control_plane.py` and shared by both Click commands and TUI slash commands to avoid feature drift.
+
+The TUI now also supports `/state extract-last [apply]` to preview/apply deterministic extraction from the latest assistant response, including one bounded dependency-order retry and verification diagnostics.
+When mode policy enables auto-regeneration (`/mode hybrid` or `/mode autopilot`),
+normal generation applies one bounded state-critic retry: if extraction
+verification detects unsafe transitions, a single constrained revision is
+requested before post-generation hooks run.
 
 ### Keyboard Shortcuts
 
@@ -117,6 +126,10 @@ existing assistant pipeline: `[Canon Constraints]`, `[Scene Plan]`,
 After generation, the TUI runs a lightweight, warn-only canon conflict check
 against accepted chapter facts and surfaces likely duplicates/contradictions as
 `Potential Canon Conflicts` in the output pane for writer review.
+
+Before canon warnings, generated responses are processed by deterministic state
+extraction and validation; accepted patch operations are committed to
+`outline/narrative_state.json` and logged to `outline/narrative_audit.jsonl`.
 
 Writers can rerun the same continuity scan at any time with `/canon check-last`,
 and inspect grouped diagnostics with `/context conflicts`.

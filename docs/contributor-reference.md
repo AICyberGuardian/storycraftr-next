@@ -61,6 +61,7 @@ configuration examples, or public workflow descriptions.
 | File | Summary | Update When |
 | --- | --- | --- |
 | `storycraftr/cmd/control_plane.py` | Grouped Click commands for automation/headless workflows (tui/state/canon/mode/models). | Control-plane command behavior, Click group structure, or runtime service integration changes. |
+| `storycraftr/services/control_plane.py` | Shared control-plane service implementations (`mode_show_impl`, `mode_set_impl`, `state_audit_impl`, `canon_check_impl`) used by both CLI and TUI. | Any changes to runtime mode persistence, canon-check semantics, or state-audit query behavior that must stay consistent across CLI/TUI. |
 | `storycraftr/llm/factory.py` | Provider validation plus OpenRouter retry, backoff, and fallback behavior. | Provider startup, model validation, retry logic, or fallback chain behavior changes. |
 | `storycraftr/llm/openrouter_discovery.py` | Dynamic OpenRouter free-model discovery, user-local cache, cache metadata, and forced refresh helpers. | OpenRouter catalog fetch, cache TTL/fallback, or model discovery diagnostics change. |
 | `storycraftr/llm/model_context.py` | Model context-window and completion-limit resolution used by prompt budgeting. | Budget computation, registry defaults, or discovery-driven context resolution changes. |
@@ -68,6 +69,7 @@ configuration examples, or public workflow descriptions.
 | `storycraftr/utils/project_lock.py` | Cross-process write-lock coordination for project mutation safety. | Lock acquisition contract, reentrancy behavior, or flock coordination changes. |
 | `storycraftr/agent/execution_mode.py` | Shared execution-mode policy model (`ExecutionMode`, `ModeConfig`) and gate helpers for manual/hybrid/autopilot runtime behavior. | Mode enums, policy flags, autopilot limits, or gate helper semantics change. |
 | `storycraftr/agent/narrative_state.py` | JSON-backed structured narrative state store (characters, world facts) with prompt rendering. | Narrative state schema, JSON persistence contract, or prompt injection format changes. |
+| `storycraftr/agent/state_extractor.py` | Deterministic prose-to-patch extraction for character movement and inventory-drop events. | Extraction heuristics, emitted patch shape, or deterministic parsing behavior changes. |
 | `storycraftr/agent/state_audit.py` | Append-only audit trail logging of all narrative state mutations with timestamps, actor attribution, and queryable filters. | Audit log schema, JSONL persistence contract, query filter API, or audit entry structure changes. |
 | `storycraftr/tui/session.py` | TUI runtime session serialization for mode config and autopilot turn counters with legacy key compatibility. | Runtime session schema, `to_dict`/`from_dict`, or execution-mode persistence behavior changes. |
 | `storycraftr/agent/story/scene_planner.py` | Deterministic scene Goal/Conflict/Outcome planning for focused generation. | Scene planning schema, deterministic extraction logic, or prompt template changes. |
@@ -79,6 +81,7 @@ configuration examples, or public workflow descriptions.
 | `storycraftr/tui/app.py` | Slash-command router, writer-visible diagnostics, execution mode persistence, and adaptive compaction orchestration. | TUI commands, diagnostics UX, execution modes, session compaction behavior, or canon continuity commands change. |
 | `storycraftr/subagents/jobs.py` | Background sub-agent lifecycle including cooldown and retry for model exhaustion. | Job lifecycle, retry checkpoints, or cooldown metadata changes. |
 | `tests/unit/test_narrative_state.py` | Regression coverage for narrative state store CRUD operations and prompt rendering. | `storycraftr/agent/narrative_state.py` behavior changes. |
+| `tests/unit/test_state_extractor.py` | Regression coverage for deterministic prose extraction into patch operations. | `storycraftr/agent/state_extractor.py` behavior changes. |
 | `tests/unit/test_state_audit.py` | Regression coverage for audit trail logging, entry querying, and filter API. | `storycraftr/agent/state_audit.py` behavior changes. |
 | `tests/unit/test_scene_planner.py` | Regression coverage for deterministic scene planning extraction. | `storycraftr/agent/story/scene_planner.py` behavior changes. |
 | `tests/unit/test_openrouter_discovery.py` | Regression coverage for discovery cache, metadata, and free-model parsing behavior. | `storycraftr/llm/openrouter_discovery.py` behavior changes. |
@@ -178,8 +181,11 @@ configuration examples, or public workflow descriptions.
 ### Recent Architecture Context
 
 - **Canon Guard**: Chapter-scoped fact ledger (`outline/canon.yml`) with duplicate/negation conflict detection; fail-closed verification gates autopilot commits.
-- **Narrative State**: Structured character/world state (`outline/narrative_state.json`) with prompt injection via `[Structured Narrative State]` section.
+- **Narrative State**: Structured character/world state (`outline/narrative_state.json`) with prompt injection via `[Structured Narrative State]` section and version-aware headers (DSVL Phase 1C, 2C).
 - **Audit Trail**: Append-only mutation log (`outline/narrative_audit.jsonl`) with DSVL Phase 2A query API, queryable by entity/type with `/state audit` TUI command (DSVL Phase 2B).
+- **State Extraction & Verification**: Deterministic prose-to-patch extraction (`storycraftr/agent/state_extractor.py`) with fail-closed verification, operation-order retry, and unsafe-operation dropping (DSVL Phase 3-4).
+- **State-Critic Regeneration**: Bounded single regeneration attempt in hybrid/autopilot modes when extraction verification detects state transition errors; constrained revision prompt includes canon and state diagnostics (Phase 5).
+- **Control-Plane Service Layer**: Shared `storycraftr/services/control_plane.py` for mode controls, state audit, and extraction verification logic used by both CLI and TUI to prevent behavior drift (Phase 2B).
 - **Adaptive Compaction**: Rolling session summaries preserve high-signal narrative anchors (scene boundaries, canon-relevant turns, reveals, entity introductions).
 - **TUI Execution Modes**: `manual`, `hybrid`, `autopilot` with persistence in `sessions/session.json`; `/autopilot` is bounded and mode-gated.
 - **Project Write Locking**: Cross-process coordination via `project_write_lock` (reentrant within thread, file-locked across processes).

@@ -1,0 +1,107 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://storycraftr.dev/schemas/validator_report.schema.json",
+    "title": "StoryCraftr Chapter Packet Validator Report",
+    "description": "Schema for precommit and postcommit validator_report.json artifacts written by storycraftr book.",
+    "type": "object",
+    "oneOf": [
+        {
+            "$ref": "#/$defs/precommitReport"
+        },
+        {
+            "$ref": "#/$defs/postcommitReport"
+        }
+    ],
+    "$defs": {
+        "precommitReport": {
+            "type": "object",
+            "required": [
+                "phase",
+                "chapter",
+                "acceptance",
+                "scene_acceptance",
+                "stage_contract"
+            ],
+            "properties": {
+                "phase": {
+                    "const": "precommit"
+                },
+                "chapter": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "acceptance": {
+                    "type": "object"
+                },
+                "scene_acceptance": {
+                    "type": "object"
+                },
+                "stage_contract": {
+                    "type": "object"
+                },
+                "semantic_reason": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "retry_reason": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "additionalProperties": true
+        },
+        "postcommitReport": {
+            "type": "object",
+            "required": [
+                "phase",
+                "chapter",
+                "precommit",
+                "commit_status"
+            ],
+            "properties": {
+                "phase": {
+                    "const": "postcommit"
+                },
+                "chapter": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "precommit": {
+                    "$ref": "#/$defs/precommitReport"
+                },
+                "commit_status": {
+                    "$ref": "#/$defs/postCommitStatus"
+                }
+            },
+            "additionalProperties": true
+        },
+        "postCommitStatus": {
+            "type": "object",
+            "required": [
+                "chapter_file_written",
+                "state_file_written",
+                "canon_file_written",
+                "all_persisted"
+            ],
+            "properties": {
+                "chapter_file_written": {
+                    "type": "boolean"
+                },
+                "state_file_written": {
+                    "type": "boolean"
+                },
+                "canon_file_written": {
+                    "type": "boolean"
+                },
+                "all_persisted": {
+                    "type": "boolean"
+                }
+            },
+            "additionalProperties": true
+        }
+    }
+}

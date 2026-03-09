@@ -50,6 +50,11 @@ Recent architecture additions (must be treated as current behavior):
 - Fail-closed canon verification before commit (duplicate/conflict checks)
 - Scene-scoped prompt assembly (`[Scene Plan]` + `[Scoped Context]`) to reduce token bloat
 - Runtime TUI mode persistence in `.storycraftr/sessions/session.json`
+- `storycraftr book` is a fail-closed staged runtime (`outline -> plan -> draft -> edit -> stitch -> state/canon commit`) backed by `storycraftr/agent/book_engine.py`
+- Chapter generation guardrails include directive-quality checks, prose completeness checks, duplicate-paragraph loop detection, bounded retries, and state-signal sanity checks before commit
+- Optional semantic reviewer loop (`enable_semantic_review`) runs before state extraction/commit and participates in bounded retries when reviewer returns `FAIL`
+- `storycraftr book` success-path artifact contract persists `outline/narrative_state.json`, `outline/canon.yml`, and `chapters/chapter-<n>.md` in fail-closed order: `apply state patch -> write canon ledger -> write chapter file`
+- Embedding defaults are API-first (`embed_model=text-embedding-3-small`, `embed_device=api`) with local embeddings still supported through core install (`poetry install` / `uv pip install -e .`)
 
 Primary workflows include:
 
@@ -65,6 +70,12 @@ Architecturally the system is a layered monolith with:
 
 ```
 CLI/TUI → Command Handlers → Agent Orchestration/State Engine → LLM Provider → Vector Store + Canon Ledger → Filesystem
+```
+
+Primary long-form chapter runtime path:
+
+```
+storycraftr/cmd/story/book.py -> storycraftr/agent/book_engine.py -> storycraftr/agent/chapter_validator.py
 ```
 
 The VS Code extension reads events from a JSONL file emitted by the CLI.
@@ -93,6 +104,8 @@ The VS Code extension reads events from a JSONL file emitted by the CLI.
 14. Canon writes from candidate flows must remain fail-closed (verification first, commit second).
 15. Keep retrieval and memory contracts explicit: vector recall (`vector_store`) plus canon constraints (`outline/canon.yml`) plus session metadata (`.storycraftr/sessions/session.json`).
 16. Use Context7 for external library/framework behavior that is version-sensitive; do not use it to infer repository-local behavior that can be read directly from this codebase.
+17. Preserve `storycraftr book` fail-closed commit ordering (`state -> canon -> chapter`) and do not allow partial-success chapter writes when canon/state persistence fails.
+18. Preserve chapter guard contracts (directive quality, prose completeness, duplicate-loop detection, meaningful state signal, optional semantic-review retry loop).
 
 ### Context7 Usage Contract (Mandatory)
 
@@ -167,6 +180,7 @@ Before writing code:
    - sub-agents
    - vector store
    - VS Code extension integration
+   - `storycraftr book` artifact and commit-order contract
 5. Confirm checklist/documentation impact requirements before implementation is considered complete.
 6. If third-party APIs are involved, cite the Context7-backed API behavior used for the design.
 
@@ -206,6 +220,14 @@ poetry run pytest tests/unit/test_tui_state_engine.py
 poetry run pytest tests/unit/test_tui_context_builder.py
 poetry run pytest tests/unit/test_tui_canon_extract.py
 poetry run pytest tests/unit/test_tui_canon_verify.py
+```
+
+For scoped validation of `storycraftr book` hardening and semantic-review behavior, prefer:
+
+```bash
+poetry run pytest tests/unit/test_book_engine.py
+poetry run pytest tests/test_cli.py
+poetry run pytest tests/unit/test_llm_config.py
 ```
 
 When Context7 was used, add a short "External API validation" note in your response that states:
@@ -280,6 +302,8 @@ Examples:
 - fragile filesystem assumptions
 - partial writes
 - unsafe canon commits without verification
+- chapter/state commits that violate fail-closed ordering or produce partial artifacts
+- weak chapter outputs that bypass completeness/state-signal/semantic-review gates
 
 ### 5. Developer experience
 
@@ -309,6 +333,7 @@ Examples:
 - canon ledger consistency across chapters
 - scoped prompt context quality (`Scene Plan` and `Scoped Context`)
 - session/runtime metadata persistence behavior
+- `storycraftr book` semantic-review continuity checks against seed/outline/canon inputs
 
 ---
 

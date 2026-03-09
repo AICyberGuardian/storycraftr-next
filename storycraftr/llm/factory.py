@@ -57,6 +57,7 @@ _OPENROUTER_REPAIR_JSON_PRIMARY_ALLOWLIST = {
     "stepfun/step-3.5-flash:free",
     "openai/gpt-oss-120b:free",
 }
+_OPENROUTER_DEFAULT_MAX_TOKENS = 4000
 
 _OPENROUTER_MODEL_REQUIRED_MESSAGE = (
     "Missing 'llm_model' for provider 'openrouter'. Set it explicitly in storycraftr.json, "
@@ -715,7 +716,9 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
             "model": model_name,
             "temperature": settings.temperature,
         }
-        if settings.max_tokens is not None:
+        if provider == "openrouter":
+            params["max_tokens"] = _OPENROUTER_DEFAULT_MAX_TOKENS
+        elif settings.max_tokens is not None:
             params["max_tokens"] = settings.max_tokens
         if settings.request_timeout is not None:
             params["timeout"] = settings.request_timeout

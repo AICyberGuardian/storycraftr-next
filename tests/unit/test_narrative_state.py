@@ -9,6 +9,7 @@ from storycraftr.agent.narrative_state import (
     CharacterState,
     NarrativeStateStore,
     SceneDirective,
+    StateValidationError,
 )
 
 
@@ -69,10 +70,8 @@ def test_narrative_state_store_handles_invalid_json(tmp_path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{", encoding="utf-8")
 
-    snapshot = store.load()
-
-    assert snapshot.characters == {}
-    assert snapshot.world == {}
+    with pytest.raises(StateValidationError, match="Failed to load narrative state"):
+        store.load()
 
 
 def test_character_state_supports_story_engine_fields() -> None:

@@ -11,6 +11,12 @@ Current development target: `v0.19` (`0.19.0-dev`).
 - Added dynamic OpenRouter free-model discovery (`storycraftr/llm/openrouter_discovery.py`) using `GET https://openrouter.ai/api/v1/models`, with user-local cache at `~/.storycraftr/openrouter-models-cache.json`, default 6-hour TTL, stale-cache fallback, and a minimal emergency fallback profile.
 - Added strict free-only OpenRouter startup validation in `storycraftr/llm/factory.py`: paid/unknown/unavailable model IDs are rejected before provider initialization for both primary and fallback models.
 - Added strict rankings contract validation for `storycraftr/config/rankings.json` plus `storycraftr/config/rankings.schema.json` (Draft 2020-12), including fail-closed runtime checks (`primary` not in `fallbacks`, repair-model allowlist, live discovery verification, and coherence context-limit bounds).
+- Added final fail-closed bypass hardening for legacy direct chapter writes: `storycraftr chapters chapter` now requires both `--unsafe-direct-write` and `STORYCRAFTR_ALLOW_UNSAFE=1`.
+- Added immediate severe-violation coherence enforcement in `storycraftr/agent/book_engine.py` so severe canon-check results force coherence review even when interval cadence would otherwise skip.
+- Extended `NarrativeStateSnapshot` schema with `relationships` and `world_facts` to align runtime snapshots with extractor payload structure.
+- Added explicit `jsonschema >= 4.23.0` runtime dependency in `pyproject.toml` so validator report schema checks are guaranteed available in all installs.
+- Updated `storycraftr book` success-path artifact contract: successful commits now persist `outline/canon.yml` (with stable chapter `plot_threads` canon fact snapshots), `outline/narrative_state.json`, and `chapters/chapter-<n>.md`.
+- Hardened `storycraftr book` commit ordering to fail closed (`state patch` -> `canon ledger` -> `chapter write`), so canon-write failures cannot produce false-success chapter artifacts.
 - Updated model-aware prompt budgeting in the TUI prompt path to use live-discovered OpenRouter limits first (context length + max completion), with conservative in-repo fallback defaults in `storycraftr/llm/model_context.py`.
 - Added native OpenRouter resilience in `storycraftr/llm/factory.py` with bounded retry/backoff and configurable fallback traversal (`STORYCRAFTR_OPENROUTER_FALLBACK_MODELS`).
 - Added model discovery visibility commands: `storycraftr model-list` (`--refresh`) and TUI `/model-list refresh`, with model limit output (`context_length`, `max_completion_tokens`).

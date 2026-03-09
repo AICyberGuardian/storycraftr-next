@@ -132,7 +132,9 @@ class NarrativeStateSnapshot(BaseModel):
     """Root narrative state with cross-entity validation."""
 
     characters: dict[str, CharacterState] = Field(default_factory=dict)
+    relationships: list[dict[str, Any]] = Field(default_factory=list)
     locations: dict[str, LocationState] = Field(default_factory=dict)
+    world_facts: list[str] = Field(default_factory=list)
     plot_threads: list[PlotThreadState] = Field(default_factory=list)
     world: dict[str, dict[str, Any]] = Field(default_factory=dict)  # Legacy support
     version: int = Field(default=1, ge=1)
@@ -233,29 +235,32 @@ class NarrativeStateStore:
         return self._audit_log
 
     def load(self) -> NarrativeStateSnapshot:
-        """Return validated narrative state snapshot; empty snapshot on missing/invalid data."""
+        """Return validated narrative state snapshot with fail-closed validation."""
 
         if not self._file_path.exists():
             return NarrativeStateSnapshot()
 
         try:
             payload = json.loads(self._file_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, json.JSONDecodeError):
-            logger.warning(f"Failed to load narrative state from {self._file_path}")
-            return NarrativeStateSnapshot()
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise StateValidationError(
+                f"Failed to load narrative state from {self._file_path}: {exc}"
+            ) from exc
 
         if not isinstance(payload, dict):
-            logger.warning(f"Invalid narrative state format in {self._file_path}")
-            return NarrativeStateSnapshot()
+            raise StateValidationError(
+                f"Invalid narrative state format in {self._file_path}: expected object"
+            )
 
         # Attempt to parse with validation
         try:
             # Try loading as validated snapshot first
             return NarrativeStateSnapshot(**payload)
         except Exception as e:
-            # Fall back to legacy loading with partial validation
-            logger.warning(f"Partial validation during load: {e}")
-            return self._load_legacy(payload)
+            # Fail closed if legacy payload cannot be fully validated.
+            raise StateValidationError(
+                f"Narrative state validation failed for {self._file_path}: {e}"
+            ) from e
 
     def _load_legacy(self, payload: dict[str, Any]) -> NarrativeStateSnapshot:
         """Load legacy unvalidated state with best-effort validation."""

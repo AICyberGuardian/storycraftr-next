@@ -31,9 +31,11 @@ StoryCraftr-Next is a local-first writing platform with:
 
 - `storycraftr/cli.py`: top-level command registration and dual-mode routing.
 - `storycraftr/cmd/`: command handlers for story, paper, and chat flows.
+- `storycraftr/cmd/story/book.py`: disciplined `storycraftr book` runtime orchestrator with explicit outline/state approval gates and fail-closed commit ordering.
 - `storycraftr/cmd/control_plane.py`: grouped Click commands for automation and headless workflows (tui/state/canon/mode/models) that reuse existing runtime services.
 - `storycraftr/services/control_plane.py`: shared control-plane service layer called by both Click commands and Textual slash commands for mode state, canon checks, and audit queries.
 - `storycraftr/agent/agents.py`: assistant lifecycle, message execution, orchestration glue.
+- `storycraftr/agent/book_engine.py`: fail-closed chapter-generation state machine used by `storycraftr book`.
 - `storycraftr/agent/assistant_cache.py`: assistant cache key generation and lock-guarded cache helpers.
 - `storycraftr/agent/vector_hydration.py`: vector-store refresh/hydration and markdown ingestion helpers.
 - `storycraftr/graph/assistant_graph.py`: LCEL graph composition (`answer` + `documents`).
@@ -51,7 +53,8 @@ StoryCraftr-Next is a local-first writing platform with:
 - `storycraftr/vectorstores/chroma.py`: persistent Chroma setup.
 - `storycraftr/subagents/jobs.py`: sub-agent job manager lifecycle.
 - `storycraftr/tui/app.py`: Textual single-screen command center and slash-command router. Orchestrates generation through sequential pipeline with `/context prompt debug [on|off]` toggle for planner directive inspection and fail-closed fallback reuse when planner JSON parsing fails twice.
-- `storycraftr/tui/canon.py`: chapter-scoped canon ledger (`outline/canon.yml`) read/write helpers used by TUI canon commands.
+- `storycraftr/cmd/story/chapters.py`: legacy direct chapter-write command group; bypass-only path now requiring `--unsafe-direct-write` and `STORYCRAFTR_ALLOW_UNSAFE=1`.
+- `storycraftr/tui/canon.py`: chapter-scoped canon ledger (`outline/canon.yml`) read/write helpers used by TUI canon commands and by `storycraftr book` commit-time canon persistence.
 - `storycraftr/tui/canon_extract.py`: conservative canon-candidate extraction from assistant responses in hybrid mode.
 - `storycraftr/tui/canon_verify.py`: fail-closed verifier for duplicate/negation-conflict checks before autopilot canon commit.
 - `storycraftr/tui/context_builder.py`: token-scoped prompt block builder with model-aware budgeting, deterministic pruning, stage-aware diagnostics metadata, and static craft-rule injection for planner/drafter/editor stages.
@@ -74,6 +77,7 @@ Key fields include:
 - `llm_provider`, `llm_model`, `llm_endpoint`, `llm_api_key_env`
 - `temperature`, `request_timeout`, `max_tokens`
 - `embed_model`, `embed_device`, `embed_cache_dir`
+- `enable_semantic_review`
 
 `load_book_config()` returns a typed `BookConfig`; callsites should use explicit attributes.
 
@@ -96,6 +100,21 @@ Default logical locations:
 - Sub-agent data/logs: `.storycraftr/subagents/...`
 - VS Code events: `.storycraftr/vscode-events.jsonl`
 - Vector store: `vector_store`
+
+`storycraftr book` success-path artifact contract:
+- `chapters/chapter-<n>.md`
+- `outline/narrative_state.json`
+- `outline/canon.yml`
+
+`outline/narrative_state.json` includes structured continuity fields for characters,
+locations, plot threads, relationships, and world facts.
+
+Commit ordering is fail-closed and deterministic:
+1. apply state patch
+2. persist canon ledger snapshot
+3. persist chapter markdown
+
+If canon persistence fails, commit is treated as failed and chapter artifacts are not written.
 
 ## Assistant and RAG Behavior
 

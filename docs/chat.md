@@ -200,6 +200,11 @@ against accepted chapter facts and surfaces likely duplicates/contradictions as
 Before canon warnings, generated responses are processed by deterministic state
 extraction and validation; accepted patch operations are committed to
 `outline/narrative_state.json` and logged to `outline/narrative_audit.jsonl`.
+ 
+`storycraftr book` follows the same continuity contract on successful commit and
+additionally persists chapter-scoped canon facts to `outline/canon.yml`
+(including a stable `plot_threads` fact snapshot) before writing
+`chapters/chapter-<n>.md`.
 
 Writers can rerun the same continuity scan at any time with `/canon check-last`,
 and inspect grouped diagnostics with `/context conflicts`.
@@ -340,7 +345,16 @@ The **Chapters** commands focus on generating or improving specific chapters of 
 - **Generate a chapter**:
 
   ```bash
-  !chapters chapter 1 "Write chapter 1 based on the synopsis provided."
+  !chapters chapter 1 "Write chapter 1 based on the synopsis provided." --unsafe-direct-write
+  ```
+
+  Direct chapter writes bypass `storycraftr book` validator gates and now require
+  both explicit opt-ins: `--unsafe-direct-write` and `STORYCRAFTR_ALLOW_UNSAFE=1`
+  (set in your shell before launching StoryCraftr chat).
+
+  ```bash
+  export STORYCRAFTR_ALLOW_UNSAFE=1
+  storycraftr chat --book-path /path/to/your/book
   ```
 
 - **Insert a chapter**:
@@ -391,7 +405,7 @@ While command shortcuts are great for quick edits, some operations (large outlin
 - Let StoryCraftr auto-select a role (it matches the `!command` against each role’s whitelist):
 
   ```bash
-  :sub-agent !chapters chapter 5 "Reframe the midpoint twist"
+  :sub-agent !chapters chapter 5 "Reframe the midpoint twist" --unsafe-direct-write
   ```
 
 - Monitor background work or inspect past outputs:

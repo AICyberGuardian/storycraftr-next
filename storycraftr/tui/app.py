@@ -928,6 +928,7 @@ class TuiApp(App[None]):
                 '/worldbuilding technology "..."',
             ],
             "project": [
+                "book: Run the autonomous, validator-gated book generation loop from a seed.md.",
                 "/status",
                 "/state",
                 "/state audit [limit=<n>] [entity=<id>] [type=<type>]",

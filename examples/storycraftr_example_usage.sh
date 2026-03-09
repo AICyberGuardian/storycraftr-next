@@ -24,9 +24,11 @@ LLM_PROVIDER="${STORYCRAFTR_EXAMPLE_PROVIDER:-openrouter}"
 if [[ "$LLM_PROVIDER" == "fake" ]]; then
     LLM_MODEL="${STORYCRAFTR_EXAMPLE_MODEL:-offline-placeholder}"
     EMBED_MODEL="${STORYCRAFTR_EXAMPLE_EMBED_MODEL:-fake}"
+    EMBED_DEVICE="${STORYCRAFTR_EXAMPLE_EMBED_DEVICE:-cpu}"
 else
     LLM_MODEL="${STORYCRAFTR_EXAMPLE_MODEL:-deepseek/deepseek-chat}"
-    EMBED_MODEL="${STORYCRAFTR_EXAMPLE_EMBED_MODEL:-BAAI/bge-large-en-v1.5}"
+    EMBED_MODEL="${STORYCRAFTR_EXAMPLE_EMBED_MODEL:-text-embedding-3-small}"
+    EMBED_DEVICE="${STORYCRAFTR_EXAMPLE_EMBED_DEVICE:-api}"
 fi
 
 # Flags soportados:
@@ -103,7 +105,7 @@ fi
 generate_behavior
 
 # Inicializar el proyecto
-run_command "init \"The Purge of the gods\" --primary-language \"en\" --alternate-languages \"es\" --author \"Rodrigo Estrada\" --genre \"science fiction\" --behavior \"behavior.txt\" --reference-author=\"Brandon Sanderson\" --llm-provider \"${LLM_PROVIDER}\" --llm-model \"${LLM_MODEL}\" --embed-model \"${EMBED_MODEL}\"" || exit 1
+run_command "init \"The Purge of the gods\" --primary-language \"en\" --alternate-languages \"es\" --author \"Rodrigo Estrada\" --genre \"science fiction\" --behavior \"behavior.txt\" --reference-author=\"Brandon Sanderson\" --llm-provider \"${LLM_PROVIDER}\" --llm-model \"${LLM_MODEL}\" --embed-model \"${EMBED_MODEL}\" --embed-device \"${EMBED_DEVICE}\"" || exit 1
 
 cd "The Purge of the gods"
 

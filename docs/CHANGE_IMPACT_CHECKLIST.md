@@ -2,6 +2,195 @@
 
 ## Change History
 
+### 2026-03-09 — Phase 7P runtime escalation ladder + scene-density retry guidance
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Extended `storycraftr/agent/book_engine.py` with retry hooks (`on_scene_generation_retry`, `on_chapter_validation_retry`) and backward-compatible retry-draft callback wiring so runtime orchestration can react to repeated quality failures.
+	- Added scene-level craft repair directive injection on minimum-word retry paths in `storycraftr/agent/book_engine.py`, ensuring retry prompts instruct structural scene expansion (Goal/Conflict/Disaster/Sequel) rather than filler.
+	- Added OpenRouter role-model escalation logic in `storycraftr/cmd/story/book.py` that rotates ranked role candidates after repeated quality retry failures, and preserves selected model cursor state across subsequent calls.
+	- Added regression coverage in `tests/unit/test_book_engine.py` for retry directive propagation and retry callback emission contracts.
+	- Added docs/supporting assets for escalation behavior: `README.md`, `CHANGELOG.md`, and `examples/rankings_stress_weak_primary.json`.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema-shape changes, no sub-agent lifecycle/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-09 — Final docs sync for Phase 7O closure contracts
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated user-facing docs (`README.md`, `docs/chat.md`, `docs/getting_started.md`) to reflect the current dual-gate direct-write bypass contract: `--unsafe-direct-write` plus `STORYCRAFTR_ALLOW_UNSAFE=1`.
+	- Updated release-history docs (`CHANGELOG.md`, `release_notes.md`) to include final closure hardening details: severe-violation forced coherence gating, narrative snapshot parity (`relationships`, `world_facts`), and explicit `jsonschema` runtime dependency.
+	- Updated contributor/internal architecture docs (`.github/copilot-instructions.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`) for current config fields (`enable_semantic_review`), API-first embedding defaults, bypass guard contract, and continuity-state field coverage.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (docs-only synchronization; no dependency/lockfile, config/schema runtime behavior, sub-agent lifecycle/path contract, event-contract, or security-tooling behavior changes).
+
+### 2026-03-09 — Phase 7O final closure hardening: unsafe bypass env gate, severe-violation coherence override, and snapshot schema parity
+- **Sections reviewed:** 1, 3, 8 (Dependency & Lockfiles, Prompt/Runtime Behavior, Documentation & Versioning)
+- **Impact:**
+	- Hardened legacy direct-write bypass in `storycraftr/cmd/story/chapters.py` so `chapters chapter` now requires both `--unsafe-direct-write` and explicit `STORYCRAFTR_ALLOW_UNSAFE=1` opt-in.
+	- Extended `NarrativeStateSnapshot` in `storycraftr/agent/narrative_state.py` with canonical `relationships` and `world_facts` fields to preserve schema parity for extractor/runtime payloads.
+	- Updated `storycraftr/agent/book_engine.py` coherence gating so severe canon violations force immediate gate execution regardless of configured interval.
+	- Added explicit `jsonschema >=4.23.0` runtime dependency in `pyproject.toml` and refreshed lock state via `make sync-deps`.
+	- Updated `storycraftr/config/rankings.json` prose primary/fallback roster to a stable free-tier chain and added regression tests in `tests/test_cli.py` and `tests/unit/test_book_engine.py` for unsafe-gate + severe-violation gate-forcing behavior.
+- **No impact:** sections 2, 4, 5, 6, and 7 (no Story/Paper config schema file shape changes, no sub-agent lifecycle/path contract changes, no VS Code event contract changes, and no security-tooling policy changes).
+
+### 2026-03-09 — Phase 7O closure: full validator schema semantics + provider-wide state-signal guard
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Replaced key-presence validator report checks in `storycraftr/cmd/story/book.py` with full Draft 2020-12 schema validation via `jsonschema.validate(...)`, including fail-closed handling for invalid schemas and invalid payload instances.
+	- Tightened `BookEngine` wiring in `storycraftr/cmd/story/book.py` so `enforce_state_signal_guard` is enabled for all real-provider runs (`openai`, `openrouter`, `ollama`), not only strict autonomous `--yes` flows.
+	- Updated `storycraftr/config/rankings.json` `batch_prose.fallbacks` to remove an unavailable free-tier model and restore strict OpenRouter rankings preflight pass for real-provider smoke validation.
+	- Added CLI regression coverage in `tests/test_cli.py` that rejects key-present but schema-invalid postcommit validator payloads (type mismatch).
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema-shape changes, no sub-agent lifecycle changes, no internal path/event contract changes, and no security-tooling policy changes).
+
+### 2026-03-09 — Phase 7N closure: atomic commit rollback, rich extraction, and full global coherence gate
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Hardened `storycraftr/cmd/story/book.py` state-commit rollback flow to explicitly restore/delete partial `narrative_state.json`, `canon.yml`, and chapter markdown artifacts on commit-path failure.
+	- Upgraded `storycraftr/agent/state_extractor.py` with a structured JSON extraction path (role-driven with bounded repair attempts) that emits character, relationship, world-fact, and thread patch operations.
+	- Added fail-closed extraction guard in `storycraftr/agent/state_extractor.py` for long validated chapter text when extraction yields an empty patch.
+	- Updated coherence review prompt composition in `storycraftr/cmd/story/book.py` to include full chapter history and full canon JSON context.
+	- Updated `storycraftr/agent/book_engine.py` coherence-gate trigger semantics to remain interval-driven (configurable) and strictly fail closed on non-PASS verdicts.
+	- Added targeted CLI regressions in `tests/test_cli.py` for atomic rollback behavior, rich extraction payload capture, and full-global-coherence parse-failure halting.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema-shape changes, no sub-agent lifecycle changes, no path/event contract changes, and no security-tooling policy changes).
+
+### 2026-03-09 — Phase 7M final handshake: universal semantic gating, independent reviewer routing, and retry failure artifacts
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Hardened `storycraftr/cmd/story/book.py` so semantic validation is required for all real-provider (`openai`, `openrouter`, `ollama`) `book` runs, not only autonomous `--yes` runs.
+	- Added consensus-routing helpers in `storycraftr/cmd/story/book.py` that prefer `coherence_check` fallback models from a different family than the primary drafter model when available.
+	- Extended `BookEngine` retry wiring (`storycraftr/agent/book_engine.py` + `storycraftr/agent/chapter_validator.py`) with fail-attempt callbacks and persisted raw failed chapter attempts under `outline/chapter_packets/chapter-<nnn>/failures/attempt-<x>.txt` before retry.
+	- Added CLI regression coverage in `tests/test_cli.py` for semantic requirement without `--yes` and for retry failure artifact persistence during semantic-review retry flows.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper schema file shape changes, no sub-agent lifecycle changes, no internal path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-09 — Contributor docs sync for `book` guard/report contract coverage
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `docs/contributor-reference.md` high-value runtime/test catalog to include `storycraftr/agent/chapter_validator.py`, `storycraftr/config/validator_report.schema.json`, `storycraftr/prompts/reviewer_rules.md`, and `tests/unit/test_chapter_validator.py` so contributor/agent maintenance mapping reflects current fail-closed `book` runtime contracts.
+	- Updated `docs/architecture-onboarding.md` core code map to explicitly include `storycraftr/agent/chapter_validator.py` alongside `book_engine.py` and sequential pipeline modules.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (docs-only synchronization; no dependency/lockfile, config/schema, runtime behavior, path/event contract, or security-tooling behavior changes).
+
+### 2026-03-08 — Canon/state grounding + global coherence context + fail-closed state load
+- **Sections reviewed:** 2, 3, 8 (Config/Schema, Prompt/Runtime Behavior, Documentation & Versioning)
+- **Impact:**
+	- Hardened `storycraftr/cmd/story/book.py` generation prompts (`outline`, `plan`, `draft`, `edit`, `stitch`, retry paths) with explicit continuity grounding sections sourced from `outline/canon.yml`, `narrative_state`, and recent chapter history.
+	- Upgraded coherence auditing in `storycraftr/cmd/story/book.py` from latest-chapter-only context to global context (`seed`, canon JSON, narrative state, chapter history summary, latest chapter), while preserving strict `PASS`/`FAIL` fail-closed semantics.
+	- Added ranked role-model routing for strict autonomous OpenRouter runs in `storycraftr/cmd/story/book.py` across `batch_planning`, `batch_prose`, `batch_editing`, `repair_json`, and `coherence_check`, with safe fallback when ranked model clients are unavailable.
+	- Fixed state-signal detection in `storycraftr/agent/chapter_validator.py` to inspect nested `state_update["patch"].operations` used by `storycraftr book` runtime payloads.
+	- Switched `NarrativeStateStore.load()` in `storycraftr/agent/narrative_state.py` to fail closed on invalid/corrupt payloads (`StateValidationError`) instead of silently returning empty/partially validated snapshots.
+	- Extended `storycraftr/cmd/story/book.py` run-level audit persistence so `outline/book_audit.json` and `outline/book_audit.md` are emitted for both success and failure paths.
+	- Added/updated regression coverage in `tests/test_cli.py`, `tests/unit/test_narrative_state.py`, and `tests/unit/test_chapter_validator.py` for grounding injection, failure-path run audit artifacts, fail-closed state loading, and nested patch state-signal detection.
+- **No impact:** sections 1, 4, 5, 6, and 7 (no dependency/lockfile changes, no sub-agent lifecycle changes, no internal path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-08 — Strict autonomous mode completion + run-level book audit export
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Hardened `storycraftr/cmd/story/book.py` strict autonomous preflight checks so real-provider `auto_approve` runs fail closed unless semantic review is enabled.
+	- Enforced strict autonomous runtime controls via `BookEngine` wiring (`storycraftr/agent/book_engine.py`): per-chapter coherence gate execution, mandatory severe-canon checker presence, and explicit state-signal guard enforcement.
+	- Added strict planner directive JSON-shape/content validation in `storycraftr/cmd/story/book.py` before `SceneDirective` construction (exact keys + minimum content thresholds).
+	- Added consolidated run-level audit persistence in `storycraftr/cmd/story/book.py` to `outline/book_audit.json` and `outline/book_audit.md` with per-chapter validator/coherence outcomes.
+	- Extended CLI regressions in `tests/test_cli.py` to cover strict autonomous semantic requirements, strict planner schema failure behavior, and run-level audit artifact output.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema-shape changes, no sub-agent lifecycle changes, no internal path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-08 — Coherence gate fail-closed + rollback safety + direct-write guard
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Upgraded `storycraftr/agent/book_engine.py` coherence integration from advisory text to fail-closed gate verdicts (`PASS`/`FAIL`) and added retry-time scene regeneration for chapter guard retries.
+	- Hardened `storycraftr/cmd/story/book.py` commit flow with best-effort rollback across `outline/narrative_state.json`, `outline/canon.yml`, and `chapters/chapter-<n>.md` on commit-step failure.
+	- Added CLI guard in `storycraftr/cmd/story/book.py` requiring semantic review for autonomous `--yes` runs on real providers (`openai`, `openrouter`, `ollama`).
+	- Added `state_event` canon breadcrumbs from extracted events during canon persistence to broaden commit-time traceability.
+	- Locked legacy bypass path by requiring explicit `--unsafe-direct-write` in `storycraftr/cmd/story/chapters.py` for direct chapter writes outside BookEngine runtime.
+	- Added/updated regression coverage in `tests/test_cli.py` and `tests/unit/test_book_engine.py` for rollback, coherence gate behavior, semantic requirement, and direct-write guardrail.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema shape changes, no sub-agent lifecycle changes, no internal path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-08 — Validator report JSON schema and fail-closed payload checks
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/config/validator_report.schema.json` (Draft 2020-12) as the machine-readable contract for chapter packet `validator_report.json` artifacts.
+	- Added fail-closed runtime payload validation in `storycraftr/cmd/story/book.py` (`_validate_validator_report_payload`) before writing both precommit and postcommit reports.
+	- Added regression tests in `tests/test_cli.py` covering schema file presence/shape and fail-closed behavior on invalid payloads.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no sub-agent lifecycle changes, no internal path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-08 — Stage-by-stage validator schema in chapter packets
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Added `_build_stage_validator_contract(...)` in `storycraftr/cmd/story/book.py` to emit explicit precommit stage contracts (`outline`, `scene_plan`, `scene_draft`, `scene_edit`, `stitch`, `state_extract`, `semantic_review`).
+	- Wired fail-closed precommit stage gating in `run_book_pipeline(...)` so chapters cannot commit when stage contract evaluation fails.
+	- Extended packet `validator_report.json` to include `stage_contract` and changed postcommit finalization to preserve the precommit payload under `precommit` for durable traceability.
+	- Added CLI regression coverage in `tests/test_cli.py` for stage-contract presence in postcommit reports and helper-level stage failure detection.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no sub-agent lifecycle changes, no internal path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-08 — Scene-level precommit acceptance contract and validator artifacts
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Extended `storycraftr/cmd/story/book.py` precommit gating with scene-level acceptance checks in `_build_scene_acceptance_contract(...)` so progression halts fail-closed when per-scene requirements fail.
+	- Added deterministic per-scene validator artifacts (`scene_<n>_validator_report.json`) to chapter packet persistence in `_write_precommit_packet(...)`.
+	- Included scene acceptance state in chapter-level precommit `validator_report.json` to keep validator handoff contracts explicit.
+	- Added regression coverage in `tests/test_cli.py` for scene validator artifact presence and helper-level scene acceptance failure detection.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no sub-agent lifecycle changes, no internal path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-08 — Stage packet persistence + fail-closed acceptance contract for `storycraftr book`
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Added deterministic per-chapter packet persistence in `storycraftr/cmd/story/book.py` under `outline/chapter_packets/chapter-<nnn>/` including outline context, scene plan JSON, scene draft/edit markdown artifacts, stitched chapter, state patch payload, diagnostics, canon snapshot delta, and validator report files.
+	- Added explicit pre-commit chapter acceptance contract checks in `run_book_pipeline(...)` (planner quality, chapter completeness attempts, semantic-review pass when enabled, meaningful state signal when enforced, non-empty state patch when enforced), with fail-closed halt on contract failure.
+	- Added post-commit packet finalization in `storycraftr/cmd/story/book.py` so validator report and canon snapshot are updated after successful persistence (`state -> canon -> chapter`).
+	- Added CLI regression coverage in `tests/test_cli.py` asserting packet artifacts are written on success and acceptance contract blocks progression when state patch is empty under enforced-provider runs.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no sub-agent lifecycle changes, no internal path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-08 — Phase 7J ruggedization: prose guard + core ML dependencies
+- **Sections reviewed:** 1, 3, 8 (Dependency & Lockfiles, Prompt/Runtime Behavior, Documentation & Versioning)
+- **Impact:**
+	- Simplified embedding installation path by promoting `sentence-transformers` and `torch` to core dependencies in `pyproject.toml` (no optional extras required for local embeddings).
+	- Hardened OpenRouter runtime token budgeting in `storycraftr/llm/factory.py` by forcing explicit `max_tokens=4000` on OpenRouter `ChatOpenAI` clients to reduce mid-scene truncation.
+	- Aligned `BookEngine` prose guard contract in `storycraftr/agent/book_engine.py` with explicit fail-closed validation (`< min_words` or trailing `...`) and stage wiring for scene-level and chapter-level checks with stitch fallback to concatenated edited scenes.
+	- Added `storycraftr/agent/chapter_validator.py` as a dedicated completeness-guard module (`word_count`, duplicate paragraph-loop detection, bounded guarded retries), and integrated it at the pre-commit boundary in `BookEngine` (after chapter text generation, before state extraction/commit).
+	- Added a fail-closed state-update sanity gate so guarded chapter runs halt when extraction returns no meaningful state signal (for example empty `operations`).
+	- Added planner-quality directive validation in `storycraftr/agent/book_engine.py` to fail closed when `goal/conflict/stakes/outcome` fields are empty or too weak before draft generation begins.
+	- Added unit regressions in `tests/unit/test_book_engine.py` for weak/invalid scene directives to block low-signal planner outputs from entering chapter generation.
+	- Added per-chapter guard diagnostics payload on `ChapterRunArtifact` and surfaced it in `storycraftr book` runtime output for fast failure forensics during long/soak runs.
+	- Updated ranked prose model routing in `storycraftr/config/rankings.json` to `arcee-ai/trinity-large-preview:free` primary and requested fallback chain.
+	- Updated regression tests and documentation references to reflect the simplified install path and OpenRouter token behavior.
+- **No impact:** sections 2, 4, 5, 6, and 7 (no Story/Paper config schema changes, no sub-agent lifecycle changes, no path/event contract changes, and no security-tooling policy changes).
+
+### 2026-03-08 — Phase 7L semantic reviewer: LLM continuity gate before state extraction
+- **Sections reviewed:** 2, 3, 8 (Config/Schema, Prompt/Runtime Behavior, Documentation & Versioning)
+- **Impact:**
+	- Added `storycraftr/prompts/reviewer_rules.md` as a deterministic semantic-review policy prompt (JSON-only `PASS`/`FAIL` contract).
+	- Extended `BookEngine` chapter guarded-generation flow with optional semantic validator callback (`run_semantic_review`) and retry integration so reviewer failures participate in bounded chapter retries.
+	- Added runtime diagnostics fields for semantic review (`semantic_review_enabled`, `semantic_review_passed`, `semantic_review_last_reason`) and surfaced semantic status in `storycraftr book` diagnostics output.
+	- Added runtime config toggle `enable_semantic_review` (default `false`) to `BookConfig` normalization and project init config generation.
+	- Added OpenRouter coherence-batch reviewer model routing in `storycraftr/cmd/story/book.py` using `coherence_check.primary` from `storycraftr/config/rankings.json`.
+	- Added regression tests across `tests/unit/test_book_engine.py`, `tests/test_cli.py`, and `tests/unit/test_llm_config.py` for semantic retry behavior, reviewer model routing, and config coercion.
+- **No impact:** sections 1, 4, 5, 6, and 7 (no dependency/lockfile changes, no sub-agent lifecycle changes, no path/event contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-08 — `book` completeness guard: fail-closed chapter quality gate
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Hardened `storycraftr/agent/book_engine.py` with fail-closed completeness validation for scene/chapter artifacts: minimum-word enforcement, truncated-ending detection, and duplicate paragraph-block detection.
+	- Added bounded scene regeneration retries when edited scene output is incomplete, reusing `retry_draft_scene` up to configured attempts.
+	- Added deterministic stitch fallback behavior: if stitch output fails completeness checks, engine falls back to raw edited-scene concatenation only when fallback content passes the same guard.
+	- Updated `storycraftr/cmd/story/book.py` runtime wiring to enable completeness thresholds for real providers (`openai`, `openrouter`, `ollama`) while keeping offline/test flows unconstrained.
+	- Added BookEngine regression tests in `tests/unit/test_book_engine.py` covering short-chapter fail-closed behavior, truncated-stitch fallback, and retry-on-incomplete scene edit.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema changes, no sub-agent lifecycle changes, no path/event contract changes, and no security-tooling policy changes).
+
+### 2026-03-08 — API-first embeddings default + `local-ml` optional dependency packaging
+- **Sections reviewed:** 1, 3, 8 (Dependency & Lockfiles, Prompt/Runtime Behavior, Documentation & Versioning)
+- **Impact:**
+	- Migrated embedding ML stack packaging in `pyproject.toml` from Poetry-only optional group to standards-compatible optional dependencies plus `[tool.poetry.extras] local-ml = ["sentence-transformers", "torch"]`, so `uv pip install -e ".[local-ml]"` and `poetry install -E local-ml` both work.
+	- Regenerated lock files via `make sync-deps` (`poetry.lock`, `package-lock.json`) to satisfy repository lock invariants.
+	- Updated embedding runtime defaults to API-first (`embed_device="api"`, `embed_model="text-embedding-3-small"`) and added API embedding initialization path in `storycraftr/llm/embeddings.py` using OpenAI-compatible endpoints (OpenAI/OpenRouter) with explicit key validation.
+	- Kept local embedding runtime path intact and updated install guidance/error messaging to the new `local-ml` extra.
+	- Updated CLI/init/config defaults and user/developer docs (`README.md`, `docs/getting_started.md`, `.github/copilot-instructions.md`) to reflect API-first baseline and local-ML opt-in path.
+	- Added regression coverage in `tests/unit/test_embeddings.py` for API embedding construction, missing-key fail-closed behavior, and local install-hint messaging.
+- **No impact:** sections 2, 4, 5, 6, and 7 (no Story/Paper JSON schema shape changes, no sub-agent lifecycle changes, no path contract changes, no VS Code event contract changes, no security-tooling policy changes).
+
+### 2026-03-08 — Contributor docs consolidation and v1 synchronization
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `docs/architecture-onboarding.md` to remain the single contributor entry point with explicit routing to `docs/contributor-reference.md` for file-by-file maintenance rules.
+	- Updated `docs/contributor-reference.md` as the one-file shareable catalog for contributor reading sets, file categories, and update-sync rules; expanded v1 runtime contract coverage (`storycraftr/cmd/story/book.py`, `storycraftr/agent/book_engine.py`, and related regression tests).
+	- Updated `docs/getting_started.md` contributor-navigation notes and retained v1 runtime artifact contract references for `storycraftr book` (`chapter`, `narrative_state`, `canon`) including fail-closed commit ordering.
+	- Updated `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md` to position as deep reference and include v1 book-runtime architecture/persistence details.
+	- Updated `README.md` and `CONTRIBUTING.md` contributor guidance to route first through `docs/architecture-onboarding.md` and directly to `docs/contributor-reference.md` for maintenance mapping.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (docs-only synchronization; no dependency/lockfile/config/runtime/path/event/security behavior changes).
+
 ### 2026-03-08 — Phase 7I hardening: `book` success-path canon ledger persistence
 - **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
 - **Impact:**

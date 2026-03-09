@@ -10,10 +10,13 @@ from typing import Optional
 class EmbeddingSettings:
     """Normalized configuration to construct embedding models."""
 
-    model_name: str = "BAAI/bge-large-en-v1.5"
-    device: str = "auto"
+    model_name: str = "text-embedding-3-small"
+    device: str = "api"
     cache_dir: Optional[str] = None
     normalize: Optional[bool] = None
+    api_provider: str = "openrouter"
+    api_base: Optional[str] = None
+    api_key_env: Optional[str] = None
 
 
 def _should_normalize(model_name: str, explicit: Optional[bool]) -> bool:
@@ -49,6 +52,10 @@ def build_embedding_model(settings: EmbeddingSettings):
     Build a HuggingFace embedding model with sane defaults for local usage.
     """
 
+    normalized_device = (settings.device or "").strip().lower()
+    if normalized_device == "api":
+        return _build_api_embedding_model(settings)
+
     model_name_lower = settings.model_name.lower()
     if model_name_lower in {"fake", "offline", "offline-placeholder"}:
         _raise_configuration_error(
@@ -57,8 +64,7 @@ def build_embedding_model(settings: EmbeddingSettings):
 
     install_hint = (
         "Missing ML stack for local embeddings. "
-        "Run 'poetry install --with embeddings' or "
-        "'uv pip install torch sentence-transformers'."
+        "Run 'poetry install' or 'uv pip install -e .'."
     )
     import logging
 
@@ -111,5 +117,50 @@ def build_embedding_model(settings: EmbeddingSettings):
         _raise_configuration_error(
             f"Failed to load embedding model '{settings.model_name}'. "
             "Verify model identifier, local ML dependencies, and hardware runtime.",
+            exc,
+        )
+
+
+def _build_api_embedding_model(settings: EmbeddingSettings):
+    """Build API-backed embeddings using OpenAI-compatible endpoints."""
+
+    from langchain_openai import OpenAIEmbeddings
+
+    provider = (settings.api_provider or "openrouter").strip().lower()
+    if provider == "openrouter":
+        api_key_env = (settings.api_key_env or "OPENROUTER_API_KEY").strip()
+        api_base = (
+            settings.api_base
+            or os.getenv("OPENROUTER_BASE_URL")
+            or "https://openrouter.ai/api/v1"
+        )
+    elif provider == "openai":
+        api_key_env = (settings.api_key_env or "OPENAI_API_KEY").strip()
+        api_base = settings.api_base or os.getenv("OPENAI_BASE_URL")
+    else:
+        _raise_configuration_error(
+            "API embeddings only support providers 'openrouter' or 'openai'."
+        )
+
+    api_key = os.getenv(api_key_env)
+    if not api_key:
+        _raise_configuration_error(
+            f"Missing API key for embedding provider '{provider}'. "
+            f"Set {api_key_env} in your environment."
+        )
+
+    kwargs = {
+        "model": settings.model_name,
+        "openai_api_key": api_key,
+    }
+    if api_base:
+        kwargs["openai_api_base"] = api_base
+
+    try:
+        return OpenAIEmbeddings(**kwargs)
+    except Exception as exc:
+        _raise_configuration_error(
+            f"Failed to initialize API embeddings for provider '{provider}' "
+            f"with model '{settings.model_name}'.",
             exc,
         )

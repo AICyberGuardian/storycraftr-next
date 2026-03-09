@@ -15,7 +15,16 @@ from storycraftr.cli import (
     is_initialized,
     project_not_initialized_error,
 )
-from storycraftr.cmd.story.book import BookEngineError, run_book_pipeline
+from storycraftr.agent.book_engine import ChapterRunArtifact, SceneRunArtifact
+from storycraftr.agent.narrative_state import SceneDirective
+from storycraftr.cmd.story.book import (
+    BookEngineError,
+    _VALIDATOR_REPORT_SCHEMA_PATH,
+    _build_scene_acceptance_contract,
+    _build_stage_validator_contract,
+    _validate_validator_report_payload,
+    run_book_pipeline,
+)
 from storycraftr.llm.factory import LLMConfigurationError
 from storycraftr.llm.credentials import load_local_credentials
 
@@ -635,6 +644,20 @@ def test_run_book_pipeline_fails_closed_when_outline_rejected(monkeypatch) -> No
         ),
     )
     monkeypatch.setattr(
+        "storycraftr.cmd.story.book.extract_state_patch",
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
+            patch=SimpleNamespace(operations=[{"operation": "add"}]),
+            events=[],
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.extract_state_patch",
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
+            patch=SimpleNamespace(operations=[{"operation": "add"}]),
+            events=[],
+        ),
+    )
+    monkeypatch.setattr(
         "storycraftr.cmd.story.book.click.confirm",
         lambda *_args, **_kwargs: False,
     )
@@ -656,7 +679,7 @@ def test_run_book_pipeline_fails_closed_when_state_commit_rejected(
             text = str(prompt)
             if "Return ONLY valid JSON" in text or "Repair the following text" in text:
                 return SimpleNamespace(
-                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"o"}'
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
                 )
             return SimpleNamespace(content="generated text")
 
@@ -673,6 +696,13 @@ def test_run_book_pipeline_fails_closed_when_state_commit_rejected(
             drafter=SimpleNamespace(text="drafter-rules"),
             editor=SimpleNamespace(text="editor-rules"),
             stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.extract_state_patch",
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
+            patch=SimpleNamespace(operations=[{"operation": "add"}]),
+            events=[],
         ),
     )
 
@@ -698,6 +728,10 @@ def test_run_book_pipeline_persists_chapter_and_applies_patch(
     class _FakeLLM:
         def invoke(self, prompt):
             text = str(prompt)
+            if "canon safety checker" in text:
+                return SimpleNamespace(content='{"violation": false}')
+            if "Run a coherence audit" in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
             if "Return ONLY valid JSON" in text or "Repair the following text" in text:
                 return SimpleNamespace(
                     content='{"goal":"g","conflict":"c","stakes":"s","outcome":"o"}'
@@ -742,8 +776,12 @@ def test_run_book_pipeline_persists_chapter_and_applies_patch(
         _FakeStateStore,
     )
     monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
+    )
+    monkeypatch.setattr(
         "storycraftr.cmd.story.book.extract_state_patch",
-        lambda _text, snapshot: SimpleNamespace(
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
             patch=SimpleNamespace(operations=[{"operation": "add"}]),
             events=[],
         ),
@@ -759,15 +797,181 @@ def test_run_book_pipeline_persists_chapter_and_applies_patch(
     chapter_file = tmp_path / "chapters" / "chapter-1.md"
     narrative_state_file = tmp_path / "outline" / "narrative_state.json"
     canon_file = tmp_path / "outline" / "canon.yml"
+    packet_dir = tmp_path / "outline" / "chapter_packets" / "chapter-001"
+    audit_json = tmp_path / "outline" / "book_audit.json"
+    audit_md = tmp_path / "outline" / "book_audit.md"
     assert chapter_file.exists()
     assert "generated text" in chapter_file.read_text(encoding="utf-8")
     assert narrative_state_file.exists()
     assert canon_file.exists()
     assert "plot_threads:" in canon_file.read_text(encoding="utf-8")
+    assert packet_dir.exists()
+    assert (packet_dir / "outline_context.md").exists()
+    assert (packet_dir / "scene_plan.json").exists()
+    assert (packet_dir / "scene_1_validator_report.json").exists()
+    assert (packet_dir / "scene_2_validator_report.json").exists()
+    assert (packet_dir / "scene_3_validator_report.json").exists()
+    assert (packet_dir / "stitched_chapter.md").exists()
+    assert (packet_dir / "state_patch.json").exists()
+    assert (packet_dir / "diagnostics.json").exists()
+    assert (packet_dir / "validator_report.json").exists()
+    report = json.loads(
+        (packet_dir / "validator_report.json").read_text(encoding="utf-8")
+    )
+    assert report["phase"] == "postcommit"
+    assert report["precommit"]["phase"] == "precommit"
+    assert report["precommit"]["stage_contract"]["all_passed"] is True
+    assert (
+        report["precommit"]["stage_contract"]["stages"]["scene_plan"]["all_passed"]
+        is True
+    )
+    assert (
+        report["precommit"]["stage_contract"]["stages"]["scene_edit"]["all_passed"]
+        is True
+    )
+    assert (
+        report["precommit"]["stage_contract"]["stages"]["stitch"]["all_passed"] is True
+    )
+    assert report["commit_status"]["all_persisted"] is True
+    assert audit_json.exists()
+    assert audit_md.exists()
+    audit_payload = json.loads(audit_json.read_text(encoding="utf-8"))
+    assert audit_payload["status"] == "succeeded"
+    assert audit_payload["chapters_generated"] == 1
+    assert len(audit_payload["chapters"]) == 1
     assert summary.chapters_generated == 1
     assert summary.patch_operations_applied == 1
     assert len(apply_calls) == 1
     assert apply_calls[0][1] == "book-engine"
+
+
+def test_build_scene_acceptance_contract_flags_invalid_scene() -> None:
+    scene_ok = SceneRunArtifact(
+        scene_number=1,
+        directive=SceneDirective(
+            goal="Clear goal",
+            conflict="Clear conflict",
+            stakes="Clear stakes",
+            outcome="Clear outcome",
+        ),
+        draft_text="draft words here",
+        edited_text="edited words here",
+    )
+    scene_bad = SceneRunArtifact(
+        scene_number=2,
+        directive=SceneDirective(
+            goal="Clear goal",
+            conflict="Clear conflict",
+            stakes="Clear stakes",
+            outcome="Clear outcome",
+        ),
+        draft_text="draft words here",
+        edited_text="",
+    )
+    chapter = ChapterRunArtifact(
+        chapter_number=1,
+        outline_text="outline",
+        scene_artifacts=(scene_ok, scene_bad),
+        stitched_text="stitched",
+        state_update={"patch": SimpleNamespace(operations=[{"operation": "add"}])},
+    )
+
+    report = _build_scene_acceptance_contract(chapter=chapter, min_scene_words=0)
+
+    assert report["all_passed"] is False
+    assert report["failed_scenes"] == [2]
+    assert report["scenes"][1]["checks"]["edit_non_empty"] is False
+
+
+def test_build_stage_validator_contract_flags_scene_edit_stage_failure() -> None:
+    scene_bad = SceneRunArtifact(
+        scene_number=1,
+        directive=SceneDirective(
+            goal="Clear goal",
+            conflict="Clear conflict",
+            stakes="Clear stakes",
+            outcome="Clear outcome",
+        ),
+        draft_text="sufficient draft",
+        edited_text="",
+    )
+    chapter = ChapterRunArtifact(
+        chapter_number=1,
+        outline_text="outline ok",
+        scene_artifacts=(scene_bad,),
+        stitched_text="stitched output",
+        state_update={"patch": SimpleNamespace(operations=[{"operation": "add"}])},
+    )
+    diagnostics = {
+        "state_signal_enforced": False,
+        "state_signal_meaningful": True,
+        "semantic_review_enabled": False,
+        "semantic_review_passed": None,
+    }
+    scene_acceptance = _build_scene_acceptance_contract(
+        chapter=chapter, min_scene_words=0
+    )
+
+    report = _build_stage_validator_contract(
+        chapter=chapter,
+        diagnostics=diagnostics,
+        patch_operation_count=1,
+        min_scene_words=0,
+        min_chapter_words=0,
+        scene_acceptance=scene_acceptance,
+    )
+
+    assert report["all_passed"] is False
+    assert report["stages"]["scene_edit"]["all_passed"] is False
+
+
+def test_validator_report_schema_file_exists_and_has_defs() -> None:
+    raw = _VALIDATOR_REPORT_SCHEMA_PATH.read_text(encoding="utf-8")
+    payload = json.loads(raw)
+
+    assert payload["$schema"].endswith("draft/2020-12/schema")
+    assert "$defs" in payload
+    assert "precommitReport" in payload["$defs"]
+    assert "postcommitReport" in payload["$defs"]
+
+
+def test_validate_validator_report_payload_fails_closed_on_missing_required_key() -> (
+    None
+):
+    invalid_precommit = {
+        "phase": "precommit",
+        "chapter": 1,
+        "acceptance": {},
+        "scene_acceptance": {},
+    }
+
+    with pytest.raises(BookEngineError, match="schema validation failed"):
+        _validate_validator_report_payload(invalid_precommit)
+
+
+def test_validate_validator_report_payload_fails_closed_on_schema_type_mismatch() -> (
+    None
+):
+    invalid_postcommit = {
+        "phase": "postcommit",
+        "chapter": 1,
+        "precommit": {
+            "phase": "precommit",
+            "chapter": 1,
+            "acceptance": {},
+            "scene_acceptance": {},
+            "stage_contract": {},
+        },
+        "commit_status": {
+            "chapter_file_written": "yes",
+            "state_file_written": True,
+            "canon_file_written": True,
+            "all_persisted": True,
+        },
+    }
+
+    with pytest.raises(BookEngineError, match="schema validation failed"):
+        _validate_validator_report_payload(invalid_postcommit)
 
 
 def test_run_book_pipeline_does_not_persist_chapter_on_state_commit_failure(
@@ -777,6 +981,10 @@ def test_run_book_pipeline_does_not_persist_chapter_on_state_commit_failure(
     class _FakeLLM:
         def invoke(self, prompt):
             text = str(prompt)
+            if "canon safety checker" in text:
+                return SimpleNamespace(content='{"violation": false}')
+            if "Run a coherence audit" in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
             if "Return ONLY valid JSON" in text or "Repair the following text" in text:
                 return SimpleNamespace(
                     content='{"goal":"g","conflict":"c","stakes":"s","outcome":"o"}'
@@ -813,7 +1021,7 @@ def test_run_book_pipeline_does_not_persist_chapter_on_state_commit_failure(
     )
     monkeypatch.setattr(
         "storycraftr.cmd.story.book.extract_state_patch",
-        lambda _text, snapshot: SimpleNamespace(
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
             patch=SimpleNamespace(operations=[{"operation": "add"}]),
             events=[],
         ),
@@ -831,7 +1039,7 @@ def test_run_book_pipeline_does_not_persist_chapter_on_state_commit_failure(
     assert not chapter_file.exists()
 
 
-def test_run_book_pipeline_fails_closed_when_canon_write_fails(
+def test_run_book_pipeline_fails_closed_on_empty_state_patch_contract(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -840,9 +1048,9 @@ def test_run_book_pipeline_fails_closed_when_canon_write_fails(
             text = str(prompt)
             if "Return ONLY valid JSON" in text or "Repair the following text" in text:
                 return SimpleNamespace(
-                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"o"}'
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
                 )
-            return SimpleNamespace(content="generated text")
+            return SimpleNamespace(content=" ".join(f"word{idx}" for idx in range(900)))
 
     class _FakeStateStore:
         def __init__(self, _book_path: str):
@@ -853,6 +1061,307 @@ def test_run_book_pipeline_fails_closed_when_canon_write_fails(
 
         def apply_patch(self, _patch, actor: str = "system"):
             assert actor == "book-engine"
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_FakeLLM()),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeStateStore",
+        _FakeStateStore,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_book_config",
+        lambda _book_path: SimpleNamespace(
+            book_name="Demo",
+            llm_provider="openrouter",
+            llm_model="openrouter/free",
+            llm_endpoint="",
+            llm_api_key_env="",
+            temperature=0.7,
+            request_timeout=30,
+            max_tokens=8192,
+            enable_semantic_review=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.validate_openrouter_rankings_config",
+        lambda: {
+            "coherence_check": {
+                "primary": "stepfun/step-3.5-flash:free",
+                "fallbacks": [],
+                "why": "test",
+                "context_limit": 256000,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.build_chat_model",
+        lambda _settings: SimpleNamespace(
+            invoke=lambda _prompt: SimpleNamespace(content='{"status":"PASS"}')
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.extract_state_patch",
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
+            patch=SimpleNamespace(operations=[]),
+            events=[],
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.click.confirm", lambda *_, **__: True
+    )
+
+    with pytest.raises(BookEngineError, match="no meaningful update"):
+        run_book_pipeline(
+            book_path=str(tmp_path),
+            seed_text="# Seed\n\nPinned context",
+            chapters=1,
+            auto_approve=True,
+        )
+
+    chapter_file = tmp_path / "chapters" / "chapter-1.md"
+    assert not chapter_file.exists()
+
+
+def test_run_book_pipeline_fails_closed_on_empty_state_patch_without_auto_approve(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class _FakeLLM:
+        def invoke(self, prompt):
+            text = str(prompt)
+            if "Return ONLY valid JSON" in text or "Repair the following text" in text:
+                return SimpleNamespace(
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                )
+            if "Extract narrative state deltas from chapter prose" in text:
+                return SimpleNamespace(
+                    content=(
+                        '{"character_deltas":[],"relationship_changes":[],"world_facts":[],"thread_changes":[]}'
+                    )
+                )
+            return SimpleNamespace(content=" ".join(f"word{idx}" for idx in range(900)))
+
+    class _FakeStateStore:
+        def __init__(self, _book_path: str):
+            pass
+
+        def load(self):
+            return SimpleNamespace(characters={}, locations={}, plot_threads=[])
+
+        def apply_patch(self, _patch, actor: str = "system"):
+            assert actor == "book-engine"
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_FakeLLM()),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeStateStore",
+        _FakeStateStore,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_book_config",
+        lambda _book_path: SimpleNamespace(
+            book_name="Demo",
+            llm_provider="openrouter",
+            llm_model="openrouter/free",
+            llm_endpoint="",
+            llm_api_key_env="",
+            temperature=0.7,
+            request_timeout=30,
+            max_tokens=8192,
+            enable_semantic_review=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.validate_openrouter_rankings_config",
+        lambda: {
+            "coherence_check": {
+                "primary": "stepfun/step-3.5-flash:free",
+                "fallbacks": [],
+                "why": "test",
+                "context_limit": 256000,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.build_chat_model",
+        lambda _settings: SimpleNamespace(
+            invoke=lambda _prompt: SimpleNamespace(content='{"status":"PASS"}')
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.extract_state_patch",
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
+            patch=SimpleNamespace(operations=[]),
+            events=[],
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.click.confirm", lambda *_, **__: True
+    )
+
+    with pytest.raises(BookEngineError, match="no meaningful update"):
+        run_book_pipeline(
+            book_path=str(tmp_path),
+            seed_text="# Seed\n\nPinned context",
+            chapters=1,
+            auto_approve=False,
+        )
+
+
+def test_run_book_pipeline_fails_closed_when_canon_write_fails(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class _FakeLLM:
+        def invoke(self, prompt):
+            text = str(prompt)
+            if "canon safety checker" in text:
+                return SimpleNamespace(content='{"violation": false}')
+            if "Run a coherence audit" in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
+            if "Return ONLY valid JSON" in text or "Repair the following text" in text:
+                return SimpleNamespace(
+                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"o"}'
+                )
+            return SimpleNamespace(content="generated text")
+
+    class _FakeStateStore:
+        def __init__(self, _book_path: str):
+            self.path = Path(_book_path) / "outline" / "narrative_state.json"
+
+        def load(self):
+            return SimpleNamespace(characters={}, locations={}, plot_threads=[])
+
+        def apply_patch(self, _patch, actor: str = "system"):
+            assert actor == "book-engine"
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text('{"version":999}', encoding="utf-8")
+
+    class _FakeMemoryManager:
+        def __init__(self, *, book_path: str, config=None):
+            self.book_path = book_path
+            self.config = config
+
+        def add_memory(self, *, text: str, metadata: dict[str, object] | None = None):
+            return True
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_FakeLLM()),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeStateStore",
+        _FakeStateStore,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        _FakeMemoryManager,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.extract_state_patch",
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
+            patch=SimpleNamespace(operations=[{"operation": "add"}]),
+            events=[],
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book._persist_canon_ledger",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("disk full")),
+    )
+
+    state_file = tmp_path / "outline" / "narrative_state.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    baseline_state = '{"version":1}'
+    state_file.write_text(baseline_state, encoding="utf-8")
+
+    with pytest.raises(BookEngineError, match="State commit failed"):
+        run_book_pipeline(
+            book_path=str(tmp_path),
+            seed_text="# Seed\n\nPinned context",
+            chapters=1,
+            auto_approve=True,
+        )
+
+    chapter_file = tmp_path / "chapters" / "chapter-1.md"
+    canon_file = tmp_path / "outline" / "canon.yml"
+    assert not chapter_file.exists()
+    assert not canon_file.exists()
+    assert state_file.read_text(encoding="utf-8") == baseline_state
+
+
+def test_run_book_pipeline_rolls_back_partial_writes_on_canon_failure_atomic_commit(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class _FakeLLM:
+        def invoke(self, prompt):
+            text = str(prompt)
+            if (
+                "Return ONLY valid JSON" in text
+                or "Repair this into strict JSON" in text
+            ):
+                return SimpleNamespace(
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                )
+            if "Extract narrative state deltas from chapter prose" in text:
+                return SimpleNamespace(
+                    content=(
+                        '{"character_deltas":[{"id":"elias","name":"Elias"}],'
+                        '"relationship_changes":[],"world_facts":[],"thread_changes":[]}'
+                    )
+                )
+            return SimpleNamespace(content=" ".join(f"word{idx}" for idx in range(900)))
+
+    class _FakeStateStore:
+        def __init__(self, book_path: str):
+            self.path = Path(book_path) / "outline" / "narrative_state.json"
+
+        def load(self):
+            return SimpleNamespace(characters={}, locations={}, plot_threads=[])
+
+        def apply_patch(self, _patch, actor: str = "system"):
+            assert actor == "book-engine"
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text('{"version":999}', encoding="utf-8")
             return SimpleNamespace(plot_threads=[])
 
     monkeypatch.setattr(
@@ -873,16 +1382,21 @@ def test_run_book_pipeline_fails_closed_when_canon_write_fails(
         _FakeStateStore,
     )
     monkeypatch.setattr(
-        "storycraftr.cmd.story.book.extract_state_patch",
-        lambda _text, snapshot: SimpleNamespace(
-            patch=SimpleNamespace(operations=[{"operation": "add"}]),
-            events=[],
-        ),
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
     )
     monkeypatch.setattr(
         "storycraftr.cmd.story.book._persist_canon_ledger",
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("disk full")),
     )
+
+    state_file = tmp_path / "outline" / "narrative_state.json"
+    canon_file = tmp_path / "outline" / "canon.yml"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    baseline_state = '{"version":1}'
+    baseline_canon = "chapters: {}\n"
+    state_file.write_text(baseline_state, encoding="utf-8")
+    canon_file.write_text(baseline_canon, encoding="utf-8")
 
     with pytest.raises(BookEngineError, match="State commit failed"):
         run_book_pipeline(
@@ -893,9 +1407,204 @@ def test_run_book_pipeline_fails_closed_when_canon_write_fails(
         )
 
     chapter_file = tmp_path / "chapters" / "chapter-1.md"
-    canon_file = tmp_path / "outline" / "canon.yml"
+    assert state_file.read_text(encoding="utf-8") == baseline_state
+    assert canon_file.read_text(encoding="utf-8") == baseline_canon
     assert not chapter_file.exists()
-    assert not canon_file.exists()
+
+
+def test_run_book_pipeline_rich_extraction_captures_narrative_facts(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class _FakeLLM:
+        def invoke(self, prompt):
+            text = str(prompt)
+            if (
+                "Return ONLY valid JSON" in text
+                or "Repair this into strict JSON" in text
+            ):
+                return SimpleNamespace(
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                )
+            if "Extract narrative state deltas from chapter prose" in text:
+                return SimpleNamespace(
+                    content=(
+                        '{"character_deltas":[{"id":"elias","name":"Elias","location":"city_gate","status":"alive"}],'
+                        '"relationship_changes":[{"character_id":"elias","details":"trusts mara after the duel"}],'
+                        '"world_facts":[{"location_id":"city_gate","location_name":"City Gate","description":"The gate is sealed at dusk."}],'
+                        '"thread_changes":[{"id":"gate_mystery","action":"open","description":"Who sealed the gate?"}]}'
+                    )
+                )
+            return SimpleNamespace(
+                content=" ".join(f"chapterword{idx}" for idx in range(900))
+            )
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_FakeLLM()),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
+    )
+
+    summary = run_book_pipeline(
+        book_path=str(tmp_path),
+        seed_text="# Seed\n\nPinned context",
+        chapters=1,
+        auto_approve=True,
+    )
+
+    assert summary.chapters_generated == 1
+    state_file = tmp_path / "outline" / "narrative_state.json"
+    payload = json.loads(state_file.read_text(encoding="utf-8"))
+
+    assert "elias" in payload["characters"]
+    assert payload["characters"]["elias"]["location"] is None
+    assert "trusts mara" in payload["characters"]["elias"]["notes"]
+    assert "city_gate" in payload["locations"]
+    assert "sealed at dusk" in payload["locations"]["city_gate"]["description"]
+    assert payload["plot_threads"][0]["id"] == "gate_mystery"
+    assert payload["plot_threads"][0]["status"] == "OPEN"
+
+
+def test_run_book_pipeline_full_global_coherence_halts_on_parse_error(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    coherence_prompts: list[str] = []
+
+    class _AssistantLLM:
+        def invoke(self, prompt):
+            text = str(prompt)
+            if (
+                "Return ONLY valid JSON" in text
+                or "Repair this into strict JSON" in text
+            ):
+                return SimpleNamespace(
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                )
+            return SimpleNamespace(
+                content=" ".join(f"chapterword{idx}" for idx in range(900))
+            )
+
+    class _RoleLLM:
+        def __init__(self, model_name: str):
+            self.model_name = model_name
+
+        def invoke(self, prompt):
+            text = str(prompt)
+            if "Extract narrative state deltas from chapter prose" in text:
+                return SimpleNamespace(
+                    content=(
+                        '{"character_deltas":[{"id":"elias","name":"Elias"}],'
+                        '"relationship_changes":[],"world_facts":[],"thread_changes":[]}'
+                    )
+                )
+            if "Generated Chapter:" in text and "Chapter:" in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
+            if "Run a global coherence audit over chapter progression." in text:
+                coherence_prompts.append(text)
+                return SimpleNamespace(content="not-json")
+            if (
+                "Return ONLY valid JSON" in text
+                or "Repair this into strict JSON" in text
+            ):
+                return SimpleNamespace(
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                )
+            return SimpleNamespace(
+                content=" ".join(f"chapterword{idx}" for idx in range(900))
+            )
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_AssistantLLM()),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_book_config",
+        lambda _book_path: SimpleNamespace(
+            book_name="Demo",
+            llm_provider="openrouter",
+            llm_model="openrouter/free",
+            llm_endpoint="",
+            llm_api_key_env="",
+            temperature=0.7,
+            request_timeout=30,
+            max_tokens=8192,
+            enable_semantic_review=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.validate_openrouter_rankings_config",
+        lambda: {
+            "batch_planning": {
+                "primary": "planner-model",
+                "fallbacks": [],
+            },
+            "batch_prose": {
+                "primary": "prose-model",
+                "fallbacks": [],
+            },
+            "batch_editing": {
+                "primary": "edit-model",
+                "fallbacks": [],
+            },
+            "repair_json": {
+                "primary": "repair-model",
+                "fallbacks": [],
+            },
+            "coherence_check": {
+                "primary": "coherence-model",
+                "fallbacks": [],
+                "context_limit": 128000,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.build_chat_model",
+        lambda settings: _RoleLLM(settings.model),
+    )
+
+    with pytest.raises(
+        BookEngineError,
+        match="Coherence gate (failed|rejected)",
+    ):
+        run_book_pipeline(
+            book_path=str(tmp_path),
+            seed_text="# Seed\n\nPinned context",
+            chapters=2,
+            auto_approve=True,
+        )
+
+    assert coherence_prompts
+    prompt = coherence_prompts[-1]
+    assert "All chapter history (full text in order):" in prompt
+    assert "Canon Facts JSON:" in prompt
+    assert "Seed:" in prompt
+    assert "chapterword" in prompt
 
 
 def test_run_book_pipeline_pushes_flavor_memory_after_commit(
@@ -905,6 +1614,10 @@ def test_run_book_pipeline_pushes_flavor_memory_after_commit(
     class _FakeLLM:
         def invoke(self, prompt):
             text = str(prompt)
+            if "canon safety checker" in text:
+                return SimpleNamespace(content='{"violation": false}')
+            if "Run a coherence audit" in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
             if (
                 "Return ONLY valid JSON" in text
                 or "Repair this into strict JSON" in text
@@ -922,7 +1635,18 @@ def test_run_book_pipeline_pushes_flavor_memory_after_commit(
             pass
 
         def load(self):
-            return SimpleNamespace(characters={}, locations={}, plot_threads=[])
+            return SimpleNamespace(
+                characters={},
+                locations={},
+                plot_threads=[
+                    SimpleNamespace(
+                        id="thread-a",
+                        status="open",
+                        introduced_chapter=1,
+                        resolved_chapter=None,
+                    )
+                ],
+            )
 
         def apply_patch(self, _patch, actor: str = "system"):
             assert actor == "book-engine"
@@ -959,7 +1683,7 @@ def test_run_book_pipeline_pushes_flavor_memory_after_commit(
     )
     monkeypatch.setattr(
         "storycraftr.cmd.story.book.extract_state_patch",
-        lambda _text, snapshot: SimpleNamespace(
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
             patch=SimpleNamespace(operations=[{"operation": "add"}]),
             events=[],
         ),
@@ -993,6 +1717,8 @@ def test_run_book_pipeline_triggers_coherence_review_on_severe_violation(
                 return SimpleNamespace(
                     content='{"violation": true, "reason": "dead character alive"}'
                 )
+            if "Run a coherence audit" in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
             if (
                 "Return ONLY valid JSON" in text
                 or "Repair this into strict JSON" in text
@@ -1009,7 +1735,18 @@ def test_run_book_pipeline_triggers_coherence_review_on_severe_violation(
             pass
 
         def load(self):
-            return SimpleNamespace(characters={}, locations={}, plot_threads=[])
+            return SimpleNamespace(
+                characters={},
+                locations={},
+                plot_threads=[
+                    SimpleNamespace(
+                        id="thread-a",
+                        status="open",
+                        introduced_chapter=1,
+                        resolved_chapter=None,
+                    )
+                ],
+            )
 
         def apply_patch(self, _patch, actor: str = "system"):
             assert actor == "book-engine"
@@ -1032,8 +1769,12 @@ def test_run_book_pipeline_triggers_coherence_review_on_severe_violation(
         _FakeStateStore,
     )
     monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
+    )
+    monkeypatch.setattr(
         "storycraftr.cmd.story.book.extract_state_patch",
-        lambda _text, snapshot: SimpleNamespace(
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
             patch=SimpleNamespace(operations=[{"operation": "add"}]),
             events=[],
         ),
@@ -1048,6 +1789,343 @@ def test_run_book_pipeline_triggers_coherence_review_on_severe_violation(
 
     assert summary.chapters_generated == 1
     assert summary.coherence_reviews_run == 1
+
+
+def test_run_book_pipeline_fails_closed_when_coherence_gate_rejects(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class _FakeLLM:
+        def invoke(self, prompt):
+            text = str(prompt)
+            if "canon safety checker" in text:
+                return SimpleNamespace(content='{"violation": true}')
+            if "Run a coherence audit" in text:
+                return SimpleNamespace(
+                    content='{"status":"FAIL","reason":"timeline break"}'
+                )
+            if (
+                "Return ONLY valid JSON" in text
+                or "Repair this into strict JSON" in text
+            ):
+                return SimpleNamespace(
+                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"o"}'
+                )
+            return SimpleNamespace(content="generated text")
+
+    class _FakeStateStore:
+        def __init__(self, _book_path: str):
+            pass
+
+        def load(self):
+            return SimpleNamespace(
+                characters={},
+                locations={},
+                plot_threads=[
+                    SimpleNamespace(
+                        id="thread-a",
+                        status="open",
+                        introduced_chapter=1,
+                        resolved_chapter=None,
+                    )
+                ],
+            )
+
+        def apply_patch(self, _patch, actor: str = "system"):
+            assert actor == "book-engine"
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_FakeLLM()),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeStateStore",
+        _FakeStateStore,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.extract_state_patch",
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
+            patch=SimpleNamespace(operations=[{"operation": "add"}]),
+            events=[],
+        ),
+    )
+
+    with pytest.raises(
+        BookEngineError,
+        match="Coherence gate (failed|rejected)",
+    ):
+        run_book_pipeline(
+            book_path=str(tmp_path),
+            seed_text="# Seed\n\nPinned context",
+            chapters=1,
+            auto_approve=True,
+        )
+
+
+def test_run_book_pipeline_semantic_review_uses_coherence_rankings(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class _FakeLLM:
+        def invoke(self, prompt):
+            text = str(prompt)
+            if "canon safety checker" in text:
+                return SimpleNamespace(content='{"violation": false}')
+            if "Run a coherence audit" in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
+            if (
+                "Return ONLY valid JSON" in text
+                or "Repair this into strict JSON" in text
+            ):
+                return SimpleNamespace(
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                )
+            return SimpleNamespace(content=_long_text("generated", 820))
+
+    class _FakeReviewerLLM:
+        def __init__(self):
+            self.calls = 0
+
+        def invoke(self, _prompt):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(
+                    content='{"status":"FAIL","reason":"canon drift"}'
+                )
+            return SimpleNamespace(content='{"status":"PASS"}')
+
+    class _FakeStateStore:
+        def __init__(self, _book_path: str):
+            pass
+
+        def load(self):
+            return SimpleNamespace(characters={}, locations={}, plot_threads=[])
+
+        def apply_patch(self, _patch, actor: str = "system"):
+            assert actor == "book-engine"
+
+    def _long_text(label: str, words: int) -> str:
+        return " ".join(f"{label}{idx}" for idx in range(words))
+
+    fake_reviewer = _FakeReviewerLLM()
+    seen_models: list[str] = []
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_FakeLLM()),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeStateStore",
+        _FakeStateStore,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.extract_state_patch",
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
+            patch=SimpleNamespace(operations=[{"operation": "add"}]),
+            events=[],
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_book_config",
+        lambda _book_path: SimpleNamespace(
+            book_name="Demo",
+            llm_provider="openrouter",
+            llm_model="openrouter/free",
+            llm_endpoint="",
+            llm_api_key_env="",
+            temperature=0.7,
+            request_timeout=30,
+            max_tokens=8192,
+            enable_semantic_review=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.validate_openrouter_rankings_config",
+        lambda: {
+            "coherence_check": {
+                "primary": "stepfun/step-3.5-flash:free",
+                "fallbacks": ["openai/gpt-oss-120b:free"],
+                "why": "test",
+                "context_limit": 256000,
+            }
+        },
+    )
+
+    def _fake_build_chat_model(settings):
+        seen_models.append(settings.model)
+        return fake_reviewer
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.build_chat_model",
+        _fake_build_chat_model,
+    )
+
+    summary = run_book_pipeline(
+        book_path=str(tmp_path),
+        seed_text="# Seed\n\nPinned context",
+        chapters=1,
+        auto_approve=True,
+    )
+
+    assert summary.chapters_generated == 1
+    assert seen_models[0] == "stepfun/step-3.5-flash:free"
+    assert "openai/gpt-oss-120b:free" in seen_models
+    assert fake_reviewer.calls == 3
+    failure_artifact = (
+        tmp_path
+        / "outline"
+        / "chapter_packets"
+        / "chapter-001"
+        / "failures"
+        / "attempt-1.txt"
+    )
+    assert failure_artifact.exists()
+    assert "semantic_review:canon drift" in failure_artifact.read_text(encoding="utf-8")
+
+
+def test_run_book_pipeline_injects_canon_state_and_history_grounding(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    prompts_by_model: dict[str, list[str]] = {}
+
+    class _FallbackAssistantLLM:
+        def invoke(self, _prompt):
+            return SimpleNamespace(content="fallback")
+
+    class _RoleLLM:
+        def __init__(self, model_name: str):
+            self.model_name = model_name
+
+        def invoke(self, prompt):
+            text = str(prompt)
+            prompts_by_model.setdefault(self.model_name, []).append(text)
+            if "canon safety checker" in text:
+                return SimpleNamespace(content='{"violation": false}')
+            if "Run a global coherence audit" in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
+            if "Generated Chapter:" in text and "Chapter:" in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
+            if "Return ONLY valid JSON" in text:
+                return SimpleNamespace(
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                )
+            return SimpleNamespace(content=" ".join(f"word{idx}" for idx in range(900)))
+
+    class _FakeStateStore:
+        def __init__(self, _book_path: str):
+            pass
+
+        def load(self):
+            return SimpleNamespace(characters={}, locations={}, plot_threads=[])
+
+        def render_prompt_block(self, *, max_chars: int = 2400):
+            _ = max_chars
+            return '[Narrative State v1 as of now]\\n{"characters":{}}'
+
+        def apply_patch(self, _patch, actor: str = "system"):
+            assert actor == "book-engine"
+            return SimpleNamespace(plot_threads=[])
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_FallbackAssistantLLM()),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeStateStore",
+        _FakeStateStore,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_book_config",
+        lambda _book_path: SimpleNamespace(
+            book_name="Demo",
+            llm_provider="openrouter",
+            llm_model="openrouter/free",
+            llm_endpoint="",
+            llm_api_key_env="",
+            temperature=0.7,
+            request_timeout=30,
+            max_tokens=8192,
+            enable_semantic_review=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.validate_openrouter_rankings_config",
+        lambda: {
+            "batch_planning": {"primary": "planner-model", "fallbacks": []},
+            "batch_prose": {"primary": "prose-model", "fallbacks": []},
+            "batch_editing": {"primary": "edit-model", "fallbacks": []},
+            "repair_json": {"primary": "repair-model", "fallbacks": []},
+            "coherence_check": {"primary": "coherence-model", "fallbacks": []},
+        },
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.build_chat_model",
+        lambda settings: _RoleLLM(settings.model),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.extract_state_patch",
+        lambda _text, snapshot, **_kwargs: SimpleNamespace(
+            patch=SimpleNamespace(operations=[{"operation": "add"}]),
+            events=[],
+        ),
+    )
+
+    run_book_pipeline(
+        book_path=str(tmp_path),
+        seed_text="# Seed\\n\\nPinned context",
+        chapters=1,
+        auto_approve=True,
+    )
+
+    all_prompts = "\n".join(
+        prompt for prompts in prompts_by_model.values() for prompt in prompts
+    )
+    assert "[Continuity Grounding for Chapter 1]" in all_prompts
+    assert "[Canon Facts JSON]" in all_prompts
+    assert "Narrative State" in all_prompts
+
+    coherence_prompts = "\n".join(prompts_by_model.get("coherence-model", []))
+    assert "All chapter history (full text in order):" in coherence_prompts
 
 
 def test_book_command_returns_exit_code_1_on_pipeline_halt(
@@ -1076,6 +2154,280 @@ def test_book_command_returns_exit_code_1_on_pipeline_halt(
 
     assert result.exit_code == 1
     assert "Pipeline Halted:" in result.output
+
+
+def test_book_command_requires_semantic_review_for_autonomous_runs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    runner = CliRunner()
+    project = tmp_path / "demo"
+    project.mkdir()
+    seed_file = project / "seed.md"
+    seed_file.write_text("# Seed\n\nContext", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_book_config",
+        lambda _path: SimpleNamespace(
+            book_name="Demo",
+            llm_provider="openrouter",
+            enable_semantic_review=False,
+        ),
+    )
+
+    result = runner.invoke(
+        cli,
+        ["book", "--book-path", str(project), "--seed", "seed.md", "--yes"],
+    )
+
+    assert result.exit_code == 1
+    assert "require semantic validation" in result.output
+
+
+def test_book_command_requires_semantic_review_without_yes_flag(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    runner = CliRunner()
+    project = tmp_path / "demo"
+    project.mkdir()
+    seed_file = project / "seed.md"
+    seed_file.write_text("# Seed\n\nContext", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_book_config",
+        lambda _path: SimpleNamespace(
+            book_name="Demo",
+            llm_provider="openrouter",
+            enable_semantic_review=False,
+        ),
+    )
+
+    result = runner.invoke(
+        cli,
+        ["book", "--book-path", str(project), "--seed", "seed.md"],
+    )
+
+    assert result.exit_code == 1
+    assert "require semantic validation" in result.output
+
+
+def test_run_book_pipeline_requires_semantic_review_for_strict_autonomous(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_book_config",
+        lambda _book_path: SimpleNamespace(
+            book_name="Demo",
+            llm_provider="openrouter",
+            enable_semantic_review=False,
+        ),
+    )
+
+    with pytest.raises(BookEngineError, match="require semantic review enabled"):
+        run_book_pipeline(
+            book_path=str(tmp_path),
+            seed_text="# Seed\n\nPinned context",
+            chapters=1,
+            auto_approve=True,
+        )
+
+
+def test_run_book_pipeline_requires_semantic_review_without_auto_approve(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_book_config",
+        lambda _book_path: SimpleNamespace(
+            book_name="Demo",
+            llm_provider="openrouter",
+            enable_semantic_review=False,
+        ),
+    )
+
+    with pytest.raises(BookEngineError, match="require semantic review enabled"):
+        run_book_pipeline(
+            book_path=str(tmp_path),
+            seed_text="# Seed\n\nPinned context",
+            chapters=1,
+            auto_approve=False,
+        )
+
+
+def test_run_book_pipeline_fails_on_invalid_planner_schema(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class _FakeLLM:
+        def invoke(self, prompt):
+            text = str(prompt)
+            if (
+                "Return ONLY valid JSON" in text
+                or "Repair this into strict JSON" in text
+            ):
+                return SimpleNamespace(
+                    content='{"goal":"ok","conflict":"ok","stakes":"ok","outcome":"ok","extra":"nope"}'
+                )
+            return SimpleNamespace(content="generated text")
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_FakeLLM()),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+
+    with pytest.raises(BookEngineError, match="strict directive schema validation"):
+        run_book_pipeline(
+            book_path=str(tmp_path),
+            seed_text="# Seed\n\nPinned context",
+            chapters=1,
+            auto_approve=True,
+        )
+
+
+def test_run_book_pipeline_writes_failed_book_audit_on_halt(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class _FakeLLM:
+        def invoke(self, prompt):
+            text = str(prompt)
+            if "Return ONLY valid JSON" in text:
+                return SimpleNamespace(content='{"goal":"ok","extra":"bad"}')
+            return SimpleNamespace(content="generated text")
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_FakeLLM()),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+
+    with pytest.raises(BookEngineError):
+        run_book_pipeline(
+            book_path=str(tmp_path),
+            seed_text="# Seed\n\nPinned context",
+            chapters=1,
+            auto_approve=True,
+        )
+
+    audit_json = tmp_path / "outline" / "book_audit.json"
+    audit_md = tmp_path / "outline" / "book_audit.md"
+    assert audit_json.exists()
+    assert audit_md.exists()
+    payload = json.loads(audit_json.read_text(encoding="utf-8"))
+    assert payload["status"] == "failed"
+    assert "strict directive schema" in payload["error"]
+    assert "failed_guard" in payload
+
+
+def test_chapters_chapter_requires_explicit_unsafe_flag(tmp_path, monkeypatch) -> None:
+    runner = CliRunner()
+    project = tmp_path / "demo"
+    project.mkdir()
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.chapters.load_book_config",
+        lambda _path: SimpleNamespace(book_name="Demo"),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "chapters",
+            "chapter",
+            "1",
+            "prompt text",
+            "--book-path",
+            str(project),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Direct chapter generation is disabled by default" in result.output
+
+
+def test_chapters_chapter_blocks_unsafe_write_without_env_flag(
+    tmp_path, monkeypatch
+) -> None:
+    runner = CliRunner()
+    project = tmp_path / "demo"
+    project.mkdir()
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.chapters.load_book_config",
+        lambda _path: SimpleNamespace(book_name="Demo"),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "chapters",
+            "chapter",
+            "1",
+            "prompt text",
+            "--book-path",
+            str(project),
+            "--unsafe-direct-write",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "STORYCRAFTR_ALLOW_UNSAFE=1" in result.output
+
+
+def test_chapters_chapter_allows_unsafe_write_with_env_flag(
+    tmp_path, monkeypatch
+) -> None:
+    runner = CliRunner()
+    project = tmp_path / "demo"
+    project.mkdir()
+    called: list[tuple[str, int, str]] = []
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.chapters.load_book_config",
+        lambda _path: SimpleNamespace(book_name="Demo"),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.chapters.generate_chapter",
+        lambda book_path, chapter_number, prompt: called.append(
+            (book_path, chapter_number, prompt)
+        ),
+    )
+    monkeypatch.setenv("STORYCRAFTR_ALLOW_UNSAFE", "1")
+
+    result = runner.invoke(
+        cli,
+        [
+            "chapters",
+            "chapter",
+            "2",
+            "prompt text",
+            "--book-path",
+            str(project),
+            "--unsafe-direct-write",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert called == [(str(project), 2, "prompt text")]
 
 
 def test_book_command_returns_exit_code_2_on_critical_failure(

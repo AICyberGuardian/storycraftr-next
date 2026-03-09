@@ -1,0 +1,41 @@
+{
+    "batch_planning": {
+        "primary": "meta-llama/llama-3.3-70b-instruct:free",
+        "fallbacks": [
+            "stepfun/step-3.5-flash:free",
+            "google/gemma-3-27b-it:free"
+        ],
+        "why": "Stress profile keeps planner stable so failures isolate prose/edit quality behavior."
+    },
+    "batch_prose": {
+        "primary": "google/gemma-3-27b-it:free",
+        "fallbacks": [
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "stepfun/step-3.5-flash:free"
+        ],
+        "why": "Deliberately weaker prose primary to validate retry-driven model escalation to stronger fallbacks."
+    },
+    "batch_editing": {
+        "primary": "google/gemma-3-27b-it:free",
+        "fallbacks": [
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "z-ai/glm-4.5-air:free"
+        ],
+        "why": "Editing starts conservative and can rotate under repeated quality failures."
+    },
+    "repair_json": {
+        "primary": "google/gemma-3-27b-it:free",
+        "fallbacks": [
+            "stepfun/step-3.5-flash:free"
+        ],
+        "why": "Preserves strict JSON repair reliability for deterministic contract checks."
+    },
+    "coherence_check": {
+        "primary": "stepfun/step-3.5-flash:free",
+        "fallbacks": [
+            "openai/gpt-oss-120b:free"
+        ],
+        "context_limit": 256000,
+        "why": "Long-context coherence checker remains independent from prose role and supports escalation tests."
+    }
+}

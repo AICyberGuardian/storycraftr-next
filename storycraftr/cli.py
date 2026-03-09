@@ -207,15 +207,15 @@ def cli(debug):
 )
 @click.option(
     "--embed-model",
-    default="BAAI/bge-large-en-v1.5",
+    default="text-embedding-3-small",
     show_default=True,
-    help="Embedding model used for local vector search.",
+    help="Embedding model identifier (API by default; local models are available in core install).",
 )
 @click.option(
     "--embed-device",
-    default="auto",
+    default="api",
     show_default=True,
-    help="Device hint for embedding inference (auto, cpu, cuda, mps, ...).",
+    help="Embedding runtime mode (api, auto, cpu, cuda, mps, ...).",
 )
 @click.option(
     "--embed-cache-dir",

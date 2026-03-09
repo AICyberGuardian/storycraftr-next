@@ -119,7 +119,7 @@ def test_openrouter_builds_chatopenai_with_default_endpoint_and_headers(monkeypa
     assert kwargs["api_key"] == "or-test"  # nosec B105  # pragma: allowlist secret
     assert kwargs["model"] == "openrouter/free"
     assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
-    assert kwargs["max_tokens"] == 8192
+    assert kwargs["max_tokens"] == 4000
     assert kwargs["timeout"] == 30
     assert kwargs["default_headers"]["HTTP-Referer"] == "https://storycraftr.app"
     assert kwargs["default_headers"]["X-Title"] == "StoryCraftr CLI"

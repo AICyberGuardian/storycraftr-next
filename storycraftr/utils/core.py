@@ -136,9 +136,11 @@ class BookConfig(SimpleNamespace):
         temperature (float): Sampling temperature for completions.
         request_timeout (int): Timeout in seconds for LLM calls.
         max_tokens (int): Maximum output tokens per generation.
-        embed_model (str): Hugging Face model name for embeddings.
-        embed_device (str): Device directive passed to the embedding runtime.
+        embed_model (str): Embedding model identifier.
+        embed_device (str): Embedding runtime mode (`api`, `auto`, `cpu`, `cuda`, ...).
         embed_cache_dir (str): Local cache directory for embeddings.
+        enable_semantic_review (bool): Enables optional semantic reviewer pass in
+            `storycraftr book` before state extraction/commit.
     """
 
     book_path: str
@@ -163,6 +165,7 @@ class BookConfig(SimpleNamespace):
     embed_model: str
     embed_device: str
     embed_cache_dir: str
+    enable_semantic_review: bool
     internal_state_dir: str
     subagents_dir: str
     subagent_logs_dir: str
@@ -189,9 +192,10 @@ class BookConfig(SimpleNamespace):
         "temperature": 0.7,
         "request_timeout": 120,
         "max_tokens": 8192,
-        "embed_model": "BAAI/bge-large-en-v1.5",
-        "embed_device": "auto",
+        "embed_model": "text-embedding-3-small",
+        "embed_device": "api",
         "embed_cache_dir": "",
+        "enable_semantic_review": False,
         "internal_state_dir": "",
         "subagents_dir": "",
         "subagent_logs_dir": "",
@@ -284,6 +288,10 @@ class BookConfig(SimpleNamespace):
         )
         normalized["embed_cache_dir"] = _coerce_str(
             normalized.get("embed_cache_dir"), cls.DEFAULTS["embed_cache_dir"]
+        )
+        normalized["enable_semantic_review"] = _coerce_bool(
+            normalized.get("enable_semantic_review"),
+            cls.DEFAULTS["enable_semantic_review"],
         )
         normalized["internal_state_dir"] = _coerce_str(
             normalized.get("internal_state_dir"), cls.DEFAULTS["internal_state_dir"]
@@ -381,10 +389,19 @@ def embedding_settings_from_config(config: BookConfig) -> EmbeddingSettings:
     Map the persisted configuration to embedding settings.
     """
 
+    api_provider = (
+        config.llm_provider
+        if config.llm_provider in {"openai", "openrouter"}
+        else "openrouter"
+    )
+
     return EmbeddingSettings(
         model_name=config.embed_model,
         device=config.embed_device,
         cache_dir=config.embed_cache_dir or None,
+        api_provider=api_provider,
+        api_base=config.llm_endpoint or None,
+        api_key_env=config.llm_api_key_env or None,
     )
 
 

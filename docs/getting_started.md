@@ -71,9 +71,10 @@ When you run `storycraftr init`, the generated `storycraftr.json` includes the n
   "temperature": 0.7,
   "request_timeout": 120,
   "max_tokens": 8192,
-  "embed_model": "BAAI/bge-large-en-v1.5",
-  "embed_device": "auto",
-  "embed_cache_dir": ""
+   "embed_model": "text-embedding-3-small",
+   "embed_device": "api",
+   "embed_cache_dir": "",
+   "enable_semantic_review": false
 }
 ```
 
@@ -86,7 +87,10 @@ When you run `storycraftr init`, the generated `storycraftr.json` includes the n
 - OpenRouter requests include native resilience in the model factory: bounded exponential-backoff retries for transient errors and an explicit fallback model chain where each fallback is validated as currently free.
 - Configure additional fallback models with `STORYCRAFTR_OPENROUTER_FALLBACK_MODELS` (comma-separated model IDs).
 - `max_tokens` limits completion size per request (default `8192`) to reduce truncated outputs.
-- `embed_model` defaults to `BAAI/bge-large-en-v1.5` for OpenAI-quality local embeddings; switch to a smaller model if resources are limited.
+- `embed_model` defaults to `text-embedding-3-small` for API-first embeddings.
+- `embed_device=api` uses OpenAI-compatible embedding endpoints (OpenAI/OpenRouter, based on `llm_provider`).
+- For local embeddings, install dependencies with `poetry install` or `uv pip install -e .`, then set `embed_device` to `auto`, `cpu`, or `cuda` with a local model such as `BAAI/bge-large-en-v1.5`.
+- `enable_semantic_review=true` enables an extra reviewer-model continuity pass before chapter state extraction/commit.
 
 ### Runtime path overrides (optional)
 
@@ -188,7 +192,8 @@ storycraftr init "The Purge of the Gods" \
   --reference-author "Brandon Sanderson" \
   --llm-provider "openai" \
   --llm-model "gpt-4o" \
-  --embed-model "BAAI/bge-large-en-v1.5"
+   --embed-model "text-embedding-3-small" \
+   --embed-device "api"
 cd "The Purge of the Gods"
 ```
 
@@ -441,7 +446,17 @@ CLI discovery commands:
 - `storycraftr mode show|set|stop` manages persisted execution-mode runtime state.
 - `storycraftr models list|refresh` provides grouped model discovery commands.
 - `storycraftr models validate-rankings [--refresh] [--format text|json]` validates strict `rankings.json` routing configuration and reports actionable failures.
+- `storycraftr book --seed <seed.md> --chapters <n> --yes` now persists three success-path artifacts: `chapters/chapter-<n>.md`, `outline/narrative_state.json`, and `outline/canon.yml`.
+- `storycraftr book` commit semantics are fail-closed and ordered: state patch apply, then canon ledger write, then chapter markdown persistence.
+- `storycraftr book` emits deterministic chapter packet artifacts under `outline/chapter_packets/chapter-<nnn>/` (including `validator_report.json`, stage/scene reports, and diagnostics).
+- `storycraftr chapters chapter` is a developer-only bypass and now requires both `--unsafe-direct-write` and `STORYCRAFTR_ALLOW_UNSAFE=1`.
 - CLI and TUI control-plane mode/audit/canon checks now share one service layer (`storycraftr/services/control_plane.py`) to keep behavior and edge-case handling aligned.
+
+Contributor docs quick entry:
+
+- Start with `docs/architecture-onboarding.md` for the minimum mandatory reading set.
+- Use `docs/contributor-reference.md` as the single shareable file catalog and update-sync matrix.
+- Treat `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md` as deep reference, not routine preread.
 
 Regular prompts are prefixed with a scene-scoped context block (scene
 Goal/Conflict/Outcome + active chapter constraints + compact state summary)

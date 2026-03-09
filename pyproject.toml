@@ -20,6 +20,7 @@ rich = ">=13.9.2"
 python-dotenv = ">=1.0.1"
 pyyaml = ">=6.0.2"
 requests = ">=2.32.3"
+jsonschema = ">=4.23.0"
 keyring = ">=25.6.0"
 prompt-toolkit = ">=3.0.48"
 langchain = ">=0.3.7"
@@ -31,6 +32,8 @@ langchain-chroma = ">=0.2.6"
 langchain-text-splitters = ">=0.3.0"
 chromadb = ">=1.0.0"
 huggingface-hub = ">=0.30.0"
+sentence-transformers = ">=3.0.0"
+torch = ">=2.5.0"
 markdown-pdf = "^1.10"
 textual = "^8.0.2"
 mem0ai = "^1.0.5"
@@ -46,13 +49,6 @@ black = "^26.1.0"
 pre-commit = ">=4.0.1"
 sphinx = ">=8.1.3"
 sphinx-click = ">=6.0.0"
-
-[tool.poetry.group.embeddings]
-optional = true
-
-[tool.poetry.group.embeddings.dependencies]
-sentence-transformers = ">=3.0.0"
-torch = ">=2.5.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

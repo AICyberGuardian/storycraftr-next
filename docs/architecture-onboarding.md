@@ -9,6 +9,10 @@ Some repo docs are canonical contracts, some are deep references, and some are
 historical planning notes. This file reduces that sprawl into a smaller,
 practical reading set.
 
+It also serves as the single contributor entry point for routine work; detailed
+file-by-file maintenance mapping is centralized in
+`docs/contributor-reference.md`.
+
 ## Minimum Mandatory Set
 
 For most code changes, the required reading set is only:
@@ -28,6 +32,10 @@ Do not require the long architecture reference for routine changes.
 
 For the file-by-file catalog and update matrix, use
 `docs/contributor-reference.md`.
+
+Deep reference note:
+- `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md` is a
+   deep architecture reference and is not part of the routine must-read set.
 
 ## System In One View
 
@@ -50,6 +58,8 @@ explicit attributes.
 
 - `storycraftr/cli.py`: dual-mode command routing and bootstrap.
 - `storycraftr/cmd/`: command handlers for story, paper, and chat.
+- `storycraftr/cmd/story/book.py`: disciplined multi-chapter `storycraftr book`
+   command with explicit approval checkpoints and fail-closed artifact commit ordering.
 - `storycraftr/cmd/control_plane.py`: grouped Click commands for automation and headless workflows (tui/state/canon/mode/models).
 - `storycraftr/services/control_plane.py`: shared control-plane service layer used by both CLI commands and TUI slash commands for mode, canon-check, and state-audit operations.
 - `storycraftr/agent/agents.py`: assistant lifecycle, message creation, orchestration glue.
@@ -71,6 +81,8 @@ explicit attributes.
 - `storycraftr/agent/memory_manager.py`: optional Mem0 adapter for long-term narrative memory (Chroma-backed local store), with provider-aware modes (`ollama` local inference, OpenRouter-compatible, or OpenAI fallback), explicit env toggles/forced-provider controls, fail-closed fallback when Mem0 is unavailable, and prompt-ready memory context retrieval.
 - `storycraftr/agent/state_audit.py`: append-only audit trail logging of all state mutations with timestamped entries, queryable filters by entity/type, and actor attribution (DSVL Phase 2A).
 - `storycraftr/agent/generation_pipeline.py`: role-isolated sequential scene generation (planner → drafter → editor) with bounded JSON repair. `SceneGenerationPipeline` builds stage-specific prompts and parses planner `SceneDirective` responses.
+- `storycraftr/agent/book_engine.py`: fail-closed chapter orchestration state machine (`IDLE` -> `OUTLINE_REVIEW` -> `STATE_REVIEW` -> `COMPLETE`) used by `storycraftr book`.
+- `storycraftr/agent/chapter_validator.py`: shared chapter completeness, duplicate-loop, retry, and state-signal guard helpers used by `BookEngine`.
 - `storycraftr/prompts/craft_rules.py`: deterministic static prompt fragment loader for `planner_rules.md`, `drafter_rules.md`, and `editor_rules.md` (corpus-derived universal storytelling mechanics).
 - `storycraftr/services/control_plane.py`: shared service layer for runtime mode controls, state-audit queries, canon verification checks, and extraction verification/retry logic. Both CLI commands and TUI slash commands call shared implementations to prevent behavior drift (Phase 2B).
 - `storycraftr/tui/app.py`: Textual terminal command center and slash-command router with `/state audit` subcommand for audit history inspection (DSVL Phase 2B). Includes bounded state-critic regeneration retry in `_generate_with_mode_awareness()` when extraction verification detects unsafe state transitions (Phase 5).
@@ -92,7 +104,7 @@ At project level:
 - `storycraftr.json` or `papercraftr.json`: runtime configuration.
 - Markdown content (`chapters/`, `outline/`, `worldbuilding/`, etc.): user source corpus.
 - `vector_store/`: Chroma persistence.
-- `outline/canon.yml`: chapter-scoped canon ledger with writer-approved continuity facts; verified for duplicate/negation conflicts during autopilot commits.
+- `outline/canon.yml`: chapter-scoped canon ledger with writer-approved continuity facts; verified for duplicate/negation conflicts during autopilot commits and persisted on successful `storycraftr book` state commits (including `plot_threads` canon snapshots).
 - `outline/narrative_state.json`: structured narrative state store with validated character, location, and plot-thread entities (DSVL Phase 1A-1C).
 - `outline/narrative_audit.jsonl`: append-only audit trail logging all state mutations with timestamps and actor attribution (DSVL Phase 2A).
 

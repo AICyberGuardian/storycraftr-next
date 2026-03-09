@@ -107,6 +107,7 @@ def init_structure_story(
             "embed_model": embed_model,
             "embed_device": embed_device,
             "embed_cache_dir": embed_cache_dir,
+            "enable_semantic_review": False,
         }
         config_file = Path(book_path) / "storycraftr.json"
         config_file.write_text(json.dumps(config_data, indent=4), encoding="utf-8")
@@ -149,8 +150,8 @@ def init_structure_paper(
     llm_api_key_env="",
     temperature=0.7,
     request_timeout=120,
-    embed_model="BAAI/bge-large-en-v1.5",
-    embed_device="auto",
+    embed_model="text-embedding-3-small",
+    embed_device="api",
     embed_cache_dir="",
 ):
     """
@@ -189,6 +190,7 @@ def init_structure_paper(
             "embed_model": embed_model,
             "embed_device": embed_device,
             "embed_cache_dir": embed_cache_dir,
+            "enable_semantic_review": False,
         }
 
         # Guardar configuración solo en el directorio del proyecto

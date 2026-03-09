@@ -103,9 +103,10 @@ Each project stores its configuration in `storycraftr.json` or `papercraftr.json
   "temperature": 0.7,
   "request_timeout": 120,
   "max_tokens": 8192,
-  "embed_model": "BAAI/bge-large-en-v1.5",
-  "embed_device": "auto",
-  "embed_cache_dir": ""
+  "embed_model": "text-embedding-3-small",
+  "embed_device": "api",
+  "embed_cache_dir": "",
+  "enable_semantic_review": false
 }
 ```
 
@@ -120,7 +121,10 @@ Each project stores its configuration in `storycraftr.json` or `papercraftr.json
 - `max_tokens` caps completion length per LLM request (default `8192`) to reduce truncation risk on long generations.
 - TUI prompt assembly now applies a model-aware input budget gate: it resolves an effective context window per active model, reserves output tokens, and prunes context deterministically by priority (canon constraints -> scene/scoped context -> recent turns -> retrieval chunks -> lower-priority extras) to prevent prompt overflow.
 - TUI session context now uses a rolling compaction boundary: older turns are collapsed into a bounded `Session Summary` while the latest turns stay verbatim, reducing long-session prompt growth without losing continuity.
-- `embed_model` defaults to `BAAI/bge-large-en-v1.5` for OpenAI-quality local embeddings. Use a lighter model (e.g., `sentence-transformers/all-MiniLM-L6-v2`) on constrained hardware.
+- `embed_model` defaults to `text-embedding-3-small` for API-first embeddings.
+- `embed_device=api` uses OpenAI-compatible embedding endpoints (OpenAI or OpenRouter based on configured provider).
+- For local GPU/CPU embeddings, install dependencies with `poetry install` or `uv pip install -e .`, then switch to `embed_device=auto|cpu|cuda` with a local model such as `BAAI/bge-large-en-v1.5`.
+- `enable_semantic_review=true` enables an additional fail-closed semantic reviewer pass (coherence batch model) before state extraction/commit in `storycraftr book`.
 
 ### Runtime Storage Paths (Optional)
 
@@ -162,7 +166,8 @@ storycraftr init "La purga de los dioses" \
   --behavior "behavior.txt" \
   --llm-provider "openrouter" \
   --llm-model "meta-llama/llama-3.1-70b-instruct" \
-  --embed-model "BAAI/bge-large-en-v1.5"
+  --embed-model "text-embedding-3-small" \
+  --embed-device "api"
 ```
 
 ### Generate a general outline:
@@ -176,6 +181,14 @@ storycraftr outline general-outline "Summarize the overall plot of a dystopian s
 ```bash
 storycraftr book --seed seed.md --chapters 3 --yes
 ```
+
+`--yes` now requires `enable_semantic_review=true` for real-provider runs (`openai`, `openrouter`, `ollama`) so autonomous chapter commits stay validator-gated.
+
+In strict autonomous mode (`--yes` + real provider), StoryCraftr also enforces per-chapter coherence gates (`coherence_interval=1`), mandatory severe-canon checks, strict planner JSON directive schema validation, and run-level audit export to `outline/book_audit.json` and `outline/book_audit.md`.
+
+Quality retries now include a model-escalation ladder for OpenRouter ranked roles: repeated scene/chapter quality failures can rotate `batch_prose`/`batch_editing` (and semantic/coherence retries can rotate `coherence_check`) to the next ranked fallback model instead of repeating the same failing model path.
+
+When a scene retry is triggered by minimum-word validation, StoryCraftr injects a craft-aware correction directive that explicitly asks the model to deepen Goal/Conflict/Disaster/Sequel rather than adding filler.
 
 ### Book Generation Quick Start
 
@@ -192,9 +205,18 @@ Expected output structure after a successful run:
   .storycraftr/
   chapters/
   outline/canon.yml
+  outline/narrative_state.json
 ```
 
+`storycraftr book` persists artifacts fail-closed on commit: state patch apply -> canon ledger write -> chapter markdown write.
+
+Each successful run also writes a consolidated audit summary under `outline/book_audit.json` and `outline/book_audit.md` with per-chapter validator/coherence outcomes.
+
+Per-chapter validator handoff artifacts are persisted under `outline/chapter_packets/chapter-<nnn>/`, including `validator_report.json`, scene-level validator reports, stage diagnostics, and canonical pre/post-commit packet context.
+
 Operational note: for live OpenRouter runs, buy at least $10 in credits to avoid the free-tier 1000 req/day cap during repeated smoke or soak testing.
+
+Model escalation stress test profile: copy `examples/rankings_stress_weak_primary.json` to `storycraftr/config/rankings.json` in a test branch/worktree to simulate a weaker prose primary and verify retry-time fallback rotation behavior under real-provider runs.
 
 ## 💬 Introducing Chat!!! – A Simple Yet Powerful Tool to Supercharge Your Conversations! 💥
 
@@ -257,8 +279,21 @@ The **StoryCraftr Chat** feature allows users to engage directly with an AI assi
   Example:
 
   ```bash
-  !chapters chapter 1 "Write chapter 1 based on the synopsis."
+  !chapters chapter 1 "Write chapter 1 based on the synopsis." --unsafe-direct-write
   ```
+
+`storycraftr chapters chapter` is now guarded and requires both `--unsafe-direct-write`
+and `STORYCRAFTR_ALLOW_UNSAFE=1` because it bypasses BookEngine validation gates.
+
+Example developer-only bypass:
+
+```bash
+# In your shell before launching chat/commands:
+export STORYCRAFTR_ALLOW_UNSAFE=1
+
+# Then inside chat:
+!chapters chapter 1 "Write chapter 1 based on the synopsis." --unsafe-direct-write
+```
 
 You can start a chat session with the assistant using:
 
@@ -439,6 +474,9 @@ We welcome contributions of all kinds! Whether you’re a developer, writer, or 
 Before changing code, start with `docs/architecture-onboarding.md`. It is the
 consolidated contributor reading guide and points to the smaller set of docs
 that are actually mandatory for most changes.
+
+For the one-file maintenance catalog (doc categories, runtime contract files,
+and update-sync rules), use `docs/contributor-reference.md`.
 
 1. **Fork the repository** and create your branch:
 

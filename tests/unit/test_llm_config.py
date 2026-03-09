@@ -102,6 +102,22 @@ def test_load_book_config_returns_typed_book_config(tmp_path):
     assert config.max_tokens == 2048
 
 
+def test_load_book_config_coerces_enable_semantic_review(tmp_path):
+    config_data = {
+        "book_name": "Semantic",
+        "llm_provider": "openrouter",
+        "enable_semantic_review": "true",
+    }
+    (tmp_path / "storycraftr.json").write_text(
+        json.dumps(config_data), encoding="utf-8"
+    )
+
+    config = load_book_config(str(tmp_path))
+
+    assert config is not None
+    assert config.enable_semantic_review is True
+
+
 def test_generate_prompt_with_hash_uses_project_write_lock(monkeypatch, tmp_path):
     calls: list[str] = []
 

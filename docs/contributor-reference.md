@@ -61,6 +61,11 @@ configuration examples, or public workflow descriptions.
 | File | Summary | Update When |
 | --- | --- | --- |
 | `storycraftr/cmd/control_plane.py` | Grouped Click commands for automation/headless workflows (tui/state/canon/mode/models). | Control-plane command behavior, Click group structure, or runtime service integration changes. |
+| `storycraftr/cmd/story/book.py` | Disciplined `storycraftr book` CLI runtime orchestration (outline -> plan -> draft -> edit -> stitch -> state commit) with explicit approvals and fail-closed commit ordering. | `storycraftr book` CLI flags, approval gates, artifact persistence contract (`chapter`, `narrative_state`, `canon`), or commit-failure semantics change. |
+| `storycraftr/agent/book_engine.py` | Fail-closed chapter-generation state machine with explicit stages and approval checkpoints. | Book stage transitions, retry behavior, coherence hooks, or approval/commit lifecycle semantics change. |
+| `storycraftr/agent/chapter_validator.py` | Shared completeness/state-signal guard helpers (`guarded_generation`, duplicate-paragraph detection, meaningful state-signal checks) used by `BookEngine`. | Chapter completeness thresholds, retry contracts, duplicate-loop heuristics, or state-signal guard semantics change. |
+| `storycraftr/config/validator_report.schema.json` | Machine-readable schema contract for chapter packet `validator_report.json` artifacts. | Chapter packet validator report structure, required keys, or precommit/postcommit schema contract changes. |
+| `storycraftr/prompts/reviewer_rules.md` | Deterministic semantic-review policy prompt with strict JSON PASS/FAIL contract. | Semantic reviewer criteria, output JSON contract, or reviewer fail-closed policy changes. |
 | `storycraftr/services/control_plane.py` | Shared control-plane service implementations (`mode_show_impl`, `mode_set_impl`, `state_audit_impl`, `canon_check_impl`) used by both CLI and TUI. | Any changes to runtime mode persistence, canon-check semantics, or state-audit query behavior that must stay consistent across CLI/TUI. |
 | `storycraftr/llm/factory.py` | Provider validation plus OpenRouter retry, backoff, and fallback behavior. | Provider startup, model validation, retry logic, or fallback chain behavior changes. |
 | `storycraftr/llm/openrouter_discovery.py` | Dynamic OpenRouter free-model discovery, user-local cache, cache metadata, and forced refresh helpers. | OpenRouter catalog fetch, cache TTL/fallback, or model discovery diagnostics change. |
@@ -99,6 +104,9 @@ configuration examples, or public workflow descriptions.
 | `tests/unit/test_tui_canon_extract.py` | Regression coverage for canon candidate extraction in hybrid mode. | `storycraftr/tui/canon_extract.py` behavior changes. |
 | `tests/unit/test_tui_canon_verify.py` | Regression coverage for fail-closed canon verification (duplicate and conflict detection). | `storycraftr/tui/canon_verify.py` behavior changes. |
 | `tests/unit/test_project_lock.py` | Regression coverage for project write lock reentrancy and cross-process coordination. | `storycraftr/utils/project_lock.py` behavior changes. |
+| `tests/unit/test_book_engine.py` | Focused regression coverage for `BookEngine` stage transitions, fail-closed behavior, retry path, and coherence/approval semantics. | `storycraftr/agent/book_engine.py` behavior changes. |
+| `tests/unit/test_chapter_validator.py` | Focused regression coverage for chapter-validator helpers, including nested patch-operation state-signal detection. | `storycraftr/agent/chapter_validator.py` behavior changes. |
+| `tests/test_cli.py` | CLI and pipeline integration-style regression coverage for `storycraftr book`, fail-closed persistence, rankings validation, and command exit semantics. | `storycraftr/cmd/story/book.py`, grouped CLI surfaces, or artifact contract behavior changes. |
 
 ## Update Rules By Change Type
 
@@ -187,7 +195,7 @@ configuration examples, or public workflow descriptions.
 
 ### Recent Architecture Context
 
-- **Canon Guard**: Chapter-scoped fact ledger (`outline/canon.yml`) with duplicate/negation conflict detection; fail-closed verification gates autopilot commits.
+- **Canon Guard**: Chapter-scoped fact ledger (`outline/canon.yml`) with duplicate/negation conflict detection; fail-closed verification gates autopilot commits. Successful `storycraftr book` state commits also persist chapter canon entries (including `plot_threads` snapshots) before chapter markdown writes.
 - **Narrative State**: Structured character/world state (`outline/narrative_state.json`) with prompt injection via `[Structured Narrative State]` section and version-aware headers (DSVL Phase 1C, 2C).
 - **Audit Trail**: Append-only mutation log (`outline/narrative_audit.jsonl`) with DSVL Phase 2A query API, queryable by entity/type with `/state audit` TUI command (DSVL Phase 2B).
 - **State Extraction & Verification**: Deterministic prose-to-patch extraction (`storycraftr/agent/state_extractor.py`) with fail-closed verification, operation-order retry, and unsafe-operation dropping (DSVL Phase 3-4).

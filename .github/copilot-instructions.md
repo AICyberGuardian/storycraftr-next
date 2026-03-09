@@ -69,7 +69,7 @@ tsconfig.json
 
 ```bash
 poetry install                          # Install all dependencies
-poetry install --extras embeddings      # Include sentence-transformers + torch
+poetry install                          # Includes local embedding stack (sentence-transformers + torch)
 make sync-deps                          # Rebuild Python/Node lock files together
 make bump-version VERSION=0.16.0        # Bump versions + refresh locks + changelog target line
 poetry run storycraftr --help           # Verify CLI loads
@@ -136,9 +136,10 @@ Key config fields:
   "llm_api_key_env": "",              // Env var override for API key
   "temperature": 0.7,
   "request_timeout": 120,
-  "embed_model": "BAAI/bge-large-en-v1.5",
-  "embed_device": "auto",
-  "embed_cache_dir": ""
+  "embed_model": "text-embedding-3-small",
+  "embed_device": "api",
+  "embed_cache_dir": "",
+  "enable_semantic_review": false
 }
 ```
 
@@ -164,7 +165,11 @@ Resolves effective context windows/output reserves for budgeting. OpenRouter loo
 
 ### Embedding Model (`storycraftr/llm/embeddings.py`)
 
-Uses `HuggingFaceEmbeddings` from `langchain_huggingface`. BGE models automatically set `normalize_embeddings=True`. Cache directory is configurable via `embed_cache_dir` in config or `STORYCRAFTR_EMBED_CACHE` environment variable.
+Uses API-first embeddings by default (`embed_device=api`) through OpenAI-compatible endpoints (`openai` or `openrouter`, derived from config). Local `HuggingFaceEmbeddings` runtime remains supported when `embed_device` is `auto|cpu|cuda`; BGE models automatically set `normalize_embeddings=True`. Cache directory is configurable via `embed_cache_dir` in config or `STORYCRAFTR_EMBED_CACHE` environment variable.
+
+### Legacy Direct Chapter Writes (`storycraftr/cmd/story/chapters.py`)
+
+`storycraftr chapters chapter` is intentionally bypass-only and now requires dual explicit opt-in: `--unsafe-direct-write` plus `STORYCRAFTR_ALLOW_UNSAFE=1`.
 
 ### Vector Store (`storycraftr/vectorstores/chroma.py`)
 

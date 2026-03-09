@@ -27,7 +27,21 @@ def chapters():
 @click.argument("chapter_number", type=int)
 @click.argument("prompt", type=str)
 @click.option("--book-path", type=click.Path(), help="Path to the book directory")
-def chapter(chapter_number: int, prompt: str, book_path: str = None):
+@click.option(
+    "--unsafe-direct-write",
+    is_flag=True,
+    default=False,
+    help=(
+        "Allow legacy direct chapter markdown writes that bypass book runtime "
+        "validators. Prefer 'storycraftr book'."
+    ),
+)
+def chapter(
+    chapter_number: int,
+    prompt: str,
+    book_path: str = None,
+    unsafe_direct_write: bool = False,
+):
     """
     Generate a new chapter for the book.
 
@@ -37,6 +51,26 @@ def chapter(chapter_number: int, prompt: str, book_path: str = None):
         book_path (str, optional): The path to the book's directory. Defaults to the current working directory.
     """
     book_path = book_path or os.getcwd()
+
+    allow_unsafe = os.getenv("STORYCRAFTR_ALLOW_UNSAFE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+    if not unsafe_direct_write:
+        raise click.ClickException(
+            "Direct chapter generation is disabled by default because it bypasses "
+            "validator-gated runtime checks. Use 'storycraftr book' or pass "
+            "--unsafe-direct-write explicitly."
+        )
+
+    if not allow_unsafe:
+        raise click.ClickException(
+            "Unsafe direct chapter writes are disabled. Set "
+            "STORYCRAFTR_ALLOW_UNSAFE=1 for developer-only bypass usage."
+        )
 
     # Load book configuration and proceed only if successful
     if not load_book_config(book_path):

@@ -6,6 +6,9 @@ Before making changes, start with `docs/architecture-onboarding.md`. It is the
 single contributor entry point and explains which docs are mandatory versus
 area-specific.
 
+For the consolidated file-by-file maintenance catalog and update-sync rules,
+use `docs/contributor-reference.md`.
+
 ## How to Contribute
 
 ### 1. Fork the Repository

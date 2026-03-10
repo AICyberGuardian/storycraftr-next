@@ -537,7 +537,7 @@ Body
     )
     _write(
         tmp_path / "outline" / "narrative_state.json",
-        '{"characters": {"Mira": {"status": "injured"}}, "world": {"Bridge": {"integrity": "critical"}}}',
+        '{"characters": {"Mira": {"name": "Mira", "status": "injured"}}, "world": {"Bridge": {"integrity": "critical"}}}',
     )
 
     engine = NarrativeStateEngine(book_path=str(tmp_path), cache_ttl_seconds=60)

@@ -2,7 +2,7 @@ name: Auto-Fix CI Failures
 
 on:
   workflow_run:
-    workflows: ["Run Tests with uv + Poetry"] # MUST MATCH EXACTLY the 'name:' field in your pytest.yml
+    workflows: ["CI"] # MUST MATCH EXACTLY the 'name:' field in your pytest.yml
     types: [completed]
 
 jobs:
@@ -38,10 +38,10 @@ jobs:
 
             Execution Protocol:
             1. Read the repository `AGENTS.md` for strict environment and testing rules.
-            2. Analyze the failure from the workflow run logs.
+            2. Analyze the failure from both Python and Node.js workflow logs.
             3. Identify the root cause (e.g., Python 3.13 compatibility, pathlib mismatches).
             4. Implement a fix using standard `poetry` dependency constraints.
-            5. Ensure the fix passes `poetry run pytest` before submission.
+            5. Ensure the fix passes `uv run pytest` and extension compile checks before submission.
             6. Never push directly to `main`; only use the provided branch context.
           jules_api_key: ${{ secrets.JULES_API_KEY }}
           starting_branch: ${{ github.event.workflow_run.head_branch }}

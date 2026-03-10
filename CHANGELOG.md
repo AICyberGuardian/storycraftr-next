@@ -142,6 +142,12 @@
 - CI dependency installation modernized for speed and determinism:
   - `.github/workflows/pytest.yml` now uses `astral-sh/setup-uv` with cache enabled, installs via `uv sync --all-extras`, and runs tests with `uv run pytest`.
   - Removed Poetry export/plugin CI requirements and retired obsolete embeddings-export workflow logic.
+  - Expanded `.github/workflows/pytest.yml` with lock validation (`poetry check --lock`, `npm ci --dry-run`), Node 20 extension compile checks (`npm ci`, `npm run compile`), and a final `git diff --exit-code` drift guard.
+  - Updated `.github/workflows/ci-failure-fix.yml` to target the `CI` workflow name and direct remediation toward both Python and Node logs with `uv run pytest` validation.
+  - Simplified `.github/workflows/pre-commit.yml` by removing redundant `pre-commit install`.
+- Test suite hygiene updates:
+  - Added pytest markers (`unit`, `integration`) in `pyproject.toml` and marked `tests/test_cli.py` as integration-oriented.
+  - Removed stale artifacts in `tests/test_state.py` (empty) and deleted the skipped stale backup test from `tests/test_markdown.py`.
   - `.github/workflows/pytest.yml` and `.github/workflows/pre-commit.yml` remove expensive disk cleanup steps (`jlumbroso/free-disk-space`) to eliminate startup bottlenecks.
   - `setup-uv` cache invalidation is now keyed to repository dependency files (`poetry.lock` for pytest jobs, `pyproject.toml` for pre-commit), avoiding stale/default cache-key behavior.
   - `.github/workflows/pre-commit.yml` now uses cached `setup-uv` without curl-based bootstrap and removes redundant secondary disk-space maximization to reduce startup latency.

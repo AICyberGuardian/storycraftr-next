@@ -45,7 +45,6 @@ jobs:
         run: |
           source .venv/bin/activate
           uv pip install pre-commit poetry
-          pre-commit install
 
       - name: Run pre-commit on all files
         run: |

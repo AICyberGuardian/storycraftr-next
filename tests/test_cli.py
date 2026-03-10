@@ -28,6 +28,8 @@ from storycraftr.cmd.story.book import (
 from storycraftr.llm.factory import LLMConfigurationError
 from storycraftr.llm.credentials import load_local_credentials
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture(autouse=True)
 def reset_env():

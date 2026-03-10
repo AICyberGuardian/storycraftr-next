@@ -58,6 +58,10 @@ build-backend = "poetry.core.masonry.api"
 testpaths = [
     "tests"
 ]
+markers = [
+    "unit: fast isolated unit tests",
+    "integration: cross-module and CLI integration tests",
+]
 
 [tool.black]
 line-length = 88

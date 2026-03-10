@@ -13,13 +13,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Install uv
         uses: astral-sh/setup-uv@v1
         with:
           enable-cache: true
 
+      - name: Lock validation
+        run: |
+          uvx poetry check --lock
+          npm ci --dry-run --ignore-scripts --loglevel=error
+
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: |
+          uv sync --all-groups --all-extras
+          uv pip install -e . pytest
 
       - name: Run tests
         run: uv run pytest
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build VS Code extension
+        run: npm run compile
+
+      - name: Ensure no generated drift
+        run: git diff --exit-code

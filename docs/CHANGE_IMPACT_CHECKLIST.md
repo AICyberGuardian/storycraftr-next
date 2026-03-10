@@ -1179,6 +1179,12 @@
 - **Impact:** Replaced `.github/workflows/pytest.yml` export-based flow with `astral-sh/setup-uv` cache + `uv sync --all-extras` + `uv run pytest`; removed CI reliance on `poetry export`, `poetry-plugin-export`, and requirements export files. Updated `AGENTS.md`, `.github/copilot-instructions.md`, `README.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `docs/Complete StoryCraftr-Next Awesome Copilot Inventory.txt`, `CHANGELOG.md`, and `release_notes.md` to reflect the new CI convention.
 - **No impact** on sections 2–6: no runtime config schema, LLM routing, sub-agent lifecycle, vector-store contract, or VS Code extension event-contract changes.
 
+### 2026-03-10 — CI/CD drift consolidation and test hygiene hardening
+- **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 6 (VS Code Extension (IPC & UI)), 7 (Security & Tooling), 8 (Documentation & Versioning)
+- **Impact:** Expanded `.github/workflows/pytest.yml` to include lock validation (`poetry check --lock`, `npm ci --dry-run`), `uv sync --all-groups --all-extras`, `uv run pytest`, Node extension compile (`npm ci`, `npm run compile`), and final `git diff --exit-code` drift guard; updated `.github/workflows/ci-failure-fix.yml` trigger linkage to `CI` and remediation guidance for both Python/Node logs; removed redundant `pre-commit install` from `.github/workflows/pre-commit.yml`.
+- **Impact (tests):** Added pytest markers (`unit`, `integration`) in `pyproject.toml`, marked `tests/test_cli.py` as integration, removed stale skipped test from `tests/test_markdown.py`, and deleted empty `tests/test_state.py`.
+- **No impact** on sections 2–5: no Story/Paper config schema changes, no LLM routing/provider selection changes, no sub-agent lifecycle changes, and no vector-store behavior changes.
+
 ### 2026-03-06 — Pre-commit CI uv cache consistency update
 - **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 7 (Security & Tooling), 8 (Documentation & Versioning)
 - **Impact:** Updated `.github/workflows/pre-commit.yml` to use `astral-sh/setup-uv@v5` native cache (`enable-cache: true`), removed deprecated `curl | bash` install path from the same step, and removed redundant secondary disk-space maximization action to reduce startup latency while preserving pre-commit behavior.

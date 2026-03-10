@@ -503,13 +503,8 @@ poetry install
 For CI-parity validation with uv (optional), use:
 
 ```bash
-uv venv .venv --python 3.13
-source .venv/bin/activate
-uv pip install poetry poetry-plugin-export
-poetry export --with dev --format requirements.txt --without-hashes --output requirements-ci.txt
-uv pip install -r requirements-ci.txt
-uv pip install -e .
-pytest
+uv sync --all-extras
+uv run pytest
 ```
 
 Lockfile invariant reminder:

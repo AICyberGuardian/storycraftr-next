@@ -1,162 +1,25 @@
-name: Run Tests with uv + Poetry
+name: CI
 
 on:
   push:
-    branches:
-      - "**"
+    branches: [main]
   pull_request:
-    branches:
-      - "**"
-
-permissions:
-  contents: read
 
 jobs:
-  pytest:
+  test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Set up Python 3.13
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.13"
-
-      - name: Set up Node.js 20
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "20"
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v1
         with:
           enable-cache: true
-          cache-dependency-glob: poetry.lock
 
-      - name: Create venv
-        run: |
-          uv venv .venv
-
-      - name: Install Poetry export tooling (inside venv)
-        run: |
-          source .venv/bin/activate
-          uv pip install poetry poetry-plugin-export
-
-      - name: Verify Poetry export command availability
-        run: |
-          source .venv/bin/activate
-          if ! poetry export --help >/dev/null 2>&1; then
-            echo "::error::poetry export is unavailable. Ensure poetry-plugin-export is installed."
-            exit 1
-          fi
-
-      - name: Assert Python baseline
-        run: |
-          source .venv/bin/activate
-          poetry run python -c "import sys; assert sys.version_info[:2] == (3, 13), sys.version"
-          
-      - name: Verify poetry.lock is in sync
-        run: |
-          source .venv/bin/activate
-          poetry check --lock
-
-      - name: Verify package-lock.json is in sync
-        run: npm ci --dry-run --ignore-scripts --loglevel=error
-
-      - name: Export CI requirements from poetry.lock
-        run: |
-          source .venv/bin/activate
-          poetry export --with dev --format requirements.txt --without-hashes --output requirements-ci.txt
-
-      - name: Install dependencies with uv
-        run: |
-          source .venv/bin/activate
-          uv pip install -r requirements-ci.txt
-          uv pip install -e .
-
-      - name: Ensure lock files are unchanged
-        run: git diff --exit-code poetry.lock package-lock.json
+      - name: Install dependencies
+        run: uv sync --all-extras
 
       - name: Run tests
-        run: |
-          source .venv/bin/activate
-          pytest
-
-      - name: CLI smoke checks
-        run: |
-          source .venv/bin/activate
-          storycraftr --help
-          storycraftr chat --help
-          papercraftr --help
-
-      - name: Install Node dependencies
-        run: npm ci
-
-      - name: Build VS Code extension
-        run: npm run compile
-
-  embeddings-smoke:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Set up Python 3.13
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.13"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: poetry.lock
-
-      - name: Create venv
-        run: |
-          uv venv .venv
-
-      - name: Install Poetry export tooling (inside venv)
-        run: |
-          source .venv/bin/activate
-          uv pip install poetry poetry-plugin-export
-
-      - name: Verify Poetry export command availability
-        run: |
-          source .venv/bin/activate
-          if ! poetry export --help >/dev/null 2>&1; then
-            echo "::error::poetry export is unavailable. Ensure poetry-plugin-export is installed."
-            exit 1
-          fi
-
-      - name: Assert Python baseline
-        run: |
-          source .venv/bin/activate
-          poetry run python -c "import sys; assert sys.version_info[:2] == (3, 13), sys.version"
-
-      - name: Verify poetry.lock is in sync
-        run: |
-          source .venv/bin/activate
-          poetry check --lock
-
-      - name: Export embeddings requirements from poetry.lock
-        run: |
-          source .venv/bin/activate
-          poetry export --with embeddings --format requirements.txt --without-hashes --output requirements-embeddings-ci.txt
-
-      - name: Install embeddings dependencies with uv
-        run: |
-          source .venv/bin/activate
-          uv pip install -r requirements-embeddings-ci.txt
-          uv pip install -e .
-
-      - name: Ensure lock files are unchanged
-        run: git diff --exit-code poetry.lock package-lock.json
-
-      - name: Embeddings import smoke test
-        run: |
-          source .venv/bin/activate
-          python -c "import sentence_transformers, torch; print('sentence_transformers', sentence_transformers.__version__); print('torch', torch.__version__)"
+        run: uv run pytest

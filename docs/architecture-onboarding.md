@@ -149,7 +149,7 @@ Local dev:
 - Extension: `npm install`, `npm run compile`
 
 CI model:
-- Uses uv plus Poetry export (`poetry export` -> `uv pip install`) for deterministic installs.
+- Uses uv-native install/runner flow (`uv sync` -> `uv run`) for deterministic installs.
 - Lockfile drift is treated as a failure condition.
 
 ## What To Read By Change Type

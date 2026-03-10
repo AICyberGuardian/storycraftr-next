@@ -53,8 +53,8 @@ Current development target: `v0.19` (`0.19.0-dev`).
 ### Highlights
 
 - CI dependency installation is now modernized for speed and determinism across pytest and pre-commit workflows.
-- The pytest pipeline now follows the cached `setup-uv` + `poetry export` + `uv pip` installation path and runs `npm ci` before extension compilation.
-- Embeddings smoke checks use the same export-and-install pattern, and CI fails fast when `poetry export` support is unavailable.
+- The pytest pipeline now follows a cached `setup-uv` + `uv sync --all-extras` + `uv run pytest` path.
+- CI no longer depends on `poetry export` or `poetry-plugin-export`, removing the previous export/plugin failure mode.
 - Legacy curl-based uv bootstrap has been removed, and redundant pre-commit startup steps were trimmed to reduce latency.
 - Expensive disk cleanup actions were removed from pytest and pre-commit workflows to remove startup bottlenecks.
 - `setup-uv` cache invalidation now maps to repository dependency files (`poetry.lock`/`pyproject.toml`) for more reliable reuse across runs.

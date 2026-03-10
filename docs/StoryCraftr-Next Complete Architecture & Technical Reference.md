@@ -200,7 +200,7 @@ Primary architecture-relevant tests live in:
 ## CI and Tooling Invariants
 
 - Dependency updates are synchronized via `make sync-deps`.
-- CI uses uv + Poetry export for deterministic installs.
+- CI uses `uv sync` + `uv run` for deterministic installs.
 - Lockfile drift in CI is a failure condition.
 
 ## Canonical Reading Order

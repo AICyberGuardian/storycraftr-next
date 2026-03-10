@@ -7,7 +7,7 @@ Current development target: v0.19.
 - `JS_UPDATE`: Modifying `package.json` requires updating `package-lock.json` via `make sync-deps` (do not run raw `npm install` directly in routine workflows).
 - `VER_BUMP`: Modifying version strings requires synchronized updates to `pyproject.toml`, `package.json`, `package-lock.json`, and `CHANGELOG.md`.
 - `LOCK_IMMUTABLE_CI`: CI must fail if dependency lock files drift (`git diff --exit-code poetry.lock package-lock.json`).
-- `CI_INSTALL_PATTERN`: CI uses `setup-uv` cache + `poetry export` + `uv pip install`; local development continues to use `poetry install`.
+- `CI_INSTALL_PATTERN`: CI uses `setup-uv` cache + `uv sync` + `uv run`; local development continues to use `poetry install`.
 
 ## Project Structure & Module Organization
 StoryCraftr ships a Python CLI plus a lightweight VS Code companion extension. Python sources live in `storycraftr/` (agents, CLI entrypoints, prompts, templates, and a Textual TUI under `storycraftr/tui/`) with tests under `tests/` partitioned into `unit/` and `integration/`. The extension code sits in `src/` (TypeScript) and compiles to `out/` during builds. Shared documentation belongs in `docs/`, while runnable samples and starter outlines live in `examples/`. Treat `behavior.txt` as the canonical agent contract when adjusting automated behaviors.

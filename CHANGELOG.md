@@ -140,8 +140,8 @@
   - Removed import-time credential loading side effect in `storycraftr/cli.py` by introducing lazy one-time bootstrap (`_ensure_local_credentials_loaded`) executed from the Click group callback; added startup regressions in `tests/unit/test_cli_startup.py`.
 - Current development target set to `v0.19` (`0.19.0-dev`).
 - CI dependency installation modernized for speed and determinism:
-  - `.github/workflows/pytest.yml` now uses `astral-sh/setup-uv@v5` native cache, validates `poetry export` availability, exports requirements from `poetry.lock`, installs with `uv pip`, and runs `npm ci` before extension compile.
-  - `.github/workflows/pytest.yml` `embeddings-smoke` now uses the same `poetry export` + `uv pip` flow for embeddings extras.
+  - `.github/workflows/pytest.yml` now uses `astral-sh/setup-uv` with cache enabled, installs via `uv sync --all-extras`, and runs tests with `uv run pytest`.
+  - Removed Poetry export/plugin CI requirements and retired obsolete embeddings-export workflow logic.
   - `.github/workflows/pytest.yml` and `.github/workflows/pre-commit.yml` remove expensive disk cleanup steps (`jlumbroso/free-disk-space`) to eliminate startup bottlenecks.
   - `setup-uv` cache invalidation is now keyed to repository dependency files (`poetry.lock` for pytest jobs, `pyproject.toml` for pre-commit), avoiding stale/default cache-key behavior.
   - `.github/workflows/pre-commit.yml` now uses cached `setup-uv` without curl-based bootstrap and removes redundant secondary disk-space maximization to reduce startup latency.

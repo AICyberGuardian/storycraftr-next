@@ -239,13 +239,8 @@ When Context7 was used, add a short "External API validation" note in your respo
 For CI parity checks (optional):
 
 ```bash
-uv venv .venv --python 3.13
-source .venv/bin/activate
-uv pip install poetry poetry-plugin-export
-poetry export --with dev --format requirements.txt --without-hashes --output requirements-ci.txt
-uv pip install -r requirements-ci.txt
-uv pip install -e .
-pytest
+uv sync --all-extras
+uv run pytest
 ```
 
 ### PHASE 6 — Follow-Up Improvements

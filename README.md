@@ -26,16 +26,11 @@ Recent dependency baseline updates include `textual` in the Python runtime stack
 ### CI Dependency Install Pattern
 
 Local development should continue to use Poetry directly (`poetry install`).
-CI uses a faster, deterministic hybrid path:
+CI uses a faster uv-native path:
 
 ```bash
-uv venv .venv
-source .venv/bin/activate
-uv pip install poetry poetry-plugin-export
-poetry export --with dev --format requirements.txt --without-hashes --output requirements-ci.txt
-uv pip install -r requirements-ci.txt
-uv pip install -e .
-pytest
+uv sync --all-extras
+uv run pytest
 ```
 
 Key CI invariants:

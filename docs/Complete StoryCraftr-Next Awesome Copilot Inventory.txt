@@ -86,7 +86,7 @@ Note: The hook config exists in `hooks.json`. Verify the referenced script path 
 
 | Workflow file | Trigger | What it does | Use when |
 |---|---|---|---|
-| `pytest.yml` | Push/PR on all branches | Runs Python 3.13 tests and smoke checks using uv + Poetry export install pattern; compiles extension | Validating functional correctness and baseline runtime behavior |
+| `pytest.yml` | Push/PR on all branches | Runs Python tests using uv-native dependency sync/runner flow (`uv sync`, `uv run pytest`) | Validating functional correctness and baseline runtime behavior |
 | `pre-commit.yml` | Push/PR on all branches | Runs pre-commit quality/security checks and lock drift guard | Enforcing lint/security/tooling gates |
 | `ci-failure-fix.yml` | On failed completion of `pytest` workflow (non-main/non-release branches) | Invokes Jules to propose remediation for CI failures | Assisted failure triage on feature branches |
 

@@ -77,19 +77,14 @@ poetry run pytest                       # Run all tests
 poetry run pre-commit run --all-files   # Lint + security scan (run before every push)
 ```
 
-The CI pipeline uses **uv** with native caching and **Poetry export** for deterministic installs:
+The CI pipeline uses **uv** with native caching and uv-native sync/run for deterministic installs:
 
 ```bash
-uv venv .venv
-source .venv/bin/activate
-uv pip install poetry poetry-plugin-export
-poetry export --with dev --format requirements.txt --without-hashes --output requirements-ci.txt
-uv pip install -r requirements-ci.txt
-uv pip install -e .
-pytest
+uv sync --all-extras
+uv run pytest
 ```
 
-> **Do not** mirror CI export/install steps for local development unless needed; local development should continue using `poetry install`.
+> **Do not** mirror CI-only commands for local development unless needed; local development should continue using `poetry install`.
 
 ### TypeScript (VS Code Extension)
 
@@ -105,7 +100,7 @@ npm run watch        # Live rebuild during development
 
 | File | Trigger | Purpose |
 |------|---------|---------|
-| `.github/workflows/pytest.yml` | push / PR to any branch | Runs tests and smoke checks on Python 3.13 using uv cached setup + `poetry export` + `uv pip` installs |
+| `.github/workflows/pytest.yml` | push to main / any PR | Runs tests using uv-native dependency sync and execution (`uv sync --all-extras`, `uv run pytest`) |
 | `.github/workflows/pre-commit.yml` | push / PR to any branch | Runs pre-commit hooks (Black, Bandit, detect-secrets, large-file) |
 | `.github/workflows/ci-failure-fix.yml` | `workflow_run` completion failure | Invokes Jules AI agent to propose a fix |
 
@@ -260,7 +255,7 @@ TUI stores compact runtime metadata in `sessions/session.json`, including execut
 3. **Dual graph field on `LangChainAssistant`**: The dataclass declares `graph` twice (a known duplicate); do not add a third declaration.
 4. **Chroma telemetry**: `anonymized_telemetry=False` must always be passed to `chromadb.config.Settings` to prevent outbound telemetry calls in tests/CI.
 5. **Embedding model download in CI**: Tests that instantiate a real `HuggingFaceEmbeddings` model will attempt to download multi-GB artifacts. Always mock or use `llm_provider=fake` in unit tests.
-6. **`uv` + Poetry export in CI**: CI installs `poetry` + `poetry-plugin-export` inside the uv virtual environment, exports requirements from `poetry.lock`, and installs via `uv pip`. Local development should continue to use `poetry install`.
+6. **`uv` sync/run in CI**: CI resolves from `pyproject.toml` and `poetry.lock` directly via `uv sync --all-extras` and executes tests with `uv run pytest`. Local development should continue to use `poetry install`.
 7. **Pre-commit large-file limit**: 500 KB. Do not commit model weights, lock file diffs, or large test fixtures directly.
 8. **Lock scope policy**: The lock-coverage decision matrix lives in `docs/CHANGE_IMPACT_CHECKLIST.md` under "Lock Coverage Decision Matrix (Phase 0.5)" and is the source of truth for must-lock vs intentional single-writer/deferred paths.
 9. **VS Code event contract tests**: Keep `src/event-contract.ts` and `src/event-contract.test.ts` aligned with Python JSONL emitter payloads (`session.*`, `chat.*`, `sub_agent.*`) to prevent producer/consumer drift.

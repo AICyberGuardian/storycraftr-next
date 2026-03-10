@@ -1174,6 +1174,11 @@
 - **Impact:** Updated `.github/copilot-instructions.md`, `AGENTS.md`, and `CHANGELOG.md` so project guidance and release notes reflect the current CI install convention (`setup-uv` cache + `poetry export` + `uv pip`) and Python 3.13-oriented pytest workflow description.
 - **No impact** on sections 1–7: no dependency spec, runtime configuration, LLM routing, sub-agent lifecycle, vector-store behavior, extension IPC, or security-tooling policy changes.
 
+### 2026-03-10 — Pytest workflow migration to uv sync/run
+- **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 7 (Security & Tooling), 8 (Documentation & Versioning)
+- **Impact:** Replaced `.github/workflows/pytest.yml` export-based flow with `astral-sh/setup-uv` cache + `uv sync --all-extras` + `uv run pytest`; removed CI reliance on `poetry export`, `poetry-plugin-export`, and requirements export files. Updated `AGENTS.md`, `.github/copilot-instructions.md`, `README.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`, `docs/Complete StoryCraftr-Next Awesome Copilot Inventory.txt`, `CHANGELOG.md`, and `release_notes.md` to reflect the new CI convention.
+- **No impact** on sections 2–6: no runtime config schema, LLM routing, sub-agent lifecycle, vector-store contract, or VS Code extension event-contract changes.
+
 ### 2026-03-06 — Pre-commit CI uv cache consistency update
 - **Sections reviewed:** 1 (Dependency and Lockfile Integrity), 7 (Security & Tooling), 8 (Documentation & Versioning)
 - **Impact:** Updated `.github/workflows/pre-commit.yml` to use `astral-sh/setup-uv@v5` native cache (`enable-cache: true`), removed deprecated `curl | bash` install path from the same step, and removed redundant secondary disk-space maximization action to reduce startup latency while preserving pre-commit behavior.

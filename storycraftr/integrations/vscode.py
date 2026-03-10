@@ -14,7 +14,6 @@ from storycraftr.utils.core import load_book_config
 from storycraftr.utils.paths import resolve_project_paths
 from storycraftr.utils.project_lock import project_write_lock
 
-
 _VS_CODE_SENTINELS = {
     "VSCODE_PID",
     "VSCODE_IPC_HOOK",

@@ -20,7 +20,6 @@ from storycraftr.agent.narrative_state import (
     PlotThreadState,
 )
 
-
 # ============================================================================
 # CHARACTER STATE VALIDATION TESTS
 # ============================================================================

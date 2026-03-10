@@ -564,6 +564,10 @@ def test_book_command_invokes_pipeline(tmp_path, monkeypatch) -> None:
             chapters_generated=chapters,
             patch_operations_applied=2,
             coherence_reviews_run=1,
+            retries=0,
+            escalations=0,
+            semantic_reviews_run=1,
+            elapsed_seconds=1.0,
         )
 
     monkeypatch.setattr(
@@ -593,6 +597,187 @@ def test_book_command_invokes_pipeline(tmp_path, monkeypatch) -> None:
     assert called["chapters"] == 3
     assert called["auto_approve"] is True
     assert "Book generation run complete." in result.output
+
+
+def test_run_book_pipeline_emits_progress_heartbeat_and_model_telemetry(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    class _FakeEvent:
+        def __init__(self) -> None:
+            self.calls = 0
+            self._set = False
+
+        def wait(self, _timeout: float | None = None) -> bool:
+            if self._set:
+                return True
+            self.calls += 1
+            return self.calls > 1
+
+        def set(self) -> None:
+            self._set = True
+
+    class _FakeThread:
+        def __init__(self, *, target, daemon: bool = True) -> None:
+            self._target = target
+            self.daemon = daemon
+
+        def start(self) -> None:
+            self._target()
+
+        def join(self, timeout: float | None = None) -> None:
+            _ = timeout
+
+    class _RoleLLM:
+        def __init__(self, model_name: str):
+            self.model_name = model_name
+            self.model_sequence = [model_name, "openrouter/free"]
+            self.last_resolved_model_index = 1
+            self.last_resolved_model = "openrouter/free"
+            self.semantic_calls = 0
+
+        def invoke(self, prompt):
+            text = str(prompt)
+            if "canon safety checker" in text:
+                return SimpleNamespace(content='{"violation": false}')
+            if "Run a global coherence audit over chapter progression." in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
+            if "Generated Chapter:" in text and "Approved Scene Plan:" in text:
+                self.semantic_calls += 1
+                if self.semantic_calls < 3:
+                    return SimpleNamespace(
+                        content='{"status":"FAIL","reason":"policy_miss"}'
+                    )
+                return SimpleNamespace(content='{"status":"PASS"}')
+            if (
+                "Return ONLY valid JSON" in text
+                or "Repair this into strict JSON" in text
+            ):
+                return SimpleNamespace(
+                    content=(
+                        '{"goal":"goal ok","conflict":"conflict ok",'
+                        '"stakes":"stakes ok","outcome":"decides outcome ok"}'
+                    )
+                )
+            if "Extract narrative state deltas from chapter prose" in text:
+                return SimpleNamespace(
+                    content=(
+                        '{"character_deltas":[{"id":"elias","name":"Elias"}],'
+                        '"relationship_changes":[],"world_facts":[],"thread_changes":[]}'
+                    )
+                )
+            if "Stitch chapter" in text and "[Scene 1]" in text:
+                return SimpleNamespace(
+                    content=" ".join(f"stitched{idx}" for idx in range(3000))
+                )
+            return SimpleNamespace(content=" ".join(f"word{idx}" for idx in range(900)))
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.threading.Event",
+        _FakeEvent,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.threading.Thread",
+        _FakeThread,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_RoleLLM("assistant-model")),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_book_config",
+        lambda _book_path: SimpleNamespace(
+            book_name="Demo",
+            llm_provider="openrouter",
+            llm_model="arcee-ai/trinity-large-preview:free",
+            llm_endpoint="",
+            llm_api_key_env="",
+            temperature=0.7,
+            request_timeout=30,
+            max_tokens=8192,
+            enable_semantic_review=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.validate_openrouter_rankings_config",
+        lambda: {
+            "batch_planning": {
+                "primary": "meta-llama/llama-3.3-70b-instruct:free",
+                "fallbacks": ["stepfun/step-3.5-flash:free"],
+                "why": "planner rationale",
+            },
+            "batch_prose": {
+                "primary": "z-ai/glm-4.5-air:free",
+                "fallbacks": ["google/gemma-3-27b-it:free"],
+                "why": "prose rationale",
+            },
+            "batch_editing": {
+                "primary": "google/gemma-3-27b-it:free",
+                "fallbacks": ["meta-llama/llama-3.3-70b-instruct:free"],
+                "why": "editing rationale",
+            },
+            "repair_json": {
+                "primary": "google/gemma-3-27b-it:free",
+                "fallbacks": ["stepfun/step-3.5-flash:free"],
+                "why": "repair rationale",
+            },
+            "coherence_check": {
+                "primary": "stepfun/step-3.5-flash:free",
+                "fallbacks": ["openai/gpt-oss-120b:free"],
+                "why": "coherence rationale",
+                "context_limit": 128000,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.build_chat_model",
+        lambda settings: _RoleLLM(settings.model),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
+    )
+
+    summary = run_book_pipeline(
+        book_path=str(tmp_path),
+        seed_text="# Seed\n\nPinned context",
+        chapters=1,
+        auto_approve=True,
+    )
+
+    output = capsys.readouterr().out
+    assert "[Chapter 1] Outline generation started..." in output
+    assert "[Chapter 1] Scene planning started..." in output
+    assert "[Chapter 1] Drafting scene 1/3..." in output
+    assert "[Chapter 1] Editing scene 1/3..." in output
+    assert "[Chapter 1] Stitching started..." in output
+    assert "[Chapter 1] Chapter validation started..." in output
+    assert "[Chapter 1] Semantic review started..." in output
+    assert "[Chapter 1] Coherence review started..." in output
+    assert "[Chapter 1] State extraction started..." in output
+    assert "[Chapter 1] Canon/state/chapter commit started..." in output
+    assert "Waiting on OpenRouter response..." in output
+    assert "Stage=draft role=batch_prose" in output
+    assert "configured=arcee-ai/trinity-large-preview:free" in output
+    assert "source=openrouter_free_router" in output
+    assert "Chapter validation retry" in output
+    assert "Escalating " in output
+    assert "Escalating batch_prose model" in output
+    assert "Run summary:" in output
+    assert "final_status=succeeded" in output
+    assert summary.retries >= 2
+    assert summary.escalations >= 1
+    assert summary.semantic_reviews_run >= 1
 
 
 def test_book_command_fails_when_seed_file_missing(tmp_path, monkeypatch) -> None:
@@ -679,7 +864,7 @@ def test_run_book_pipeline_fails_closed_when_state_commit_rejected(
             text = str(prompt)
             if "Return ONLY valid JSON" in text or "Repair the following text" in text:
                 return SimpleNamespace(
-                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"decides outcome ok"}'
                 )
             return SimpleNamespace(content="generated text")
 
@@ -734,7 +919,7 @@ def test_run_book_pipeline_persists_chapter_and_applies_patch(
                 return SimpleNamespace(content='{"status":"PASS"}')
             if "Return ONLY valid JSON" in text or "Repair the following text" in text:
                 return SimpleNamespace(
-                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"o"}'
+                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"decides o"}'
                 )
             return SimpleNamespace(content="generated text")
 
@@ -987,7 +1172,7 @@ def test_run_book_pipeline_does_not_persist_chapter_on_state_commit_failure(
                 return SimpleNamespace(content='{"status":"PASS"}')
             if "Return ONLY valid JSON" in text or "Repair the following text" in text:
                 return SimpleNamespace(
-                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"o"}'
+                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"decides o"}'
                 )
             return SimpleNamespace(content="generated text")
 
@@ -1048,7 +1233,11 @@ def test_run_book_pipeline_fails_closed_on_empty_state_patch_contract(
             text = str(prompt)
             if "Return ONLY valid JSON" in text or "Repair the following text" in text:
                 return SimpleNamespace(
-                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"decides outcome ok"}'
+                )
+            if "Stitch chapter" in text and "[Scene 1]" in text:
+                return SimpleNamespace(
+                    content=" ".join(f"stitched{idx}" for idx in range(3000))
                 )
             return SimpleNamespace(content=" ".join(f"word{idx}" for idx in range(900)))
 
@@ -1146,13 +1335,17 @@ def test_run_book_pipeline_fails_closed_on_empty_state_patch_without_auto_approv
             text = str(prompt)
             if "Return ONLY valid JSON" in text or "Repair the following text" in text:
                 return SimpleNamespace(
-                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"decides outcome ok"}'
                 )
             if "Extract narrative state deltas from chapter prose" in text:
                 return SimpleNamespace(
                     content=(
                         '{"character_deltas":[],"relationship_changes":[],"world_facts":[],"thread_changes":[]}'
                     )
+                )
+            if "Stitch chapter" in text and "[Scene 1]" in text:
+                return SimpleNamespace(
+                    content=" ".join(f"stitched{idx}" for idx in range(3000))
                 )
             return SimpleNamespace(content=" ".join(f"word{idx}" for idx in range(900)))
 
@@ -1251,7 +1444,7 @@ def test_run_book_pipeline_fails_closed_when_canon_write_fails(
                 return SimpleNamespace(content='{"status":"PASS"}')
             if "Return ONLY valid JSON" in text or "Repair the following text" in text:
                 return SimpleNamespace(
-                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"o"}'
+                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"decides o"}'
                 )
             return SimpleNamespace(content="generated text")
 
@@ -1340,7 +1533,7 @@ def test_run_book_pipeline_rolls_back_partial_writes_on_canon_failure_atomic_com
                 or "Repair this into strict JSON" in text
             ):
                 return SimpleNamespace(
-                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"decides outcome ok"}'
                 )
             if "Extract narrative state deltas from chapter prose" in text:
                 return SimpleNamespace(
@@ -1348,6 +1541,10 @@ def test_run_book_pipeline_rolls_back_partial_writes_on_canon_failure_atomic_com
                         '{"character_deltas":[{"id":"elias","name":"Elias"}],'
                         '"relationship_changes":[],"world_facts":[],"thread_changes":[]}'
                     )
+                )
+            if "Stitch chapter" in text and "[Scene 1]" in text:
+                return SimpleNamespace(
+                    content=" ".join(f"stitched{idx}" for idx in range(3000))
                 )
             return SimpleNamespace(content=" ".join(f"word{idx}" for idx in range(900)))
 
@@ -1424,7 +1621,7 @@ def test_run_book_pipeline_rich_extraction_captures_narrative_facts(
                 or "Repair this into strict JSON" in text
             ):
                 return SimpleNamespace(
-                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"decides outcome ok"}'
                 )
             if "Extract narrative state deltas from chapter prose" in text:
                 return SimpleNamespace(
@@ -1491,7 +1688,11 @@ def test_run_book_pipeline_full_global_coherence_halts_on_parse_error(
                 or "Repair this into strict JSON" in text
             ):
                 return SimpleNamespace(
-                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"decides outcome ok"}'
+                )
+            if "Stitch chapter" in text and "[Scene 1]" in text:
+                return SimpleNamespace(
+                    content=" ".join(f"stitched{idx}" for idx in range(3000))
                 )
             return SimpleNamespace(
                 content=" ".join(f"chapterword{idx}" for idx in range(900))
@@ -1520,7 +1721,11 @@ def test_run_book_pipeline_full_global_coherence_halts_on_parse_error(
                 or "Repair this into strict JSON" in text
             ):
                 return SimpleNamespace(
-                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"decides outcome ok"}'
+                )
+            if "Stitch chapter" in text and "[Scene 1]" in text:
+                return SimpleNamespace(
+                    content=" ".join(f"stitchedchapterword{idx}" for idx in range(3000))
                 )
             return SimpleNamespace(
                 content=" ".join(f"chapterword{idx}" for idx in range(900))
@@ -1623,7 +1828,7 @@ def test_run_book_pipeline_pushes_flavor_memory_after_commit(
                 or "Repair this into strict JSON" in text
             ):
                 return SimpleNamespace(
-                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"o"}'
+                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"decides o"}'
                 )
             return SimpleNamespace(content="generated text")
 
@@ -1724,7 +1929,7 @@ def test_run_book_pipeline_triggers_coherence_review_on_severe_violation(
                 or "Repair this into strict JSON" in text
             ):
                 return SimpleNamespace(
-                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"o"}'
+                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"decides o"}'
                 )
             return SimpleNamespace(content="generated text")
 
@@ -1809,7 +2014,7 @@ def test_run_book_pipeline_fails_closed_when_coherence_gate_rejects(
                 or "Repair this into strict JSON" in text
             ):
                 return SimpleNamespace(
-                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"o"}'
+                    content='{"goal":"g","conflict":"c","stakes":"s","outcome":"decides o"}'
                 )
             return SimpleNamespace(content="generated text")
 
@@ -1891,8 +2096,10 @@ def test_run_book_pipeline_semantic_review_uses_coherence_rankings(
                 or "Repair this into strict JSON" in text
             ):
                 return SimpleNamespace(
-                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"decides outcome ok"}'
                 )
+            if "Stitch chapter" in text and "[Scene 1]" in text:
+                return SimpleNamespace(content=_long_text("stitched", 3000))
             return SimpleNamespace(content=_long_text("generated", 820))
 
     class _FakeReviewerLLM:
@@ -2009,6 +2216,134 @@ def test_run_book_pipeline_semantic_review_uses_coherence_rankings(
     assert "semantic_review:canon drift" in failure_artifact.read_text(encoding="utf-8")
 
 
+def test_run_book_pipeline_uses_ranked_fallback_after_primary_failure(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    class _RoleLLM:
+        def __init__(self, model_name: str):
+            self.model_name = model_name
+            self._outline_failures = 0
+
+        def invoke(self, prompt):
+            text = str(prompt)
+            if (
+                self.model_name == "meta-llama/llama-3.3-70b-instruct:free"
+                and "Return markdown bullets only." in text
+            ):
+                self._outline_failures += 1
+                raise RuntimeError("Model invocation failed: Error code: 429")
+
+            if "canon safety checker" in text:
+                return SimpleNamespace(content='{"violation": false}')
+            if "Run a global coherence audit" in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
+            if "Generated Chapter:" in text and "Approved Scene Plan:" in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
+            if "Return markdown bullets only." in text:
+                return SimpleNamespace(content="- Scene 1\n- Scene 2\n- Scene 3")
+            if (
+                "Return ONLY valid JSON" in text
+                or "Repair this into strict JSON" in text
+            ):
+                return SimpleNamespace(
+                    content=(
+                        '{"goal":"goal ok","conflict":"conflict ok",'
+                        '"stakes":"stakes ok","outcome":"decides outcome ok"}'
+                    )
+                )
+            if "Extract narrative state deltas from chapter prose" in text:
+                return SimpleNamespace(
+                    content='{"character_deltas":[{"id":"protagonist","name":"Protagonist"}],"relationship_changes":[],"world_facts":[],"thread_changes":[]}'
+                )
+            if "Stitch chapter" in text and "[Scene 1]" in text:
+                return SimpleNamespace(
+                    content=" ".join(f"stitched{idx}" for idx in range(3000))
+                )
+            return SimpleNamespace(content=" ".join(f"word{idx}" for idx in range(900)))
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_RoleLLM("assistant-model")),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_book_config",
+        lambda _book_path: SimpleNamespace(
+            book_name="Demo",
+            llm_provider="openrouter",
+            llm_model="arcee-ai/trinity-large-preview:free",
+            llm_endpoint="",
+            llm_api_key_env="",
+            temperature=0.7,
+            request_timeout=30,
+            max_tokens=8192,
+            enable_semantic_review=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.validate_openrouter_rankings_config",
+        lambda: {
+            "batch_planning": {
+                "primary": "meta-llama/llama-3.3-70b-instruct:free",
+                "fallbacks": ["stepfun/step-3.5-flash:free"],
+                "why": "test",
+            },
+            "batch_prose": {
+                "primary": "arcee-ai/trinity-large-preview:free",
+                "fallbacks": ["google/gemma-3-27b-it:free"],
+                "why": "test",
+            },
+            "batch_editing": {
+                "primary": "google/gemma-3-27b-it:free",
+                "fallbacks": ["stepfun/step-3.5-flash:free"],
+                "why": "test",
+            },
+            "repair_json": {
+                "primary": "google/gemma-3-27b-it:free",
+                "fallbacks": ["stepfun/step-3.5-flash:free"],
+                "why": "test",
+            },
+            "coherence_check": {
+                "primary": "stepfun/step-3.5-flash:free",
+                "fallbacks": ["google/gemma-3-27b-it:free"],
+                "why": "test",
+                "context_limit": 128000,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.build_chat_model",
+        lambda settings: _RoleLLM(settings.model),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
+    )
+
+    summary = run_book_pipeline(
+        book_path=str(tmp_path),
+        seed_text="# Seed\n\nPinned context",
+        chapters=1,
+        auto_approve=True,
+    )
+
+    output = capsys.readouterr().out
+    assert summary.chapters_generated == 1
+    assert "Stage=outline role=batch_planning" in output
+    assert "effective=stepfun/step-3.5-flash:free" in output
+    assert "source=fallback" in output
+
+
 def test_run_book_pipeline_injects_canon_state_and_history_grounding(
     tmp_path,
     monkeypatch,
@@ -2032,9 +2367,13 @@ def test_run_book_pipeline_injects_canon_state_and_history_grounding(
                 return SimpleNamespace(content='{"status":"PASS"}')
             if "Generated Chapter:" in text and "Chapter:" in text:
                 return SimpleNamespace(content='{"status":"PASS"}')
+            if "Stitch chapter" in text and "[Scene 1]" in text:
+                return SimpleNamespace(
+                    content=" ".join(f"stitched{idx}" for idx in range(3000))
+                )
             if "Return ONLY valid JSON" in text:
                 return SimpleNamespace(
-                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"outcome ok"}'
+                    content='{"goal":"goal ok","conflict":"conflict ok","stakes":"stakes ok","outcome":"decides outcome ok"}'
                 )
             return SimpleNamespace(content=" ".join(f"word{idx}" for idx in range(900)))
 
@@ -2268,7 +2607,7 @@ def test_run_book_pipeline_fails_on_invalid_planner_schema(
                 or "Repair this into strict JSON" in text
             ):
                 return SimpleNamespace(
-                    content='{"goal":"ok","conflict":"ok","stakes":"ok","outcome":"ok","extra":"nope"}'
+                    content='{"goal":"ok","conflict":"ok","stakes":"ok","outcome":"decides ok","extra":"nope"}'
                 )
             return SimpleNamespace(content="generated text")
 

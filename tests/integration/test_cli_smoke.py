@@ -14,11 +14,10 @@ def test_storycraftr_init_smoke_creates_expected_structure(tmp_path):
         workspace = Path.cwd()
         Path("behavior.txt").write_text("Be concise and helpful.", encoding="utf-8")
 
-        with mock.patch(
-            "storycraftr.init.create_or_get_assistant"
-        ) as mock_assistant, mock.patch(
-            "storycraftr.agent.agents.build_chat_model"
-        ) as mock_llm_factory:
+        with (
+            mock.patch("storycraftr.init.create_or_get_assistant") as mock_assistant,
+            mock.patch("storycraftr.agent.agents.build_chat_model") as mock_llm_factory,
+        ):
             result = runner.invoke(
                 cli,
                 [

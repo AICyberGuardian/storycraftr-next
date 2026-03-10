@@ -452,6 +452,16 @@ CLI discovery commands:
 - `storycraftr chapters chapter` is a developer-only bypass and now requires both `--unsafe-direct-write` and `STORYCRAFTR_ALLOW_UNSAFE=1`.
 - CLI and TUI control-plane mode/audit/canon checks now share one service layer (`storycraftr/services/control_plane.py`) to keep behavior and edge-case handling aligned.
 
+### Current Safety Profile For `storycraftr book`
+
+When you run `storycraftr book --yes` on a real provider (`openai`, `openrouter`, or `ollama`), StoryCraftr is intentionally fail-closed at the commit boundary. Chapters do not commit unless planner validation, prose-completeness checks, semantic review, state-extraction checks, and packet acceptance contracts all pass.
+
+That said, the runtime is not yet a fully proven autonomous novelist. Semantic and coherence checks are still mostly LLM-evaluated, validator independence is not guaranteed in every provider path, and some raw model responses are not persisted yet for full post-mortem reconstruction. If you are using free-tier OpenRouter models, treat the workflow as supervised and review packet artifacts plus run audits after each run.
+
+Also note that coherence gating is strict in autonomous real-provider runs, but can still be interval-based in non-strict runs. The legacy `storycraftr chapters chapter` path remains an explicit unsafe bypass and should be avoided outside controlled developer scenarios.
+
+Repository-level engineering follow-up is tracked in `TODO.md`.
+
 Contributor docs quick entry:
 
 - Start with `docs/architecture-onboarding.md` for the minimum mandatory reading set.

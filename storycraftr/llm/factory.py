@@ -37,7 +37,7 @@ _OPENROUTER_BATCH_ENV = "STORYCRAFTR_OPENROUTER_BATCH"
 _OPENROUTER_RANKINGS_PATH = (
     Path(__file__).resolve().parent.parent / "config" / "rankings.json"
 )
-_OPENROUTER_RETRY_BASE_SECONDS = 3.0
+_OPENROUTER_RETRY_BASE_SECONDS = 10.0
 _OPENROUTER_MAX_BACKOFF_SECONDS = 60.0
 _OPENROUTER_MAX_ATTEMPTS = 3
 _OPENROUTER_PRIMARY_RATE_LIMIT_FAILOVER_THRESHOLD = 2
@@ -320,8 +320,6 @@ def _openrouter_fallback_chain(primary_model: str) -> list[str]:
     append_unique(
         _parse_openrouter_fallback_models(os.getenv(_OPENROUTER_FALLBACK_MODELS_ENV))
     )
-    if primary_model != "openrouter/free" and "openrouter/free" not in chain:
-        chain.append("openrouter/free")
     return [model for model in chain if model != primary_model]
 
 
@@ -576,6 +574,8 @@ class _ResilientOpenRouterChatModel(BaseChatModel):
     primary_rate_limit_failover_threshold: int = (
         _OPENROUTER_PRIMARY_RATE_LIMIT_FAILOVER_THRESHOLD
     )
+    last_resolved_model_index: int = 0
+    last_resolved_model: str = ""
 
     def __init__(
         self,
@@ -629,6 +629,8 @@ class _ResilientOpenRouterChatModel(BaseChatModel):
                             "[dim]OpenRouter resolved provider/model: "
                             f"openrouter/{model_name} (attempt {attempt})[/dim]"
                         )
+                    self.last_resolved_model_index = model_index
+                    self.last_resolved_model = model_name
                     return result
                 except Exception as exc:
                     last_exc = exc

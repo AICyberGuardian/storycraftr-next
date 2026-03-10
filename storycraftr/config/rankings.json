@@ -5,23 +5,23 @@
             "stepfun/step-3.5-flash:free",
             "google/gemma-3-27b-it:free"
         ],
-        "why": "Stable long-context planner with strong instruction following and controlled reasoning-oriented fallbacks."
+        "why": "Ranked top planner for instruction adherence, with fast and high-context fallbacks."
     },
     "batch_prose": {
-        "primary": "z-ai/glm-4.5-air:free",
+        "primary": "meta-llama/llama-3.3-70b-instruct:free",
         "fallbacks": [
-            "meta-llama/llama-3.3-70b-instruct:free",
-            "google/gemma-3-27b-it:free"
-        ],
-        "why": "Primary prose model favors creative long-form output with stylistically consistent and reliable fallback alternatives."
-    },
-    "batch_editing": {
-        "primary": "google/gemma-3-27b-it:free",
-        "fallbacks": [
-            "meta-llama/llama-3.3-70b-instruct:free",
+            "arcee-ai/trinity-large-preview:free",
             "z-ai/glm-4.5-air:free"
         ],
-        "why": "Editing prefers instruction precision and dependable rewrite behavior while retaining high-quality backup models."
+        "why": "Instruction-first prose routing improves strict scene-plan adherence, with Trinity and GLM as creative fallbacks."
+    },
+    "batch_editing": {
+        "primary": "meta-llama/llama-3.3-70b-instruct:free",
+        "fallbacks": [
+            "google/gemma-3-27b-it:free",
+            "z-ai/glm-4.5-air:free"
+        ],
+        "why": "Instruction-heavy editing and stitching prioritizes deterministic multi-thread merge behavior with strong fallback coverage."
     },
     "repair_json": {
         "primary": "google/gemma-3-27b-it:free",
@@ -33,9 +33,10 @@
     "coherence_check": {
         "primary": "stepfun/step-3.5-flash:free",
         "fallbacks": [
-            "openai/gpt-oss-120b:free"
+            "z-ai/glm-4.5-air:free",
+            "google/gemma-3-27b-it:free"
         ],
         "context_limit": 256000,
-        "why": "Coherence checking prioritizes long-context reasoning for contradiction detection across chapter-scale context."
+        "why": "Reasoning-first coherence checker with fallback validators for continuity enforcement."
     }
 }

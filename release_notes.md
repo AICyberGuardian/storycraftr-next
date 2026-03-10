@@ -1,3 +1,21 @@
+## Draft Update - 2026-03-10 (Validator-Gated Runtime Status Sync and Backlog Publication)
+
+Current development target: `v0.19` (`0.19.0-dev`).
+
+### Highlights
+
+- Synchronized public and contributor documentation with the current `storycraftr book` runtime contract: strict autonomous runs are strongly fail-closed at the commit boundary and persist chapter packets, run audits, and state audit trails.
+- Added an explicit documentation note that the runtime is not yet a fully proven autonomous novelist for unreliable free-tier models: semantic/coherence checks remain mostly LLM-judged, validator independence is not guaranteed in every provider path, and some raw model responses are not yet persisted.
+- Published a repository-level `TODO.md` backlog covering the remaining hardening work for validator independence, deterministic contradiction checks, full raw artifact persistence, corpus-to-validator promotion, and real-provider operational proof.
+
+### Known Limits
+
+- Treat `storycraftr book --yes` on real providers as a supervised workflow, not a fire-and-forget automation path.
+- Packet artifacts and audits are strong, but failed-stage forensics are still incomplete until raw planner/reviewer/extractor outputs are persisted.
+- Story-quality enforcement is still a mix of validator contracts and prompt guidance; the deeper corpus is not yet fully executed as machine checks.
+
+For complete line-item history, see `CHANGELOG.md`, `docs/CHANGE_IMPACT_CHECKLIST.md`, and `TODO.md`.
+
 ## Draft Update - 2026-03-07 (Dynamic OpenRouter Discovery, Prompt Budgeting, Sub-Agent Cooldown, and Click Control-Plane)
 
 Current development target: `v0.19` (`0.19.0-dev`).

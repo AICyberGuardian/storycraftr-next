@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import re
 from typing import Any, Callable
 
 from storycraftr.agent.chapter_validator import (
@@ -90,6 +91,7 @@ class BookEngine:
         [str, int, str], tuple[bool, str | None]
     ] | None = None
     persist_validation_failure: Callable[[int, int, str, str], None] | None = None
+    persist_coherence_failure: Callable[[int, str, str], None] | None = None
     enable_semantic_review: bool = False
     coherence_interval: int = 5
     min_scene_words: int = 0
@@ -115,6 +117,24 @@ class BookEngine:
         "Expand the scene by deepening the GOAL, escalating the CONFLICT, "
         "clarifying the DISASTER, or expanding the character's internal "
         "reaction in the SEQUEL, as required by the Master Story Engineering rules."
+    )
+    _OUTCOME_MOVEMENT_MARKERS = (
+        "decides",
+        "decision",
+        "chooses",
+        "changes",
+        "discovers",
+        "fails",
+        "reveals",
+        "forces",
+        "cost",
+        "consequence",
+        "dilemma",
+        "turn",
+        "escalates",
+        "confrontation",
+        "abandons",
+        "joins",
     )
 
     def start(self, *, seed_markdown: str, target_chapters: int) -> EngineStatus:
@@ -244,6 +264,7 @@ class BookEngine:
             "coherence_gate_required": False,
             "coherence_gate_passed": None,
             "severe_canon_violation": False,
+            "retry_feedback_last": None,
         }
 
         scene_artifacts: list[SceneRunArtifact] = []
@@ -299,6 +320,18 @@ class BookEngine:
         generation_diagnostics["semantic_review_enabled"] = semantic_review_enabled
 
         def _semantic_validator(text: str) -> tuple[bool, str]:
+            parity_ok, parity_reason = self._validate_stitch_parity(
+                text,
+                edited_scenes,
+            )
+            if not parity_ok:
+                generation_diagnostics["stitch_parity_passed"] = False
+                generation_diagnostics["stitch_parity_last_reason"] = parity_reason
+                return False, parity_reason
+
+            generation_diagnostics["stitch_parity_passed"] = True
+            generation_diagnostics["stitch_parity_last_reason"] = None
+
             if not semantic_review_enabled or self.run_semantic_review is None:
                 return True, "ok"
 
@@ -317,7 +350,24 @@ class BookEngine:
             generation_diagnostics["semantic_review_last_reason"] = cleaned_reason
             return False, f"semantic_review:{cleaned_reason}"
 
-        def _generate_validated_chapter() -> str:
+        def _generate_validated_chapter(*, feedback: str | None = None) -> str:
+            if feedback is not None:
+                cleaned_feedback = str(feedback).strip()
+                generation_diagnostics["retry_feedback_last"] = cleaned_feedback
+                if cleaned_feedback.startswith(("semantic_review:", "coherence_gate:")):
+                    correction = (
+                        "CRITICAL CORRECTION: The previous chapter attempt failed "
+                        "validation. You must delete non-compliant text and rewrite "
+                        "to follow the approved Scene Plan exactly. "
+                        f"Failure reason: {cleaned_feedback}."
+                    )
+                    _regenerate_scene_pipeline(
+                        repair_directive=correction,
+                        repair_in_system_prompt=True,
+                    )
+                else:
+                    _regenerate_scene_pipeline()
+
             try:
                 stitched = self.stitch_chapter(edited_scenes, chapter_number)
             except Exception as exc:
@@ -384,7 +434,6 @@ class BookEngine:
                             raise RuntimeError(
                                 f"Chapter retry escalation callback failed: {exc}"
                             ) from exc
-                    _regenerate_scene_pipeline()
 
             try:
                 stitched_text = guarded_generation(
@@ -490,6 +539,17 @@ class BookEngine:
                     break
 
                 if repair_attempt >= max_repair_attempts:
+                    if self.persist_coherence_failure is not None:
+                        try:
+                            self.persist_coherence_failure(
+                                chapter_number,
+                                coherence_review,
+                                stitched_text,
+                            )
+                        except Exception as exc:
+                            raise BookEngineError(
+                                f"Failed to persist coherence failure artifact: {exc}"
+                            ) from exc
                     raise BookEngineError(
                         f"Coherence gate rejected chapter: {coherence_review}"
                     )
@@ -700,6 +760,32 @@ class BookEngine:
                 f"{artifact_name.title()} output appears truncated or incomplete"
             )
 
+    def _validate_stitch_parity(
+        self,
+        stitched_text: str,
+        edited_scenes: list[str],
+    ) -> tuple[bool, str]:
+        """Detect stitch-stage summarization that drops too much drafted prose."""
+
+        total_scene_words = sum(
+            self._word_count(scene_text)
+            for scene_text in edited_scenes
+            if scene_text.strip()
+        )
+        if total_scene_words <= 0:
+            return True, "ok"
+
+        stitched_words = self._word_count(stitched_text)
+        minimum_allowed_words = max(1, int(total_scene_words * 0.75))
+        if stitched_words < minimum_allowed_words:
+            return (
+                False,
+                "stitcher_summarization_detected - excessive content loss "
+                f"({stitched_words} < {minimum_allowed_words})",
+            )
+
+        return True, "ok"
+
     def _validate_scene_directive(
         self,
         directive: SceneDirective,
@@ -720,6 +806,15 @@ class BookEngine:
                     "Scene planning produced weak directive "
                     f"'{field_name}' in scene {scene_number}"
                 )
+
+        outcome = str(getattr(directive, "outcome", "")).strip().lower()
+        marker_pattern = r"\b(" + "|".join(self._OUTCOME_MOVEMENT_MARKERS) + r")\b"
+        if not re.search(marker_pattern, outcome):
+            markers = ", ".join(self._OUTCOME_MOVEMENT_MARKERS)
+            raise BookEngineError(
+                "Scene planning outcome must include a decision-beat movement marker "
+                f"({markers}) in scene {scene_number}"
+            )
 
     @staticmethod
     def _word_count(text: str) -> int:

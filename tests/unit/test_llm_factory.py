@@ -350,6 +350,10 @@ def test_openrouter_wrapper_retries_then_succeeds(monkeypatch):
 
 def test_openrouter_wrapper_falls_back_after_retry_exhaustion(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    monkeypatch.setenv(
+        "STORYCRAFTR_OPENROUTER_FALLBACK_MODELS",
+        "stepfun/step-3.5-flash:free",
+    )
 
     primary = mock.Mock()
     primary._generate.side_effect = TimeoutError("timed out")
@@ -365,7 +369,7 @@ def test_openrouter_wrapper_falls_back_after_retry_exhaustion(monkeypatch):
             model = build_chat_model(
                 LLMSettings(
                     provider="openrouter",
-                    model="meta-llama/llama-3.3-70b-instruct",
+                    model="meta-llama/llama-3.3-70b-instruct:free",
                 )
             )
             result = model._generate(messages=[], stop=None, run_manager=None)

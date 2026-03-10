@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Documentation
+
+- **Validator runtime status sync** — Updated `README.md`, `docs/getting_started.md`, `docs/architecture-onboarding.md`, `docs/contributor-reference.md`, and `release_notes.md` to distinguish the current fail-closed commit guarantees from the remaining gaps that still block StoryCraftr from claiming a fully proven autonomous writing pipeline for unreliable free-tier models.
+- **Repository TODO backlog** — Added `TODO.md` to track the engineering recommendations from the March 2026 repository audit, including validator independence, deterministic contradiction checks, raw artifact persistence, story-corpus enforcement, and real-provider operational proof.
+
 ### Added
 
 - **Continuity-grounded generation prompts** — `storycraftr book` now injects canonical continuity grounding (`narrative_state`, `canon.yml`, and recent chapter history summary) into outline, planning, drafting, editing, stitching, and retry prompts to reduce post-hoc-only validation gaps.

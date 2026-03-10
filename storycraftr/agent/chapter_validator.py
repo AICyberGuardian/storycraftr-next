@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import re
+import time
 from difflib import SequenceMatcher
 from typing import Callable
 
-
 MIN_WORDS = 800
-MAX_RETRIES = 3
+MAX_RETRIES = 9
 DUPLICATE_THRESHOLD = 0.92
+_TRANSIENT_MODEL_ERROR_TOKENS = (
+    "model invocation failed",
+    "rate-limited",
+    "error code: 429",
+    "error code: 502",
+)
 
 
 def word_count(text: str) -> int:
@@ -46,8 +52,13 @@ def validate_chapter(text: str, min_words: int = MIN_WORDS) -> tuple[bool, str]:
     return True, "ok"
 
 
+def _is_transient_model_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(token in message for token in _TRANSIENT_MODEL_ERROR_TOKENS)
+
+
 def guarded_generation(
-    generate_fn: Callable[[], str],
+    generate_fn: Callable[..., str],
     *,
     max_retries: int = MAX_RETRIES,
     min_words: int = MIN_WORDS,
@@ -58,8 +69,29 @@ def guarded_generation(
     """Retry generation until chapter content validates or retries are exhausted."""
 
     last_reason = "unknown"
-    for attempt in range(1, max_retries + 1):
-        text = generate_fn()
+    next_feedback: str | None = None
+    attempt = 1
+    while attempt <= max_retries:
+        try:
+            if next_feedback is None:
+                text = generate_fn()
+            else:
+                try:
+                    text = generate_fn(feedback=next_feedback)
+                except TypeError:
+                    # Backward compatibility for generators that do not accept
+                    # feedback keyword arguments.
+                    text = generate_fn()
+        except Exception as exc:
+            if _is_transient_model_error(exc):
+                print(
+                    "[CompletenessGuard] transient model/network failure; "
+                    "retrying without consuming generation budget"
+                )
+                time.sleep(10)
+                continue
+            raise
+
         valid, reason = validate_chapter(text, min_words=min_words)
         if valid and semantic_validator is not None:
             try:
@@ -77,6 +109,9 @@ def guarded_generation(
 
         if on_retry is not None:
             on_retry(attempt, max_retries, reason)
+
+        next_feedback = reason
+        attempt += 1
 
     raise RuntimeError(
         "Chapter generation failed completeness validation after retries: "

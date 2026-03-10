@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 from storycraftr.tui.canon import list_facts
 
-
 _NEGATION_TOKENS = {"not", "no", "never", "cannot", "can't", "won't", "without"}
 
 

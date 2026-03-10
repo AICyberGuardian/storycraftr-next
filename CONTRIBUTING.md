@@ -49,6 +49,32 @@ If there are no formal tests in place, please test your changes to the best of y
 
 ### 6. Commit Your Changes
 
+Before committing, you must run formatting and all repository hooks.
+
+Required pre-commit sequence:
+
+```bash
+poetry run black .
+poetry run pre-commit run --all-files
+git add -A
+```
+
+If pre-commit modifies files, stage again and re-run hooks until they pass.
+
+Security and hygiene requirements:
+
+- Never commit secrets (API keys, tokens, passwords, credentials).
+- If a test fixture intentionally contains a fake secret-like value, use `# nosec B105  # pragma: allowlist secret` on that assignment line.
+- Remove Windows metadata files such as `*:Zone.Identifier` before committing.
+- Do not bypass hooks with `--no-verify` in normal development.
+
+detect-secrets guidance:
+
+- `detect-secrets` may flag example credential strings used in docs/scripts.
+- Keep those examples inline-allowlisted instead of removing hooks or weakening checks.
+- Use `# pragma: allowlist secret` on known-safe examples.
+- Never disable hooks with `--no-verify` except true emergencies that are later corrected in follow-up commits.
+
 Use Semantic Commit Messages to make your changes clearer and more organized. The format is:
 
 ```bash
@@ -77,6 +103,14 @@ Examples:
   ```
 
 Make sure to commit often with meaningful messages to keep track of your changes effectively.
+
+Optional helper script:
+
+```bash
+./scripts/dev_commit.sh -m "feat(scope): clear message"
+```
+
+This script runs formatting + pre-commit + staging before `git commit`.
 
 ### 7. Push Your Changes
 

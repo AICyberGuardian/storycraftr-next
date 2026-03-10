@@ -28,7 +28,6 @@ from storycraftr.utils.project_lock import project_write_lock
 from .models import SubAgentRole
 from .storage import ensure_storage_dirs, load_roles, seed_default_roles
 
-
 logger = logging.getLogger(__name__)
 
 _MODEL_EXHAUSTED_COOLDOWN_SECONDS = 30.0

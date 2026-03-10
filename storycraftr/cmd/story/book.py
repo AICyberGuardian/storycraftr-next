@@ -5,8 +5,10 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import threading
+import time
 import sys
-from typing import Any
+from typing import Any, Callable
 
 import click
 from rich.console import Console
@@ -50,6 +52,12 @@ class BookRunSummary:
     chapters_generated: int
     coherence_reviews_run: int
     patch_operations_applied: int
+    chapters_attempted: int = 0
+    retries: int = 0
+    escalations: int = 0
+    semantic_reviews_run: int = 0
+    elapsed_seconds: float = 0.0
+    final_status: str = "unknown"
 
 
 _SCENE_DIRECTIVE_KEYS = ("goal", "conflict", "stakes", "outcome")
@@ -948,7 +956,7 @@ def run_book_pipeline(
             "Autonomous strict mode requires a valid project configuration"
         )
 
-    min_scene_words = 250 if enforce_completeness_guard else 0
+    min_scene_words = 225 if enforce_completeness_guard else 0
     min_chapter_words = 750 if enforce_completeness_guard else 0
     min_directive_words = 2 if enforce_completeness_guard else 1
     configured_semantic_review = bool(
@@ -965,7 +973,136 @@ def run_book_pipeline(
     role_model_specs: dict[str, tuple[str, ...]] = {}
     role_models: dict[str, tuple[Any, ...]] = {}
     role_model_indices: dict[str, int] = {}
+    role_escalation_counts: dict[str, int] = {}
     base_settings: LLMSettings | None = None
+    configured_model = (
+        str(getattr(runtime_config, "llm_model", "")).strip() or "<unset>"
+    )
+    run_started = time.monotonic()
+    telemetry: dict[str, int] = {
+        "retries": 0,
+        "escalations": 0,
+        "semantic_reviews_run": 0,
+    }
+
+    def _provider_display_name(name: str) -> str:
+        normalized = str(name).strip().lower()
+        if normalized == "openrouter":
+            return "OpenRouter"
+        if normalized == "openai":
+            return "OpenAI"
+        if normalized == "ollama":
+            return "Ollama"
+        return normalized or "provider"
+
+    def _emit_chapter_progress(chapter_number: int, message: str) -> None:
+        console.print(f"[Chapter {chapter_number}] {message}")
+
+    def _resolve_effective_model(llm: Any, *, fallback_model: str) -> str:
+        resolved_name = getattr(llm, "last_resolved_model", None)
+        if isinstance(resolved_name, str) and resolved_name.strip():
+            return resolved_name.strip()
+
+        idx = getattr(llm, "last_resolved_model_index", None)
+        sequence = getattr(llm, "model_sequence", None)
+        if isinstance(idx, int) and isinstance(sequence, list):
+            if 0 <= idx < len(sequence):
+                return str(sequence[idx]).strip() or fallback_model
+
+        model_name = getattr(llm, "model_name", None)
+        if isinstance(model_name, str) and model_name.strip():
+            return model_name.strip()
+        model = getattr(llm, "model", None)
+        if isinstance(model, str) and model.strip():
+            return model.strip()
+        return fallback_model
+
+    def _model_source(
+        *,
+        role: str,
+        requested_index: int,
+        effective_model: str,
+        using_rankings: bool,
+    ) -> str:
+        if provider_name != "openrouter" or not using_rankings:
+            return "explicit_config"
+        if effective_model == "openrouter/free":
+            return "openrouter_free_router"
+        if requested_index > 0 and role_escalation_counts.get(role, 0) > 0:
+            return "escalation_ladder"
+        if requested_index == 0:
+            return "rankings_primary"
+        return "fallback"
+
+    def _print_stage_model_line(
+        *,
+        chapter_number: int,
+        stage_name: str,
+        role: str,
+        effective_model: str,
+        source: str,
+    ) -> None:
+        _emit_chapter_progress(
+            chapter_number,
+            (
+                f"Stage={stage_name} role={role} "
+                f"configured={configured_model} effective={effective_model} "
+                f"source={source}"
+            ),
+        )
+
+    def _invoke_with_heartbeat(
+        *,
+        chapter_number: int,
+        invoker: Callable[[], str],
+    ) -> str:
+        stop_event = threading.Event()
+        provider_label = _provider_display_name(provider_name)
+        heartbeat_seconds = 15.0
+        heartbeat_raw = os.getenv("STORYCRAFTR_BOOK_HEARTBEAT_SECONDS", "").strip()
+        if heartbeat_raw:
+            try:
+                heartbeat_seconds = max(0.05, float(heartbeat_raw))
+            except ValueError:
+                heartbeat_seconds = 15.0
+
+        def _heartbeat() -> None:
+            elapsed = 0.0
+            while not stop_event.wait(heartbeat_seconds):
+                elapsed += heartbeat_seconds
+                elapsed_label = (
+                    f"{int(round(elapsed))}s"
+                    if heartbeat_seconds >= 1.0
+                    else f"{elapsed:.2f}s"
+                )
+                _emit_chapter_progress(
+                    chapter_number,
+                    f"Waiting on {provider_label} response... {elapsed_label} elapsed",
+                )
+
+        thread = threading.Thread(target=_heartbeat, daemon=True)
+        thread.start()
+        try:
+            return invoker()
+        finally:
+            stop_event.set()
+            thread.join(timeout=0.1)
+
+    def _print_final_run_summary(final_status: str) -> None:
+        elapsed = time.monotonic() - run_started
+        _emit_chapter_progress(
+            max(1, min(chapters, max(1, len(engine.history) or 1))),
+            "Run summary:",
+        )
+        console.print(f"  elapsed={elapsed:.1f}s")
+        console.print(f"  chapters_attempted={chapters}")
+        console.print(f"  chapters_committed={len(engine.history)}")
+        console.print(f"  retries={telemetry['retries']}")
+        console.print(f"  escalations={telemetry['escalations']}")
+        console.print(f"  semantic_reviews_run={telemetry['semantic_reviews_run']}")
+        console.print(f"  coherence_reviews_run={coherence_reviews_run}")
+        console.print(f"  final_status={final_status}")
+
     if runtime_config is not None and hasattr(runtime_config, "llm_provider"):
         base_settings = llm_settings_from_config(runtime_config)
     if provider_name == "openrouter" and runtime_config is not None:
@@ -1039,6 +1176,8 @@ def run_book_pipeline(
     def _invoke_role_text(
         role: str,
         *,
+        chapter_number: int,
+        stage_name: str,
         system_rules: str,
         prompt: str,
         fallback_llm: Any | None = None,
@@ -1075,7 +1214,30 @@ def run_book_pipeline(
         candidates = role_models.get(role, tuple())
         if not candidates:
             llm = fallback_llm if fallback_llm is not None else assistant.llm
-            return _invoke_llm_text(llm, system_rules=system_rules, prompt=prompt)
+            requested_model = _resolve_effective_model(
+                llm,
+                fallback_model=configured_model,
+            )
+            response_text = _invoke_with_heartbeat(
+                chapter_number=chapter_number,
+                invoker=lambda: _invoke_llm_text(
+                    llm,
+                    system_rules=system_rules,
+                    prompt=prompt,
+                ),
+            )
+            effective_model = _resolve_effective_model(
+                llm,
+                fallback_model=requested_model,
+            )
+            _print_stage_model_line(
+                chapter_number=chapter_number,
+                stage_name=stage_name,
+                role=role,
+                effective_model=effective_model,
+                source="explicit_config",
+            )
+            return response_text
 
         start_index = role_model_indices.get(role, 0)
         if start_index < 0 or start_index >= len(candidates):
@@ -1092,7 +1254,37 @@ def run_book_pipeline(
         for candidate_index, llm in ordered_candidates:
             try:
                 role_model_indices[role] = candidate_index
-                return _invoke_llm_text(llm, system_rules=system_rules, prompt=prompt)
+                requested_model = (
+                    role_model_specs.get(role, tuple())[candidate_index]
+                    if candidate_index < len(role_model_specs.get(role, tuple()))
+                    else configured_model
+                )
+                response_text = _invoke_with_heartbeat(
+                    chapter_number=chapter_number,
+                    invoker=lambda: _invoke_llm_text(
+                        llm,
+                        system_rules=system_rules,
+                        prompt=prompt,
+                    ),
+                )
+                effective_model = _resolve_effective_model(
+                    llm,
+                    fallback_model=requested_model,
+                )
+                source = _model_source(
+                    role=role,
+                    requested_index=candidate_index,
+                    effective_model=effective_model,
+                    using_rankings=bool(role_model_specs.get(role, tuple())),
+                )
+                _print_stage_model_line(
+                    chapter_number=chapter_number,
+                    stage_name=stage_name,
+                    role=role,
+                    effective_model=effective_model,
+                    source=source,
+                )
+                return response_text
             except Exception as exc:
                 errors.append(str(exc))
 
@@ -1100,7 +1292,13 @@ def run_book_pipeline(
             f"All ranked models failed for role '{role}': {errors[-1] if errors else 'unknown error'}"
         )
 
-    def _rotate_role_model(role: str, *, reason: str) -> bool:
+    def _rotate_role_model(
+        role: str,
+        *,
+        reason: str,
+        chapter_number: int,
+        attempt: int,
+    ) -> bool:
         """Rotate active role model to the next ranked candidate."""
 
         candidates = role_models.get(role, tuple())
@@ -1115,17 +1313,15 @@ def run_book_pipeline(
             return False
 
         role_model_indices[role] = next_index
+        telemetry["escalations"] += 1
+        role_escalation_counts[role] = role_escalation_counts.get(role, 0) + 1
         model_ids = role_model_specs.get(role, tuple())
-        current_model = (
-            model_ids[current_index] if current_index < len(model_ids) else "<unknown>"
-        )
         next_model = (
             model_ids[next_index] if next_index < len(model_ids) else "<unknown>"
         )
-        console.print(
-            "[yellow]Model escalation:[/yellow] "
-            f"role={role} reason={reason} "
-            f"{current_model} -> {next_model}"
+        _emit_chapter_progress(
+            chapter_number,
+            f"Escalating {role} model to {next_model} (attempt {attempt}) reason={reason}",
         )
         return True
 
@@ -1137,7 +1333,11 @@ def run_book_pipeline(
     ) -> None:
         """Escalate prose/editing models when scene retries indicate quality stasis."""
 
-        del chapter_number, scene_number
+        telemetry["retries"] += 1
+        _emit_chapter_progress(
+            chapter_number,
+            f"Scene {scene_number} failed validation: {reason}",
+        )
         if provider_name != "openrouter":
             return
         if attempt < 2:
@@ -1145,13 +1345,28 @@ def run_book_pipeline(
 
         reason_lower = reason.lower()
         if "too_short" in reason_lower or "validation" in reason_lower:
-            _rotate_role_model("batch_prose", reason=reason)
-            _rotate_role_model("batch_editing", reason=reason)
+            _rotate_role_model(
+                "batch_prose",
+                reason=reason,
+                chapter_number=chapter_number,
+                attempt=attempt,
+            )
+            _rotate_role_model(
+                "batch_editing",
+                reason=reason,
+                chapter_number=chapter_number,
+                attempt=attempt,
+            )
 
     def _on_chapter_validation_retry(attempt: int, total: int, reason: str) -> None:
         """Escalate ranked models after repeated chapter-level quality failures."""
 
-        del total
+        telemetry["retries"] += 1
+        chapter_number = max(1, engine.current_chapter)
+        _emit_chapter_progress(
+            chapter_number,
+            f"Chapter validation retry {attempt}/{total}: {reason}",
+        )
         if provider_name != "openrouter":
             return
         if attempt < 2:
@@ -1163,23 +1378,93 @@ def run_book_pipeline(
             token in reason_lower
             for token in ("too_short", "duplicate", "truncated", "empty_output")
         ):
-            rotated = _rotate_role_model("batch_prose", reason=reason) or rotated
-            rotated = _rotate_role_model("batch_editing", reason=reason) or rotated
+            rotated = (
+                _rotate_role_model(
+                    "batch_prose",
+                    reason=reason,
+                    chapter_number=chapter_number,
+                    attempt=attempt,
+                )
+                or rotated
+            )
+            rotated = (
+                _rotate_role_model(
+                    "batch_editing",
+                    reason=reason,
+                    chapter_number=chapter_number,
+                    attempt=attempt,
+                )
+                or rotated
+            )
         if "semantic_review" in reason_lower:
-            rotated = _rotate_role_model("coherence_check", reason=reason) or rotated
+            rotated = (
+                _rotate_role_model(
+                    "batch_prose",
+                    reason=reason,
+                    chapter_number=chapter_number,
+                    attempt=attempt,
+                )
+                or rotated
+            )
+            rotated = (
+                _rotate_role_model(
+                    "batch_editing",
+                    reason=reason,
+                    chapter_number=chapter_number,
+                    attempt=attempt,
+                )
+                or rotated
+            )
+            # Keep reviewer rotation as a tertiary fallback when generation
+            # ladders are exhausted or unavailable.
+            if not rotated:
+                rotated = (
+                    _rotate_role_model(
+                        "coherence_check",
+                        reason=reason,
+                        chapter_number=chapter_number,
+                        attempt=attempt,
+                    )
+                    or rotated
+                )
 
         if not rotated:
-            _rotate_role_model("batch_prose", reason=reason)
+            _rotate_role_model(
+                "batch_prose",
+                reason=reason,
+                chapter_number=chapter_number,
+                attempt=attempt,
+            )
 
     def _on_coherence_repair_retry(attempt: int, total: int, reason: str) -> None:
         """Force escalation before coherence repair regeneration attempts."""
 
-        del attempt, total
+        telemetry["retries"] += 1
+        chapter_number = max(1, engine.current_chapter)
+        _emit_chapter_progress(
+            chapter_number,
+            f"Coherence repair retry {attempt}/{total}: {reason}",
+        )
         if provider_name != "openrouter":
             return
-        _rotate_role_model("batch_prose", reason=f"coherence_repair:{reason}")
-        _rotate_role_model("batch_editing", reason=f"coherence_repair:{reason}")
-        _rotate_role_model("coherence_check", reason=f"coherence_repair:{reason}")
+        _rotate_role_model(
+            "batch_prose",
+            reason=f"coherence_repair:{reason}",
+            chapter_number=chapter_number,
+            attempt=attempt,
+        )
+        _rotate_role_model(
+            "batch_editing",
+            reason=f"coherence_repair:{reason}",
+            chapter_number=chapter_number,
+            attempt=attempt,
+        )
+        _rotate_role_model(
+            "coherence_check",
+            reason=f"coherence_repair:{reason}",
+            chapter_number=chapter_number,
+            attempt=attempt,
+        )
 
     def _build_grounding_context(
         *,
@@ -1226,6 +1511,7 @@ def run_book_pipeline(
         chapter_number: int,
         history: tuple[ChapterRunArtifact, ...],
     ) -> str:
+        _emit_chapter_progress(chapter_number, "Outline generation started...")
         grounding = _build_grounding_context(
             chapter_number=chapter_number,
             history=history,
@@ -1240,14 +1526,19 @@ def run_book_pipeline(
                 "Return markdown bullets only.",
             ]
         )
-        return _invoke_role_text(
+        output = _invoke_role_text(
             "batch_planning",
+            chapter_number=chapter_number,
+            stage_name="outline",
             system_rules=rules.planner.text,
             prompt=prompt,
             fallback_llm=assistant.llm,
         )
+        _emit_chapter_progress(chapter_number, "Outline generation complete")
+        return output
 
     def _build_scene_plan(outline: str, chapter_number: int) -> list[SceneDirective]:
+        _emit_chapter_progress(chapter_number, "Scene planning started...")
         directives: list[SceneDirective] = []
         grounding = _build_grounding_context(
             chapter_number=chapter_number,
@@ -1260,6 +1551,11 @@ def run_book_pipeline(
                     "Use this approved chapter outline:",
                     outline,
                     grounding,
+                    (
+                        "Directive requirement: outcome must include at least one "
+                        "movement marker word such as decides, changes, discovers, "
+                        "or fails."
+                    ),
                 ]
             )
 
@@ -1271,6 +1567,8 @@ def run_book_pipeline(
                 planner_role = "batch_planning" if attempt_index == 0 else "repair_json"
                 planner_response = _invoke_role_text(
                     planner_role,
+                    chapter_number=chapter_number,
+                    stage_name="scene_plan",
                     system_rules=rules.planner.text,
                     prompt=planner_prompt,
                     fallback_llm=assistant.llm,
@@ -1293,6 +1591,10 @@ def run_book_pipeline(
                         [
                             "Repair this into strict JSON with keys:",
                             "goal, conflict, stakes, outcome.",
+                            (
+                                "Outcome must contain at least one movement marker: "
+                                "decides, changes, discovers, or fails."
+                            ),
                             "Return JSON only with double-quoted keys/values.",
                             planner_response,
                         ]
@@ -1304,6 +1606,10 @@ def run_book_pipeline(
                 ) from last_error
 
             directives.append(parsed_directive)
+        _emit_chapter_progress(
+            chapter_number,
+            f"Scene planning complete ({len(directives)} scenes)",
+        )
         return directives
 
     def _draft_scene(
@@ -1313,6 +1619,10 @@ def run_book_pipeline(
         repair_directive: str | None = None,
         repair_in_system_prompt: bool = False,
     ) -> str:
+        _emit_chapter_progress(
+            chapter_number,
+            f"Drafting scene {scene_number}/3...",
+        )
         grounding = _build_grounding_context(
             chapter_number=chapter_number,
             history=engine.history,
@@ -1333,12 +1643,19 @@ def run_book_pipeline(
                     f"CRITICAL CORRECTION:\n{repair_directive.strip()}",
                 ]
             )
-        return _invoke_role_text(
+        output = _invoke_role_text(
             "batch_prose",
+            chapter_number=chapter_number,
+            stage_name="draft",
             system_rules=drafter_rules,
             prompt=prompt,
             fallback_llm=assistant.llm,
         )
+        _emit_chapter_progress(
+            chapter_number,
+            f"Drafting scene {scene_number}/3 complete ({_word_count(output)} words)",
+        )
+        return output
 
     def _edit_scene(
         directive: SceneDirective,
@@ -1346,6 +1663,10 @@ def run_book_pipeline(
         chapter_number: int,
         scene_number: int,
     ) -> str:
+        _emit_chapter_progress(
+            chapter_number,
+            f"Editing scene {scene_number}/3...",
+        )
         grounding = _build_grounding_context(
             chapter_number=chapter_number,
             history=engine.history,
@@ -1358,12 +1679,19 @@ def run_book_pipeline(
             directive=directive,
             draft=draft,
         )
-        return _invoke_role_text(
+        output = _invoke_role_text(
             "batch_editing",
+            chapter_number=chapter_number,
+            stage_name="edit",
             system_rules=rules.editor.text,
             prompt=prompt,
             fallback_llm=assistant.llm,
         )
+        _emit_chapter_progress(
+            chapter_number,
+            f"Editing scene {scene_number}/3 complete ({_word_count(output)} words)",
+        )
+        return output
 
     def _retry_draft(
         directive: SceneDirective,
@@ -1389,12 +1717,15 @@ def run_book_pipeline(
         )
         return _invoke_role_text(
             "batch_prose",
+            chapter_number=chapter_number,
+            stage_name="draft_retry",
             system_rules=rules.drafter.text,
             prompt=retry_prompt,
             fallback_llm=assistant.llm,
         )
 
     def _stitch_chapter(edited_scenes: list[str], chapter_number: int) -> str:
+        _emit_chapter_progress(chapter_number, "Stitching started...")
         grounding = _build_grounding_context(
             chapter_number=chapter_number,
             history=engine.history,
@@ -1412,14 +1743,22 @@ def run_book_pipeline(
                 ],
             ]
         )
-        return _invoke_role_text(
+        output = _invoke_role_text(
             "batch_editing",
+            chapter_number=chapter_number,
+            stage_name="stitch",
             system_rules=rules.stitcher.text,
             prompt=prompt,
             fallback_llm=assistant.llm,
         )
+        _emit_chapter_progress(
+            chapter_number,
+            f"Stitching complete ({_word_count(output)} words)",
+        )
+        return output
 
     def _derive_state_update(chapter_text: str, chapter_number: int) -> dict[str, Any]:
+        _emit_chapter_progress(chapter_number, "State extraction started...")
         try:
             snapshot = state_store.load()
         except StateValidationError as exc:
@@ -1428,6 +1767,8 @@ def run_book_pipeline(
         def _invoke_extraction_role(prompt: str) -> str:
             return _invoke_role_text(
                 "repair_json",
+                chapter_number=chapter_number,
+                stage_name="state_extract",
                 system_rules=rules.editor.text,
                 prompt=prompt,
                 fallback_llm=assistant.llm,
@@ -1439,13 +1780,19 @@ def run_book_pipeline(
             chapter_number=chapter_number,
             invoke_json_role=_invoke_extraction_role,
         )
-        return {
+        state_update = {
             "chapter_text": chapter_text,
             "chapter_number": chapter_number,
             "patch": extraction.patch,
             "events": extraction.events,
             "snapshot": snapshot,
         }
+        patch_operations = len(getattr(extraction.patch, "operations", []))
+        _emit_chapter_progress(
+            chapter_number,
+            f"State extraction complete ({patch_operations} patch ops)",
+        )
+        return state_update
 
     def _commit_state_update(update: dict[str, Any], chapter_number: int) -> None:
         path_config = (
@@ -1549,6 +1896,7 @@ def run_book_pipeline(
                 'Return strict JSON only: {"status":"PASS"} or {"status":"FAIL","reason":"..."}.',
                 "Mark FAIL only for severe canon contradictions, impossible timeline shifts,",
                 "or continuity regressions that should block commit.",
+                "CRITICAL: You are a Continuity Guard, NOT a literary critic. DO NOT fail the chapter for subjective stylistic reasons like 'pacing', 'show don't tell', or 'feeling like a setup'. ONLY mark FAIL if there is a HARD logical impossibility, a resurrected character, or a direct contradiction of the Canon Facts.",
                 f"Target chapter: {chapter_number}",
                 "Seed:",
                 seed,
@@ -1561,8 +1909,11 @@ def run_book_pipeline(
             ]
         )
         try:
+            _emit_chapter_progress(chapter_number, "Coherence review started...")
             raw = _invoke_role_text(
                 "coherence_check",
+                chapter_number=chapter_number,
+                stage_name="coherence_review",
                 system_rules=rules.editor.text,
                 prompt=prompt,
                 fallback_llm=semantic_reviewer_llm,
@@ -1570,12 +1921,16 @@ def run_book_pipeline(
             payload = json.loads(_extract_json_object(raw))
             status = str(payload.get("status", "")).strip().upper()
             if status == "PASS":
+                _emit_chapter_progress(chapter_number, "Coherence review PASS")
                 return True, str(payload.get("reason", "pass")).strip() or "pass"
             if status == "FAIL":
                 reason = str(payload.get("reason", "unspecified_violation")).strip()
+                _emit_chapter_progress(chapter_number, "Coherence review FAIL")
                 return False, reason or "unspecified_violation"
+            _emit_chapter_progress(chapter_number, "Coherence review FAIL")
             return False, f"coherence_invalid_status:{status or 'missing'}"
         except Exception as exc:
+            _emit_chapter_progress(chapter_number, "Coherence review FAIL")
             return False, f"coherence_invalid_response:{exc}"
 
     def _push_soft_memory(chapter: ChapterRunArtifact) -> None:
@@ -1641,6 +1996,8 @@ def run_book_pipeline(
         try:
             raw = _invoke_role_text(
                 "coherence_check",
+                chapter_number=update.get("chapter_number", 0) or 0,
+                stage_name="canon_violation_check",
                 system_rules=rules.editor.text,
                 prompt=prompt,
                 fallback_llm=assistant.llm,
@@ -1660,9 +2017,15 @@ def run_book_pipeline(
 
         if semantic_reviewer_llm is None:
             return True, None
+        telemetry["semantic_reviews_run"] += 1
+        _emit_chapter_progress(chapter_number, "Semantic review started...")
 
         canon_data = load_canon(book_path)
         canon_payload = json.dumps(canon_data, ensure_ascii=True)
+        try:
+            state_payload = json.dumps(_jsonable(state_store.load()), ensure_ascii=True)
+        except Exception:
+            state_payload = "{}"
         prompt = "\n".join(
             [
                 f"Chapter: {chapter_number}",
@@ -1672,6 +2035,8 @@ def run_book_pipeline(
                 outline_text.strip(),
                 "Canon Facts JSON:",
                 canon_payload,
+                "Narrative State JSON:",
+                state_payload,
                 "Generated Chapter:",
                 chapter_text.strip(),
                 "Return JSON only.",
@@ -1679,21 +2044,46 @@ def run_book_pipeline(
         )
 
         try:
-            raw = _invoke_llm_text(
+            raw = _invoke_with_heartbeat(
+                chapter_number=chapter_number,
+                invoker=lambda: _invoke_llm_text(
+                    semantic_reviewer_llm,
+                    system_rules=reviewer_rules,
+                    prompt=prompt,
+                ),
+            )
+            effective_model = _resolve_effective_model(
                 semantic_reviewer_llm,
-                system_rules=reviewer_rules,
-                prompt=prompt,
+                fallback_model=configured_model,
+            )
+            _print_stage_model_line(
+                chapter_number=chapter_number,
+                stage_name="semantic_review",
+                role="coherence_check",
+                effective_model=effective_model,
+                source=_model_source(
+                    role="coherence_check",
+                    requested_index=role_model_indices.get("coherence_check", 0),
+                    effective_model=effective_model,
+                    using_rankings=bool(
+                        role_model_specs.get("coherence_check", tuple())
+                    ),
+                ),
             )
             payload = json.loads(_extract_json_object(raw))
         except Exception as exc:
+            _emit_chapter_progress(chapter_number, "Semantic review FAIL")
             return False, f"reviewer_invalid_response:{exc}"
 
         status = str(payload.get("status", "")).strip().upper()
         if status == "PASS":
+            _emit_chapter_progress(chapter_number, "Semantic review PASS")
             return True, None
         if status == "FAIL":
             reason = str(payload.get("reason", "unspecified_violation")).strip()
+            _emit_chapter_progress(chapter_number, "Semantic review FAIL")
             return False, reason or "unspecified_violation"
+        _emit_chapter_progress(chapter_number, "Semantic review FAIL")
         return False, f"reviewer_invalid_status:{status or 'missing'}"
 
     def _persist_generation_failure(
@@ -1718,6 +2108,25 @@ def run_book_pipeline(
             encoding="utf-8",
         )
 
+    def _persist_coherence_failure(
+        chapter_number: int,
+        gate_reason: str,
+        stitched_text: str,
+    ) -> None:
+        """Persist last stitched chapter on coherence-gate hard failures."""
+
+        packet_dir = _chapter_packet_dir(book_path, runtime_config, chapter_number)
+        failures_dir = packet_dir / "failures"
+        failures_dir.mkdir(parents=True, exist_ok=True)
+        failure_file = failures_dir / "coherence_fail_last_attempt.txt"
+        failure_file.write_text(
+            (
+                f"Coherence gate failed: {str(gate_reason).strip() or 'unspecified'}\n\n"
+                f"{str(stitched_text).strip()}\n"
+            ),
+            encoding="utf-8",
+        )
+
     engine = BookEngine(
         build_outline=_build_outline,
         build_scene_plan=_build_scene_plan,
@@ -1736,6 +2145,7 @@ def run_book_pipeline(
         enable_semantic_review=enable_semantic_review,
         run_semantic_review=_run_semantic_review,
         persist_validation_failure=_persist_generation_failure,
+        persist_coherence_failure=_persist_coherence_failure,
         on_scene_generation_retry=_on_scene_generation_retry,
         on_chapter_validation_retry=_on_chapter_validation_retry,
         on_coherence_repair_retry=_on_coherence_repair_retry,
@@ -1798,6 +2208,10 @@ def run_book_pipeline(
             if status.stage == BookEngineStage.STATE_REVIEW:
                 pending = status.pending_chapter
                 assert pending is not None
+                _emit_chapter_progress(
+                    pending.chapter_number,
+                    "Chapter validation started...",
+                )
                 update = pending.state_update
                 patch = update.get("patch")
                 operation_count = len(getattr(patch, "operations", []))
@@ -1878,6 +2292,10 @@ def run_book_pipeline(
                     raise BookEngineError(
                         "Stage validator contract failed before commit"
                     )
+                _emit_chapter_progress(
+                    pending.chapter_number,
+                    "Chapter validation complete (PASS)",
+                )
 
                 try:
                     packet_dir = _write_precommit_packet(
@@ -1900,7 +2318,15 @@ def run_book_pipeline(
                     "Approve state commit and persist chapter?",
                     default=True,
                 )
+                _emit_chapter_progress(
+                    pending.chapter_number,
+                    "Canon/state/chapter commit started...",
+                )
                 status = engine.approve_state_commit(approved=approved)
+                _emit_chapter_progress(
+                    pending.chapter_number,
+                    "Canon/state/chapter commit complete",
+                )
 
                 packet_dir = chapter_packet_dirs.get(pending.chapter_number)
                 if packet_dir is not None:
@@ -1948,10 +2374,18 @@ def run_book_pipeline(
             raise BookEngineError(f"Unexpected engine stage: {status.stage}")
 
         run_status = "succeeded"
+        _print_final_run_summary("succeeded")
+        elapsed = time.monotonic() - run_started
         return BookRunSummary(
             chapters_generated=len(engine.history),
             coherence_reviews_run=coherence_reviews_run,
             patch_operations_applied=patch_operations_applied,
+            chapters_attempted=chapters,
+            retries=telemetry["retries"],
+            escalations=telemetry["escalations"],
+            semantic_reviews_run=telemetry["semantic_reviews_run"],
+            elapsed_seconds=elapsed,
+            final_status="succeeded",
         )
     except Exception as exc:
         run_error = str(exc)
@@ -1963,6 +2397,7 @@ def run_book_pipeline(
                 "[red]Final guard trip summary:[/red] "
                 f"guard={failed_guard}, error={run_error or '<none>'}"
             )
+            _print_final_run_summary("failed")
         _write_book_audit(
             book_path=book_path,
             config=runtime_config,
@@ -2066,3 +2501,7 @@ def book(book_path: str | None, seed_path: str, chapters: int, yes: bool) -> Non
     console.print(f"Chapters generated: {summary.chapters_generated}")
     console.print(f"Patch operations applied: {summary.patch_operations_applied}")
     console.print(f"Coherence reviews run: {summary.coherence_reviews_run}")
+    console.print(f"Retries: {summary.retries}")
+    console.print(f"Escalations: {summary.escalations}")
+    console.print(f"Semantic reviews run: {summary.semantic_reviews_run}")
+    console.print(f"Elapsed seconds: {summary.elapsed_seconds:.1f}")

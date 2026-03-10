@@ -2,6 +2,65 @@
 
 ## Change History
 
+### 2026-03-10 — Commit workflow hardening docs + helper script
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `AGENTS.md` with a mandatory pre-commit workflow loop (`poetry run black .`, `poetry run pre-commit run --all-files`, restage/re-run until clean) and explicit secret/Zone.Identifier guardrails.
+	- Updated `CONTRIBUTING.md` commit section with required formatting/hook commands, restage semantics after hook rewrites, and security/hygiene requirements.
+	- Added `scripts/dev_commit.sh` as a one-command helper that runs formatting, hooks, staging, and then `git commit`.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (no dependency/lockfile, runtime behavior, config/schema, sub-agent lifecycle/path contract, event-contract, or security-tooling policy changes).
+
+### 2026-03-10 — Audit-driven docs sync + repository TODO backlog
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `README.md` and `docs/getting_started.md` to document the current validator-gated `storycraftr book` runtime status more precisely, separating strong fail-closed commit guarantees from still-open semantic/auditability limitations.
+	- Updated contributor docs (`docs/architecture-onboarding.md`, `docs/contributor-reference.md`) so maintainers know `TODO.md` is the repository-level backlog for validator hardening and audit follow-up.
+	- Updated `release_notes.md` and `CHANGELOG.md` to publish the current runtime-status summary and the new backlog artifact.
+	- Added `TODO.md` with concrete follow-up recommendations covering validator independence, deterministic contradiction checks, raw artifact persistence, corpus-to-validator promotion, and real-provider operational proof.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (docs-only synchronization; no dependency/lockfile, runtime behavior, config/schema, sub-agent lifecycle/path contract, event-contract, or security-tooling behavior changes).
+
+### 2026-03-10 — Coherence failure artifact persistence + stitch parity guard hardening
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Added coherence-failure artifact persistence in `storycraftr/cmd/story/book.py` so hard coherence-gate rejections now write `outline/chapter_packets/chapter-<nnn>/failures/coherence_fail_last_attempt.txt` containing the gate reason and final stitched text before fail-closed halt.
+	- Added a stitch-parity guard in `storycraftr/agent/book_engine.py` that rejects stitch outputs when stitched chapter word count drops below 75% of edited-scene aggregate words, emitting `stitcher_summarization_detected` into the existing chapter validation retry ladder.
+	- Added unit coverage in `tests/unit/test_book_engine.py` for stitch-parity retry behavior and coherence-failure artifact callback invocation before coherence halt.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema-shape changes, no sub-agent lifecycle/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-10 — Semantic retry escalation retarget + multi-POV ranking/prompt tuning
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/cmd/story/book.py::_on_chapter_validation_retry(...)` so `semantic_review:*` chapter failures escalate generation roles (`batch_prose`, `batch_editing`) first, with `coherence_check` retained only as tertiary fallback when generation ladders are unavailable.
+	- Updated `storycraftr/cmd/story/book.py::_run_semantic_review(...)` to include a bounded `Narrative State JSON` block in the reviewer prompt so state/canon continuity violations are judged against deterministic runtime state, not canon facts alone.
+	- Updated `storycraftr/config/rankings.json` to prioritize instruction-adherent free models for generation flow (`batch_prose` primary -> `meta-llama/llama-3.3-70b-instruct:free`; `batch_editing` primary -> `meta-llama/llama-3.3-70b-instruct:free`) and moved previous primaries into fallbacks.
+	- Hardened `storycraftr/prompts/drafter_rules.md` with an explicit multi-thread/POV requirement forbidding omission/merge of required scene-owner threads.
+	- Updated `tests/test_cli.py` telemetry regression to assert semantic retry escalation logs target `batch_prose`.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema-shape changes, no sub-agent lifecycle/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-10 — Phase 7U feedback handshake for semantic retry self-healing
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Updated `storycraftr/agent/chapter_validator.py::guarded_generation(...)` to pass failure reasons as `feedback` into subsequent generation attempts, while keeping backward compatibility for generator callables that do not accept feedback arguments.
+	- Updated `storycraftr/agent/book_engine.py::_execute_chapter_pipeline(...)` retry flow so chapter-validation retries consume semantic/coherence failure reasons and inject correction directives into regenerated drafts instead of blind retries.
+	- Lowered strict-provider scene minimum threshold in `storycraftr/cmd/story/book.py` from `250` to `225` words to reduce near-threshold false rejections.
+	- Added/updated unit tests in `tests/unit/test_chapter_validator.py` and `tests/unit/test_book_engine.py` to cover feedback propagation and semantic-retry correction injection.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema-shape changes, no sub-agent lifecycle/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-10 — Prompt hardening for correction-driven scene-plan enforcement
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Added correction-directive enforcement text to `storycraftr/prompts/editor_rules.md` requiring aggressive deletion/rewrite of scene-plan-violating hallucinated content instead of salvage edits.
+	- Added strict scene-plan adherence text to `storycraftr/prompts/drafter_rules.md` forbidding location/sequence invention and requiring deletion of deviations when correction feedback is provided.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema-shape changes, no sub-agent lifecycle/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-09 — Retry-budget hardening for transient provider errors + ranked fallback preservation
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Restored ranked-candidate failover behavior in `storycraftr/cmd/story/book.py::_invoke_role_text(...)` so per-role model iteration continues through configured fallbacks when a candidate errors.
+	- Hardened `storycraftr/agent/chapter_validator.py::guarded_generation(...)` so transient transport/provider failures (for example `Model invocation failed`, `rate-limited`, `Error code: 429/502`) do not consume chapter-quality retry budget; guarded generation now sleeps and retries generation without incrementing creative-attempt counters.
+	- Added regression coverage in `tests/test_cli.py` proving fallback candidate selection is preserved after primary ranked model failure, and in `tests/unit/test_chapter_validator.py` proving transient transport failures do not burn retry budget.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no dependency/lockfile changes, no Story/Paper config schema-shape changes, no sub-agent lifecycle/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
 ### 2026-03-09 — Phase 7P runtime escalation ladder + scene-density retry guidance
 - **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
 - **Impact:**

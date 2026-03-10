@@ -23,6 +23,10 @@ For most code changes, read these first:
 Read `README.md` too if the change affects install flow, CLI/TUI behavior,
 configuration examples, or public workflow descriptions.
 
+Read `TODO.md` too if the change affects validator-gated `storycraftr book`
+runtime guarantees, audit artifact completeness, semantic/coherence validation,
+or story-quality enforcement scope.
+
 ## File Catalog
 
 | File | Category | Summary | Update When |
@@ -35,6 +39,7 @@ configuration examples, or public workflow descriptions.
 | `README.md` | user-facing | Main public product overview, install/setup flow, config examples, CLI/TUI feature surface, contributor entry point. | Public behavior, install, config, commands, UX, or contributor onboarding messaging changes. |
 | `CONTRIBUTING.md` | contributor-guide | Generic contribution process and PR workflow. | Contribution process or contributor entry guidance changes. |
 | `CHANGELOG.md` | user-facing | User-visible shipped and unreleased changes. | Behavior changes that matter to users or developers. Also required for version bumps. |
+| `TODO.md` | shared-reference | Repository-level engineering backlog for validator hardening, auditability, story-quality enforcement, and operational proof follow-up. | Roadmap priorities, audit findings, or major reliability recommendations change. |
 | `release_notes.md` | release-facing | Draft release narrative and grouped highlights. | Release messaging or notable user-facing changes need summarizing. |
 | `SECURITY.md` | area-specific | Credential handling, provider safety, secret hygiene, and vulnerability reporting. | Auth, credentials, networking, endpoints, or secret-handling behavior changes. |
 | `docs/getting_started.md` | user-facing | Detailed onboarding walkthrough with setup and workflow examples. | Setup steps, runtime flow, config examples, or new user workflows change. |
@@ -133,6 +138,7 @@ configuration examples, or public workflow descriptions.
 - `docs/getting_started.md`
 - `docs/chat.md`
 - `CHANGELOG.md`
+- `TODO.md` when the behavior changes close or reprioritize backlog items
 - `release_notes.md` when the release narrative should reflect the change
 
 ### Contributor Workflow Or Repo Contract Changes
@@ -207,3 +213,4 @@ configuration examples, or public workflow descriptions.
 - **Project Write Locking**: Cross-process coordination via `project_write_lock` (reentrant within thread, file-locked across processes).
 - **Path Resolution**: Use `storycraftr/utils/paths.py::resolve_project_paths()` for all internal state paths; never hardcode `.storycraftr/` literals.
 - **Prompt Diagnostics**: `PromptDiagnostics` metadata tracks included/pruned/truncated sections with token estimates for observability without generation changes.
+- **Validator Roadmap**: `TODO.md` tracks the remaining blockers before StoryCraftr can honestly claim a fully validator-gated, fully auditable autonomous writing pipeline for unreliable free-tier models.

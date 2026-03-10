@@ -15,7 +15,7 @@ def _directive(label: str) -> SceneDirective:
         goal=f"Goal {label}",
         conflict=f"Conflict {label}",
         stakes=f"Stakes {label}",
-        outcome=f"Outcome {label}",
+        outcome=f"Decides outcome {label}",
     )
 
 
@@ -574,6 +574,82 @@ def test_book_engine_retries_when_semantic_review_rejects_chapter() -> None:
     assert diagnostics["semantic_review_last_reason"] is None
 
 
+def test_book_engine_injects_semantic_feedback_into_retry_draft_prompt() -> None:
+    review_calls = {"count": 0}
+    seen_repair_directives: list[str] = []
+    first = True
+
+    def _draft_scene(
+        directive: SceneDirective,
+        chapter: int,
+        scene: int,
+        repair_directive: str | None = None,
+        repair_in_system_prompt: bool = False,
+    ) -> str:
+        del directive, chapter, scene, repair_in_system_prompt
+        seen_repair_directives.append(repair_directive or "")
+        return _long_scene("draft", 280)
+
+    def _stitch(_scenes: list[str], _chapter: int) -> str:
+        nonlocal first
+        if first:
+            first = False
+            return _long_scene("semantic-first", 820)
+        return _long_scene("semantic-retry", 820)
+
+    def _semantic_review(
+        chapter_text: str,
+        chapter_number: int,
+        outline_text: str,
+    ) -> tuple[bool, str | None]:
+        del chapter_text, chapter_number, outline_text
+        review_calls["count"] += 1
+        if review_calls["count"] == 1:
+            return False, "skipped interrogation scene"
+        return True, None
+
+    engine = BookEngine(
+        build_outline=lambda seed, chapter, history: "outline",
+        build_scene_plan=lambda outline, chapter: [
+            _directive("a"),
+            _directive("b"),
+            _directive("c"),
+        ],
+        draft_scene=_draft_scene,
+        edit_scene=lambda directive, draft, chapter, scene: _long_scene(
+            f"scene{scene}", 280
+        ),
+        stitch_chapter=_stitch,
+        derive_state_update=lambda chapter_text, chapter: {
+            "operations": [{"chapter": chapter}]
+        },
+        commit_state_update=lambda update, chapter: None,
+        min_scene_words=225,
+        min_chapter_words=800,
+        max_chapter_validation_attempts=3,
+        enable_semantic_review=True,
+        run_semantic_review=_semantic_review,
+    )
+
+    engine.start(seed_markdown="# seed", target_chapters=1)
+    status = engine.approve_outline(approved=True)
+
+    assert status.pending_chapter is not None
+    diagnostics = status.pending_chapter.generation_diagnostics
+    assert diagnostics["chapter_validation_last_retry_reason"] == (
+        "semantic_review:skipped interrogation scene"
+    )
+    assert (
+        diagnostics["retry_feedback_last"]
+        == "semantic_review:skipped interrogation scene"
+    )
+    assert any(
+        "skipped interrogation scene" in directive
+        for directive in seen_repair_directives
+        if directive
+    )
+
+
 def test_book_engine_passes_scene_density_directive_on_short_scene_retry() -> None:
     retry_directives: list[str | None] = []
     edit_calls = {"count": 0}
@@ -794,3 +870,91 @@ def test_book_engine_fails_closed_when_coherence_repair_is_exhausted() -> None:
     engine.start(seed_markdown="# seed", target_chapters=1)
     with pytest.raises(BookEngineError, match="Coherence gate rejected chapter"):
         engine.approve_outline(approved=True)
+
+
+def test_book_engine_retries_when_stitch_summarization_detected() -> None:
+    retry_reasons: list[str] = []
+    stitch_calls = {"count": 0}
+
+    def _stitch(scenes: list[str], chapter: int) -> str:
+        del chapter
+        stitch_calls["count"] += 1
+        if stitch_calls["count"] == 1:
+            # Deliberately compress output to trigger stitch parity guard.
+            return " ".join("summary" for _ in range(600))
+        return "\n\n".join(scenes)
+
+    engine = BookEngine(
+        build_outline=lambda seed, chapter, history: "outline",
+        build_scene_plan=lambda outline, chapter: [
+            _directive("a"),
+            _directive("b"),
+            _directive("c"),
+        ],
+        draft_scene=lambda directive, chapter, scene: _long_scene(f"draft{scene}"),
+        edit_scene=lambda directive, draft, chapter, scene: _long_scene(
+            f"scene{scene}"
+        ),
+        stitch_chapter=_stitch,
+        derive_state_update=lambda chapter_text, chapter: {
+            "operations": [{"chapter": chapter}]
+        },
+        commit_state_update=lambda update, chapter: None,
+        min_scene_words=250,
+        min_chapter_words=500,
+        on_chapter_validation_retry=lambda attempt, total, reason: retry_reasons.append(
+            reason
+        ),
+    )
+
+    engine.start(seed_markdown="# seed", target_chapters=1)
+    status = engine.approve_outline(approved=True)
+
+    assert status.stage == BookEngineStage.STATE_REVIEW
+    assert status.pending_chapter is not None
+    assert stitch_calls["count"] == 2
+    assert retry_reasons
+    assert retry_reasons[0].startswith("stitcher_summarization_detected")
+
+
+def test_book_engine_persists_coherence_failure_before_halt() -> None:
+    persisted: list[tuple[int, str, str]] = []
+
+    def _coherence(seed: str, history: tuple[object, ...]) -> tuple[bool, str]:
+        del seed, history
+        return False, "severe canon contradiction"
+
+    engine = BookEngine(
+        build_outline=lambda seed, chapter, history: "outline",
+        build_scene_plan=lambda outline, chapter: [
+            _directive("a"),
+            _directive("b"),
+            _directive("c"),
+        ],
+        draft_scene=lambda directive, chapter, scene: _long_scene(f"draft{scene}"),
+        edit_scene=lambda directive, draft, chapter, scene: _long_scene(
+            f"scene{scene}"
+        ),
+        stitch_chapter=lambda scenes, chapter: "\n\n".join(scenes),
+        derive_state_update=lambda chapter_text, chapter: {
+            "operations": [{"chapter": chapter}]
+        },
+        commit_state_update=lambda update, chapter: None,
+        run_coherence_review=_coherence,
+        persist_coherence_failure=lambda chapter, reason, text: persisted.append(
+            (chapter, reason, text)
+        ),
+        min_scene_words=250,
+        min_chapter_words=800,
+        enforce_coherence_each_chapter=True,
+    )
+
+    engine.start(seed_markdown="# seed", target_chapters=1)
+    with pytest.raises(BookEngineError, match="Coherence gate rejected chapter"):
+        engine.approve_outline(approved=True)
+
+    assert len(persisted) == 1
+    chapter_number, reason, stitched_text = persisted[0]
+    assert chapter_number == 1
+    assert "severe canon contradiction" in reason
+    assert stitched_text.strip()

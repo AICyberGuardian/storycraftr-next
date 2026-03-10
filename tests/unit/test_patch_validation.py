@@ -19,7 +19,6 @@ from storycraftr.agent.narrative_state import (
     StateValidationError,
 )
 
-
 # ============================================================================
 # DEAD CHARACTER MOVEMENT TESTS
 # ============================================================================

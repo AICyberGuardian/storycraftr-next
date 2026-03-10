@@ -13,6 +13,9 @@ It also serves as the single contributor entry point for routine work; detailed
 file-by-file maintenance mapping is centralized in
 `docs/contributor-reference.md`.
 
+Current roadmap note:
+- `TODO.md` is the repository-level engineering backlog for validator hardening, auditability gaps, and story-quality enforcement follow-up identified during the March 2026 repository audit.
+
 ## Minimum Mandatory Set
 
 For most code changes, the required reading set is only:
@@ -28,6 +31,12 @@ Read `README.md` as part of the mandatory set only when your change affects:
 - configuration examples
 - public workflow descriptions
 
+Read `TODO.md` when your change touches:
+- validator-gated `storycraftr book` behavior
+- audit artifact persistence
+- semantic/coherence review hardening
+- story-quality enforcement or roadmap prioritization
+
 Do not require the long architecture reference for routine changes.
 
 For the file-by-file catalog and update matrix, use
@@ -36,6 +45,9 @@ For the file-by-file catalog and update matrix, use
 Deep reference note:
 - `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md` is a
    deep architecture reference and is not part of the routine must-read set.
+
+Reliability note:
+- The current `storycraftr book` runtime is strong at fail-closed commit safety, but it is not yet fully proven as a deterministic autonomous writing pipeline. Semantic/coherence validation is still largely LLM-judged, and some raw model outputs are not yet persisted for complete disk-only forensics.
 
 ## System In One View
 

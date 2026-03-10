@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from storycraftr.agent.narrative_state import SceneDirective
 
-
 _JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 

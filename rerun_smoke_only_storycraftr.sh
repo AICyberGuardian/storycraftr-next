@@ -122,6 +122,21 @@ MD
 echo "==> Smoke config"
 cat "$BOOK_DIR/storycraftr.json" | tee "$LOG_DIR/storycraftr.json.snapshot.log"
 
+echo "==> Runtime environment snapshot"
+{
+  echo "date_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "hostname=$(hostname)"
+  echo "pwd=$(pwd)"
+  echo "which_storycraftr=$(command -v storycraftr || true)"
+  echo "storycraftr_version=$(storycraftr --version 2>/dev/null || true)"
+  echo "python_executable=$(command -v python || true)"
+  echo "python_version=$(python --version 2>&1 || true)"
+  echo "poetry_version=$(poetry --version 2>&1 || true)"
+  echo "main_model=$MAIN_MODEL"
+  echo "embed_device=$EMBED_DEVICE"
+  echo "chapters=$CHAPTERS"
+} | tee "$LOG_DIR/runtime_env.log"
+
 echo "==> Running StoryCraftr smoke"
 set +e
 storycraftr book \
@@ -154,6 +169,7 @@ for p in \
   "$LOG_DIR/run.log" \
   "$BOOK_DIR/outline/canon.yml" \
   "$BOOK_DIR/outline/narrative_state.json" \
+  "$BOOK_DIR/outline/narrative_audit.jsonl" \
   "$BOOK_DIR/outline/book_audit.json" \
   "$BOOK_DIR/outline/book_audit.md"
 do
@@ -184,8 +200,14 @@ if not audit.exists():
 data = json.loads(audit.read_text(encoding="utf-8"))
 print("status =", data.get("status"))
 print("chapters_generated =", data.get("chapters_generated"))
+print("chapters_target =", data.get("chapters_target"))
 print("coherence_reviews_run =", data.get("coherence_reviews_run"))
+print("patch_operations_applied =", data.get("patch_operations_applied"))
+print("failed_guard =", data.get("failed_guard"))
 print("error =", data.get("error"))
+
+chapters = data.get("chapters", [])
+print("chapter_audit_rows =", len(chapters) if isinstance(chapters, list) else 0)
 PY
 
 echo
@@ -202,12 +224,41 @@ echo "==> Validator / packet inventory"
 find "$BOOK_DIR/outline" -maxdepth 6 \( -name "*validator*" -o -name "*coherence*" -o -name "*semantic*" -o -path "*/failures/*" \) -type f | sort | tee "$LOG_DIR/validator_packet_inventory.log" || true
 
 echo
+echo "==> Structured packet forensics inventory"
+find "$BOOK_DIR/outline/chapter_packets" -maxdepth 8 -type f \( \
+  -name "diagnostics.json" -o \
+  -name "validator_report.json" -o \
+  -name "scene_*_validator_report.json" -o \
+  -name "canon_delta.yml" -o \
+  -name "state_patch.json" -o \
+  -name "metadata.json" -o \
+  -name "planner_output.txt" -o \
+  -name "drafter_output.txt" -o \
+  -name "editor_output.txt" -o \
+  -name "reviewer_output.txt" -o \
+  -name "state_extractor_output.txt" \
+\) | sort | tee "$LOG_DIR/forensics_inventory.log" || true
+
+echo
 echo "==> Chapter packet inventory"
 find "$BOOK_DIR/outline/chapter_packets" -maxdepth 6 -type f | sort | tee "$LOG_DIR/chapter_packet_inventory.txt" || true
 
 echo
 echo "==> Failure inventory"
 find "$BOOK_DIR/outline/chapter_packets" -path "*/failures/*" -type f | sort | tee "$LOG_DIR/failure_inventory.txt" || true
+
+echo
+echo "==> Narrative audit inventory"
+if [[ -f "$BOOK_DIR/outline/narrative_audit.jsonl" ]]; then
+  wc -l "$BOOK_DIR/outline/narrative_audit.jsonl" | tee "$LOG_DIR/narrative_audit_line_count.log"
+  tail -n 120 "$BOOK_DIR/outline/narrative_audit.jsonl" | tee "$LOG_DIR/narrative_audit_tail.log"
+else
+  echo "narrative_audit.jsonl missing" | tee "$LOG_DIR/narrative_audit_line_count.log"
+fi
+
+echo
+echo "==> Run guard signal grep"
+grep -nEi "guard|semantic|coherence|validator|canon_fact_conflict|validator_independence_failed|scene_structure_missing|audit_commit_failure|retry|escalat" "$LOG_DIR/run.log" | tee "$LOG_DIR/run_guard_signals.log" || true
 
 echo
 echo "==> Tail of run.log"
@@ -278,6 +329,15 @@ echo "==> Building snapshot_manifest.md"
     echo "narrative_state.json missing"
   fi
   echo
+  echo "## Narrative Audit Tail"
+  if [[ -f "$LOG_DIR/narrative_audit_tail.log" ]]; then
+    echo '```json'
+    cat "$LOG_DIR/narrative_audit_tail.log"
+    echo '```'
+  else
+    echo "narrative_audit_tail.log missing"
+  fi
+  echo
   echo "## Chapter Word Counts"
   echo '```text'
   cat "$LOG_DIR/chapter_word_counts.log" 2>/dev/null || true
@@ -298,6 +358,16 @@ echo "==> Building snapshot_manifest.md"
   cat "$LOG_DIR/failure_inventory.txt" 2>/dev/null || true
   echo '```'
   echo
+  echo "## Forensics Inventory"
+  echo '```text'
+  cat "$LOG_DIR/forensics_inventory.log" 2>/dev/null || true
+  echo '```'
+  echo
+  echo "## Run Guard Signals"
+  echo '```text'
+  cat "$LOG_DIR/run_guard_signals.log" 2>/dev/null || true
+  echo '```'
+  echo
   echo "## Run Log Tail"
   echo '```text'
   cat "$LOG_DIR/run_tail.log" 2>/dev/null || true
@@ -305,85 +375,70 @@ echo "==> Building snapshot_manifest.md"
 } > "$RUN_DIR/snapshot_manifest.md"
 
 echo "==> Building snapshot_packets.md"
+BOOK_DIR="$BOOK_DIR" python - <<'PY' > "$RUN_DIR/snapshot_packets.md"
+import os
+from pathlib import Path
 
-{
-  echo "# StoryCraftr Packet Snapshot"
-  echo
+book_dir = Path(os.environ["BOOK_DIR"])
+packets_root = book_dir / "outline" / "chapter_packets"
 
-  CH1="$BOOK_DIR/outline/chapter_packets/chapter-001"
-  CH2="$BOOK_DIR/outline/chapter_packets/chapter-002"
+print("# StoryCraftr Packet Snapshot")
+print()
 
-  if [[ -f "$CH1/diagnostics.json" ]]; then
-    echo "## Chapter 1 Diagnostics"
-    echo '```json'
-    cat "$CH1/diagnostics.json"
-    echo '```'
-    echo
-  fi
+if not packets_root.exists():
+    print("chapter_packets directory missing")
+    raise SystemExit(0)
 
-  if [[ -f "$CH1/validator_report.json" ]]; then
-    echo "## Chapter 1 Validator Report"
-    echo '```json'
-    cat "$CH1/validator_report.json"
-    echo '```'
-    echo
-  fi
 
-  if [[ -f "$CH1/scene_plan.json" ]]; then
-    echo "## Chapter 1 Scene Plan"
-    echo '```json'
-    cat "$CH1/scene_plan.json"
-    echo '```'
-    echo
-  fi
+def _emit_block(title: str, path: Path, lang: str, max_chars: int = 120000) -> None:
+    if not path.exists():
+        return
+    print(f"## {title}")
+    print(f"- path: {path}")
+    print(f"- size_bytes: {path.stat().st_size}")
+    print(f"```{lang}")
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if len(text) > max_chars:
+        print(text[:max_chars].rstrip())
+        print("\n...[truncated]...")
+    else:
+        print(text.rstrip())
+    print("```")
+    print()
 
-  if [[ -f "$CH1/canon_delta.yml" ]]; then
-    echo "## Chapter 1 Canon Delta"
-    echo '```yaml'
-    cat "$CH1/canon_delta.yml"
-    echo '```'
-    echo
-  fi
+for chapter_dir in sorted([p for p in packets_root.iterdir() if p.is_dir()]):
+    chapter_name = chapter_dir.name
+    print(f"# {chapter_name}")
+    print()
 
-  if [[ -f "$CH1/state_patch.json" ]]; then
-    echo "## Chapter 1 State Patch"
-    echo '```json'
-    cat "$CH1/state_patch.json"
-    echo '```'
-    echo
-  fi
+    _emit_block(f"{chapter_name} Diagnostics", chapter_dir / "diagnostics.json", "json")
+    _emit_block(f"{chapter_name} Validator Report", chapter_dir / "validator_report.json", "json")
+    _emit_block(f"{chapter_name} Scene Plan", chapter_dir / "scene_plan.json", "json")
+    _emit_block(f"{chapter_name} Canon Delta", chapter_dir / "canon_delta.yml", "yaml")
+    _emit_block(f"{chapter_name} State Patch", chapter_dir / "state_patch.json", "json")
 
-  if [[ -f "$CH2/failures/attempt-1.txt" ]]; then
-    echo "## Chapter 2 Failure Attempt 1"
-    echo '```text'
-    cat "$CH2/failures/attempt-1.txt"
-    echo '```'
-    echo
-  fi
+    for scene_validator in sorted(chapter_dir.glob("scene_*_validator_report.json")):
+        _emit_block(
+            f"{chapter_name} {scene_validator.name}",
+            scene_validator,
+            "json",
+            max_chars=50000,
+        )
 
-  if [[ -f "$CH2/failures/attempt-2.txt" ]]; then
-    echo "## Chapter 2 Failure Attempt 2"
-    echo '```text'
-    cat "$CH2/failures/attempt-2.txt"
-    echo '```'
-    echo
-  fi
-
-  # Include all other failure files if they exist
-  if [[ -d "$CH2/failures" ]]; then
-    for f in "$CH2"/failures/*; do
-      [[ -f "$f" ]] || continue
-      base="$(basename "$f")"
-      if [[ "$base" != "attempt-1.txt" && "$base" != "attempt-2.txt" ]]; then
-        echo "## Chapter 2 Failure: $base"
-        echo '```text'
-        cat "$f"
-        echo '```'
-        echo
-      fi
-    done
-  fi
-} > "$RUN_DIR/snapshot_packets.md"
+    failures_dir = chapter_dir / "failures"
+    if failures_dir.exists():
+        for failure_file in sorted(failures_dir.rglob("*")):
+            if not failure_file.is_file():
+                continue
+            rel = failure_file.relative_to(chapter_dir)
+            lang = "json" if failure_file.suffix == ".json" else "text"
+            _emit_block(
+                f"{chapter_name} Failure Artifact: {rel}",
+                failure_file,
+                lang,
+                max_chars=50000,
+            )
+PY
 
 echo "==> Building run_summary.json"
 python - <<PY > "$RUN_DIR/run_summary.json"
@@ -429,14 +484,24 @@ summary = {
         "run_log": (log_dir / "run.log").exists(),
         "canon_yml": (book_dir / "outline" / "canon.yml").exists(),
         "narrative_state_json": (book_dir / "outline" / "narrative_state.json").exists(),
+      "narrative_audit_jsonl": (book_dir / "outline" / "narrative_audit.jsonl").exists(),
         "book_audit_json": (book_dir / "outline" / "book_audit.json").exists(),
         "book_audit_md": (book_dir / "outline" / "book_audit.md").exists(),
         "chapter_packets": (book_dir / "outline" / "chapter_packets").exists(),
     },
+    "packet_counts": {
+      "validator_report_json": len(glob.glob(str(book_dir / "outline" / "chapter_packets" / "chapter-*" / "validator_report.json"))),
+      "scene_validator_report_json": len(glob.glob(str(book_dir / "outline" / "chapter_packets" / "chapter-*" / "scene_*_validator_report.json"))),
+      "diagnostics_json": len(glob.glob(str(book_dir / "outline" / "chapter_packets" / "chapter-*" / "diagnostics.json"))),
+      "failure_artifacts": len(glob.glob(str(book_dir / "outline" / "chapter_packets" / "chapter-*" / "failures" / "**" / "*"), recursive=True)),
+    },
     "audit": {
         "status": audit.get("status"),
         "chapters_generated": audit.get("chapters_generated"),
+      "chapters_target": audit.get("chapters_target"),
         "coherence_reviews_run": audit.get("coherence_reviews_run"),
+      "patch_operations_applied": audit.get("patch_operations_applied"),
+      "failed_guard": audit.get("failed_guard"),
         "error": audit.get("error"),
     },
 }

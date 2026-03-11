@@ -42,6 +42,8 @@ _DROP_PATTERN = re.compile(
 )
 _MAX_STRUCTURED_ATTEMPTS = 3
 _MIN_VALIDATED_CHAPTER_WORDS = 800
+_TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
+_FENCED_JSON_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
 
 
 def _to_entity_id(raw: str) -> str:
@@ -63,15 +65,54 @@ def _word_count(text: str) -> int:
 
 
 def _extract_json_object(text: str) -> str:
-    stripped = text.strip()
+    """Extract best JSON object from model output, using json-repair as a fallback."""
+    stripped = _normalize_malformed_json_text(text)
     if stripped.startswith("{") and stripped.endswith("}"):
-        return stripped
+        try:
+            json.loads(stripped)
+            return stripped
+        except json.JSONDecodeError:
+            pass
 
     first = stripped.find("{")
     last = stripped.rfind("}")
     if first != -1 and last != -1 and first < last:
-        return stripped[first : last + 1]
+        candidate = stripped[first : last + 1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
+
+    # Zero-token repair via library before escalating to LLM repair role.
+    try:
+        from json_repair import repair_json  # type: ignore[import-untyped]
+
+        repaired = str(repair_json(text, return_objects=False))
+        if repaired.strip().startswith("{"):
+            json.loads(repaired)  # validate repair result
+            return repaired
+    except Exception:  # noqa: BLE001 - repair is best-effort
+        repaired = ""
+
     raise ValueError("No JSON object found in extraction payload")
+
+
+def _normalize_malformed_json_text(text: str) -> str:
+    """Deterministically strip markdown wrappers and trailing commas."""
+
+    raw = str(text).strip()
+    fenced = _FENCED_JSON_RE.search(raw)
+    if fenced is not None:
+        raw = fenced.group(1).strip()
+
+    # Try to isolate JSON block when the model wraps it in prose.
+    first = raw.find("{")
+    last = raw.rfind("}")
+    if first != -1 and last != -1 and first < last:
+        raw = raw[first : last + 1]
+
+    return _TRAILING_COMMA_RE.sub(r"\1", raw).strip()
 
 
 def _coerce_list(value: Any) -> list[Any]:
@@ -168,6 +209,7 @@ def _extract_with_structured_role(
             last_error = str(exc)
             if attempt == _MAX_STRUCTURED_ATTEMPTS:
                 break
+            normalized_raw = _normalize_malformed_json_text(raw)
             prompt = "\n".join(
                 [
                     "Repair the previous extraction into valid strict JSON.",
@@ -176,7 +218,7 @@ def _extract_with_structured_role(
                     "character_deltas, relationship_changes, world_facts, thread_changes.",
                     f"Previous error: {last_error}",
                     "Previous output:",
-                    raw,
+                    normalized_raw,
                 ]
             )
 

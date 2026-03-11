@@ -23,6 +23,24 @@ def _long_scene(label: str, words: int = 280) -> str:
     return " ".join(f"{label}{idx}" for idx in range(words)) + "."
 
 
+def _scene_from_directive(
+    directive: SceneDirective,
+    *,
+    label: str,
+    filler_words: int = 240,
+) -> str:
+    core = " ".join(
+        [
+            f"{label} {directive.goal}.",
+            f"{label} {directive.conflict}.",
+            f"{label} because {directive.stakes}.",
+            f"{label} {directive.outcome}.",
+        ]
+    )
+    filler = " ".join(f"{label}{idx}" for idx in range(filler_words))
+    return f"{core} {filler}."
+
+
 def test_book_engine_runs_single_chapter_with_approvals() -> None:
     committed: list[tuple[dict[str, str], int]] = []
 
@@ -362,6 +380,139 @@ def test_book_engine_retries_scene_when_edit_output_is_incomplete() -> None:
     assert status.stage == BookEngineStage.STATE_REVIEW
     assert calls["retry"] == 1
     assert calls["edit"] >= 2
+
+
+def test_book_engine_retries_scene_with_targeted_structure_correction() -> None:
+    repair_payloads: list[tuple[str | None, bool]] = []
+    scene_one_edits = {"count": 0}
+    scene_one_directive = SceneDirective(
+        goal="Lyra seeks proof of the hidden rebellion",
+        conflict="City guards crowd the alley and block her contact",
+        stakes="If caught Lyra will be executed as a rebel courier",
+        outcome="Lyra discovers the coded message and decides to find the scribe",
+    )
+
+    def _edit_scene(
+        directive: SceneDirective,
+        draft: str,
+        chapter: int,
+        scene: int,
+    ) -> str:
+        del directive, chapter
+        if scene == 1:
+            scene_one_edits["count"] += 1
+            if scene_one_edits["count"] == 1:
+                return (
+                    "Lyra stalked the alley for proof while the guards pressed closer. "
+                    "The contact never appeared, and she slipped away because the risk "
+                    "of capture was rising around her. "
+                    + " ".join(f"drift{idx}" for idx in range(260))
+                    + "."
+                )
+        return draft
+
+    def _retry_draft(
+        directive: SceneDirective,
+        chapter: int,
+        scene: int,
+        repair_directive: str | None = None,
+        repair_in_system_prompt: bool = False,
+    ) -> str:
+        del chapter
+        if scene == 1:
+            repair_payloads.append((repair_directive, repair_in_system_prompt))
+        return _scene_from_directive(directive, label=f"retry{scene}")
+
+    engine = BookEngine(
+        build_outline=lambda seed, chapter, history: "outline",
+        build_scene_plan=lambda outline, chapter: [
+            scene_one_directive,
+            _directive("b"),
+            _directive("c"),
+        ],
+        draft_scene=lambda directive, chapter, scene: _scene_from_directive(
+            directive,
+            label=f"draft{scene}",
+        ),
+        edit_scene=_edit_scene,
+        stitch_chapter=lambda scenes, chapter: "\n\n".join(scenes),
+        derive_state_update=lambda chapter_text, chapter: {
+            "operations": [{"chapter": chapter}]
+        },
+        commit_state_update=lambda update, chapter: None,
+        retry_draft_scene=_retry_draft,
+        min_scene_words=250,
+        min_chapter_words=750,
+        enforce_scene_structure_contract=True,
+    )
+
+    engine.start(seed_markdown="# seed", target_chapters=1)
+    status = engine.approve_outline(approved=True)
+
+    assert status.stage == BookEngineStage.STATE_REVIEW
+    assert repair_payloads
+    repair_text, used_system_prompt = repair_payloads[0]
+    assert used_system_prompt is True
+    assert repair_text is not None
+    assert "approved outcome" in repair_text.lower()
+    assert scene_one_directive.outcome in repair_text
+
+
+def test_book_engine_injects_pov_correction_on_chapter_retry() -> None:
+    repair_payloads: list[tuple[str | None, bool]] = []
+    directive = SceneDirective(
+        goal="Lyra infiltrates the archive to recover the ledger",
+        conflict="Lyra must avoid the guard captain and a locked inner vault",
+        stakes="If Lyra fails the rebellion loses its only proof of corruption",
+        outcome="Lyra decides to steal the guard ring and return before dawn",
+    )
+
+    def _draft_scene(
+        directive: SceneDirective,
+        chapter: int,
+        scene: int,
+        repair_directive: str | None = None,
+        repair_in_system_prompt: bool = False,
+    ) -> str:
+        del chapter
+        if repair_directive is not None:
+            repair_payloads.append((repair_directive, repair_in_system_prompt))
+            return _scene_from_directive(directive, label=f"retry{scene}")
+        return " ".join(f"generic{scene}_{idx}" for idx in range(280)) + "."
+
+    engine = BookEngine(
+        build_outline=lambda seed, chapter, history: "outline",
+        build_scene_plan=lambda outline, chapter: [directive, directive, directive],
+        draft_scene=_draft_scene,
+        edit_scene=lambda directive, draft, chapter, scene: draft,
+        stitch_chapter=lambda scenes, chapter: "\n\n".join(scenes),
+        derive_state_update=lambda chapter_text, chapter: {
+            "operations": [{"ok": True}]
+        },
+        commit_state_update=lambda update, chapter: None,
+        min_scene_words=250,
+        min_chapter_words=750,
+    )
+
+    engine.start(seed_markdown="# seed", target_chapters=1)
+    status = engine.approve_outline(approved=True)
+
+    assert status.stage == BookEngineStage.STATE_REVIEW
+    assert repair_payloads
+    repair_text, used_system_prompt = repair_payloads[0]
+    assert used_system_prompt is True
+    assert repair_text is not None
+    assert (
+        "[CRITICAL SYSTEM CORRECTION: Your previous attempt was rejected because "
+        "you completely omitted the required POV character: Lyra. You MUST write "
+        "from their perspective.]" == repair_text
+    )
+    assert (
+        status.pending_chapter.generation_diagnostics[
+            "chapter_validation_last_retry_reason"
+        ]
+        == "missing_pov:Lyra"
+    )
 
 
 def test_book_engine_fails_closed_on_duplicate_chapter_paragraph_loops() -> None:
@@ -777,6 +928,100 @@ def test_book_engine_invokes_retry_escalation_callbacks() -> None:
     assert any(event[3] == "scene_too_short" for event in scene_retry_events)
     assert chapter_retry_events
     assert chapter_retry_events[0][0] == 1
+
+
+def test_book_engine_repairs_scene_directive_after_repeated_structure_drift() -> None:
+    repaired_outcome = "Lyra reveals the coded message and chooses the eastern tunnels"
+    repair_calls: list[tuple[int, int, str]] = []
+    retry_outcomes: list[str] = []
+    scene_one_edits = {"count": 0}
+
+    original_directive = SceneDirective(
+        goal="Lyra seeks proof of the hidden rebellion",
+        conflict="City guards crowd the alley and block her contact",
+        stakes="If caught Lyra will be executed as a rebel courier",
+        outcome="Lyra discovers the coded message and decides to find the scribe",
+    )
+
+    def _edit_scene(
+        directive: SceneDirective,
+        draft: str,
+        chapter: int,
+        scene: int,
+    ) -> str:
+        del directive, chapter
+        if scene == 1:
+            scene_one_edits["count"] += 1
+            if scene_one_edits["count"] < 3:
+                return (
+                    "Lyra moved through the alley under pressure from the guard patrol, "
+                    "but the scene ended on a detour without the required turn. "
+                    + " ".join(f"miss{idx}" for idx in range(260))
+                    + "."
+                )
+        return draft
+
+    def _retry_draft(
+        directive: SceneDirective,
+        chapter: int,
+        scene: int,
+        repair_directive: str | None = None,
+        repair_in_system_prompt: bool = False,
+    ) -> str:
+        del chapter, repair_directive, repair_in_system_prompt
+        if scene == 1:
+            retry_outcomes.append(directive.outcome)
+        return _scene_from_directive(directive, label=f"retry{scene}")
+
+    def _repair_scene_directive(
+        directive: SceneDirective,
+        chapter: int,
+        scene: int,
+        failure_reason: str,
+    ) -> SceneDirective:
+        del directive
+        repair_calls.append((chapter, scene, failure_reason))
+        return SceneDirective(
+            goal=original_directive.goal,
+            conflict=original_directive.conflict,
+            stakes=original_directive.stakes,
+            outcome=repaired_outcome,
+        )
+
+    engine = BookEngine(
+        build_outline=lambda seed, chapter, history: "outline",
+        build_scene_plan=lambda outline, chapter: [
+            original_directive,
+            _directive("b"),
+            _directive("c"),
+        ],
+        draft_scene=lambda directive, chapter, scene: _scene_from_directive(
+            directive,
+            label=f"draft{scene}",
+        ),
+        edit_scene=_edit_scene,
+        stitch_chapter=lambda scenes, chapter: "\n\n".join(scenes),
+        derive_state_update=lambda chapter_text, chapter: {
+            "operations": [{"chapter": chapter}]
+        },
+        commit_state_update=lambda update, chapter: None,
+        retry_draft_scene=_retry_draft,
+        repair_scene_directive=_repair_scene_directive,
+        min_scene_words=250,
+        min_chapter_words=750,
+        enforce_scene_structure_contract=True,
+    )
+
+    engine.start(seed_markdown="# seed", target_chapters=1)
+    status = engine.approve_outline(approved=True)
+
+    assert status.stage == BookEngineStage.STATE_REVIEW
+    assert repair_calls == [(1, 1, "scene_structure_missing:outcome")]
+    assert retry_outcomes[-1] == repaired_outcome
+    assert status.pending_chapter is not None
+    assert (
+        status.pending_chapter.scene_artifacts[0].directive.outcome == repaired_outcome
+    )
 
 
 def test_book_engine_runs_single_coherence_repair_attempt() -> None:

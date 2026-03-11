@@ -58,3 +58,30 @@ def test_extract_state_patch_removes_dropped_item_from_inventory() -> None:
     update_ops = [op for op in result.patch.operations if op.operation == "update"]
     assert len(update_ops) == 1
     assert update_ops[0].data == {"inventory": ["key"]}
+
+
+def test_extract_state_patch_normalizes_markdown_and_trailing_commas() -> None:
+    snapshot = NarrativeStateSnapshot()
+
+    def _invoke_json_role(_prompt: str) -> str:
+        return (
+            "Model says:\n"
+            "```json\n"
+            "{\n"
+            '  "character_deltas": [\n'
+            '    {"id":"elias","name":"Elias","location":"bridge",},\n'
+            "  ],\n"
+            '  "relationship_changes": [],\n'
+            '  "world_facts": [],\n'
+            '  "thread_changes": [],\n'
+            "}\n"
+            "```"
+        )
+
+    result = extract_state_patch(
+        "Elias entered the bridge.",
+        snapshot=snapshot,
+        invoke_json_role=_invoke_json_role,
+    )
+
+    assert len(result.patch.operations) >= 1

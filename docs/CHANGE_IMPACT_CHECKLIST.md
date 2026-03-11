@@ -2,6 +2,15 @@
 
 ## Change History
 
+### 2026-03-11 — Docs and agent-contract sync for book runtime semantics
+- **Sections reviewed:** 8 (Documentation & Versioning)
+- **Impact:**
+	- Updated `README.md` and `docs/getting_started.md` to replace superseded commit-order wording with current fail-closed transactional commit/rollback semantics.
+	- Updated runtime-limit wording in `README.md`, `docs/getting_started.md`, and `release_notes.md` to reflect strict autonomous validator-independence enforcement plus current retry/failure raw-artifact persistence scope.
+	- Updated `AGENTS.md`, `.github/agents/storycraftr-engineering.agent.md`, `docs/architecture-onboarding.md`, and `docs/contributor-reference.md` so contributor/agent contracts match current behavior-file location and `storycraftr book` artifact/rollback behavior.
+	- Updated `CHANGELOG.md` unreleased entry text to remove superseded commit-order phrasing and describe the current commit transaction boundary.
+- **No impact:** sections 1, 2, 3, 4, 5, 6, and 7 (docs/contracts-only synchronization; no dependency/lockfile, runtime code path, config/schema, sub-agent lifecycle/path contract, VS Code event contract, or security-tooling behavior changes).
+
 ### 2026-03-10 — Commit workflow hardening docs + helper script
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

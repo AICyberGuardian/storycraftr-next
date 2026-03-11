@@ -12,6 +12,7 @@ max_tokens: 340
 2. PACING: Are characters agreeing too easily? Inject dialogue at cross-purposes, unspoken questions, or lies.
 3. CONTINUITY: Check for stasis. Stasis is death. Ensure the end of the scene forces a new decision or alters the protagonist's options.
 4. FIX INSTRUCTIONS: If the prose violates canon or lacks conflict, provide a precise, JSON-bounded critique to force a rewrite.
+5. OUTCOME FIDELITY: The revised scene must land the approved `outcome` directly. Do not preserve a substitute ending that changes the planned discovery, decision, failure, or reversal.
 
 ## CORRECTION DIRECTIVES
 

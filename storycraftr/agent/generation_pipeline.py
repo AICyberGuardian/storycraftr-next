@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from storycraftr.agent.narrative_state import SceneDirective
 
 _JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+_TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
 
 
 @dataclass(frozen=True)
@@ -96,15 +97,46 @@ class SceneGenerationPipeline:
     def _extract_json_object(self, text: str) -> str:
         stripped = text.strip()
         if stripped.startswith("{") and stripped.endswith("}"):
-            return stripped
+            return self._clean_json_candidate(stripped)
 
         block_match = _JSON_BLOCK_RE.search(stripped)
         if block_match is not None:
-            return block_match.group(1).strip()
+            return self._clean_json_candidate(block_match.group(1).strip())
 
         first = stripped.find("{")
         last = stripped.rfind("}")
         if first != -1 and last != -1 and first < last:
-            return stripped[first : last + 1].strip()
+            return self._clean_json_candidate(stripped[first : last + 1].strip())
 
         raise ValueError("Planner response did not include a JSON object.")
+
+    def _clean_json_candidate(self, candidate: str) -> str:
+        """Apply deterministic cleanup before the caller escalates to LLM repair.
+
+        Priority order:
+        1. Trailing-comma regex fix (zero-token, deterministic).
+        2. json-repair library (zero-token, heuristic).
+        3. Return raw candidate — LLM repair role decides.
+        """
+        cleaned = candidate.strip()
+
+        # Step 1: deterministic trailing-comma fix
+        comma_fixed = _TRAILING_COMMA_RE.sub(r"\1", cleaned)
+        try:
+            json.loads(comma_fixed)
+            return comma_fixed
+        except json.JSONDecodeError:
+            pass
+
+        # Step 2: json-repair library
+        try:
+            from json_repair import repair_json  # type: ignore[import-untyped]
+
+            lib_repaired = str(repair_json(cleaned, return_objects=False))
+            if lib_repaired.strip().startswith("{"):
+                json.loads(lib_repaired)
+                return lib_repaired
+        except Exception:  # noqa: BLE001
+            lib_repaired = ""
+
+        return cleaned

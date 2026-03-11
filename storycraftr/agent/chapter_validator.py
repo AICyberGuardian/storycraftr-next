@@ -5,6 +5,12 @@ import time
 from difflib import SequenceMatcher
 from typing import Callable
 
+from storycraftr.agent.deterministic_guards import (
+    check_draft_expansion,
+    check_pov_presence,
+    check_terminal_truncation,
+)
+
 MIN_WORDS = 800
 MAX_RETRIES = 9
 DUPLICATE_THRESHOLD = 0.92
@@ -12,8 +18,35 @@ _TRANSIENT_MODEL_ERROR_TOKENS = (
     "model invocation failed",
     "rate-limited",
     "error code: 429",
+    "error code: 500",
     "error code: 502",
+    "error code: 503",
+    "error code: 504",
+    "bad gateway",
+    "service unavailable",
+    "gateway timeout",
+    "empty response",
 )
+_OUTCOME_STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "that",
+    "this",
+    "from",
+    "into",
+    "their",
+    "they",
+    "them",
+    "will",
+    "would",
+    "could",
+    "should",
+    "scene",
+    "outcome",
+    "chapter",
+}
 
 
 def word_count(text: str) -> int:
@@ -62,6 +95,7 @@ def guarded_generation(
     *,
     max_retries: int = MAX_RETRIES,
     min_words: int = MIN_WORDS,
+    deterministic_validator: Callable[[str], tuple[bool, str]] | None = None,
     semantic_validator: Callable[[str], tuple[bool, str]] | None = None,
     on_failure: Callable[[int, int, str, str], None] | None = None,
     on_retry: Callable[[int, int, str], None] | None = None,
@@ -93,6 +127,12 @@ def guarded_generation(
             raise
 
         valid, reason = validate_chapter(text, min_words=min_words)
+        if valid and deterministic_validator is not None:
+            try:
+                valid, reason = deterministic_validator(text)
+            except Exception as exc:  # pragma: no cover - defensive fail-closed path
+                valid = False
+                reason = f"deterministic_guard_error:{exc}"
         if valid and semantic_validator is not None:
             try:
                 valid, reason = semantic_validator(text)
@@ -117,6 +157,96 @@ def guarded_generation(
         "Chapter generation failed completeness validation after retries: "
         f"{last_reason}"
     )
+
+
+class MechanicalSieve:
+    """Deterministic POV + truncation gate that short-circuits the LLM semantic reviewer.
+
+    Checks (in order):
+    1. **Truncation**: Text must end with ``.``, ``!``, ``?``, ``"``, ``'``, ``)``, or ``]``.
+    2. **POV Amnesia**: The expected POV character name must appear ≥ 2 times
+       (case-insensitive).
+
+    On failure the sieve returns a targeted correction string via ``correction_for``
+    that is injected as the retry ``feedback`` without calling the LLM reviewer.
+    """
+
+    def __init__(self, pov_name: str = "", planned_outcome: str = "") -> None:
+        self.pov_name = pov_name.strip()
+        self.planned_outcome = planned_outcome.strip()
+
+    def __call__(self, text: str) -> tuple[bool, str]:
+        ok, reason = check_terminal_truncation(text)
+        if not ok:
+            return False, reason
+        has_narrative_punctuation = any(mark in text for mark in (".", "!", "?"))
+        looks_sentence_like = has_narrative_punctuation or len(text.split()) < 50
+        if self.pov_name:
+            if looks_sentence_like:
+                ok, reason = check_pov_presence(text, self.pov_name)
+                if not ok:
+                    return False, reason
+
+        if self.planned_outcome:
+            overlap = self._keyword_overlap(self.planned_outcome, text)
+            if looks_sentence_like and overlap < 0.15:
+                return False, f"PLOT_OMISSION:{overlap:.2f}"
+
+        return True, "ok"
+
+    @staticmethod
+    def correction_for(
+        reason: str,
+        pov_name: str = "",
+        planned_outcome: str = "",
+    ) -> str:
+        """Return a targeted system correction string for the given failure token.
+
+        The string is injected verbatim as a ``feedback`` argument into the next
+        generation attempt via ``guarded_generation``.
+        """
+        if reason.startswith("terminal_truncation"):
+            return (
+                "CORRECTION: Your response was cut off mid-sentence. "
+                "Rewrite the scene so it ends with a complete sentence "
+                "terminated by '.', '?', '!', or '\"'."
+            )
+        if reason.startswith("missing_pov:"):
+            name = reason.split(":", 1)[1].strip() or pov_name
+            return (
+                f"CORRECTION: You forgot to include {name}. "
+                f"Rewrite the scene and ensure {name} appears "
+                "at least twice as an active participant."
+            )
+        if reason.upper().startswith("PLOT_OMISSION"):
+            return (
+                "CRITICAL: Your draft does not mention the planned outcome: "
+                f"{planned_outcome or '(missing outcome)'}"
+                ". Ensure this happens on-page."
+            )
+        return (
+            f"CORRECTION: The previous attempt failed with reason '{reason}'. "
+            "Rewrite to fix this specific issue."
+        )
+
+    @staticmethod
+    def _keyword_overlap(outcome: str, prose: str) -> float:
+        """Return keyword-overlap ratio between planned outcome and produced prose."""
+
+        outcome_tokens = {
+            token
+            for token in re.findall(r"\b[a-zA-Z]{3,}\b", outcome.lower())
+            if token not in _OUTCOME_STOPWORDS
+        }
+        if not outcome_tokens:
+            return 1.0
+        prose_tokens = {
+            token
+            for token in re.findall(r"\b[a-zA-Z]{3,}\b", prose.lower())
+            if token not in _OUTCOME_STOPWORDS
+        }
+        overlap = outcome_tokens & prose_tokens
+        return len(overlap) / max(1, len(outcome_tokens))
 
 
 def has_meaningful_state_signal(state_update: object) -> bool:

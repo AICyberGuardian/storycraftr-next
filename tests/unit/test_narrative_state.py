@@ -251,3 +251,31 @@ def test_render_prompt_block_version_increments(tmp_path) -> None:
     # Should contain both characters
     assert '"alice"' in result
     assert '"bob"' in result
+
+
+def test_begin_state_transaction_rolls_back_on_error(tmp_path) -> None:
+    """State file should be restored when a transactional block raises."""
+    from storycraftr.agent.narrative_state import (
+        NarrativeStateSnapshot,
+    )
+
+    store = NarrativeStateStore(str(tmp_path))
+    initial = NarrativeStateSnapshot(
+        characters={"alice": CharacterState(name="Alice", status="alive")}
+    )
+    store.save(initial)
+    original_text = store._file_path.read_text(encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="forced_error"):
+        with store.begin_state_transaction():
+            modified = NarrativeStateSnapshot(
+                characters={"bob": CharacterState(name="Bob", status="alive")}
+            )
+            store.save(modified)
+            assert '"bob"' in store._file_path.read_text(encoding="utf-8")
+            raise RuntimeError("forced_error")
+
+    restored_text = store._file_path.read_text(encoding="utf-8")
+    assert restored_text == original_text
+    assert '"alice"' in restored_text
+    assert '"bob"' not in restored_text

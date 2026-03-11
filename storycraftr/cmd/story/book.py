@@ -33,6 +33,7 @@ from storycraftr.llm.factory import (
     LLMSettings,
     build_chat_model,
     validate_openrouter_rankings_config,
+    validate_ranking_consensus,
 )
 from storycraftr.prompts.craft_rules import load_craft_rule_set
 from storycraftr.tui.canon import load_canon, save_canon
@@ -325,16 +326,39 @@ def _load_reviewer_rules() -> str:
 
 
 def _extract_json_object(text: str) -> str:
-    """Extract the most likely JSON object payload from model output text."""
+    """Extract the most likely JSON object payload from model output text.
 
+    Priority: standard bracket extraction → json-repair library (zero-token) → raise.
+    """
     stripped = text.strip()
     if stripped.startswith("{") and stripped.endswith("}"):
-        return stripped
+        try:
+            json.loads(stripped)
+            return stripped
+        except json.JSONDecodeError:
+            pass
 
     first = stripped.find("{")
     last = stripped.rfind("}")
     if first != -1 and last != -1 and first < last:
-        return stripped[first : last + 1]
+        candidate = stripped[first : last + 1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
+
+    # Zero-token repair via library before calling the LLM repair role.
+    try:
+        from json_repair import repair_json  # type: ignore[import-untyped]
+
+        repaired = str(repair_json(text, return_objects=False))
+        if repaired.strip().startswith("{"):
+            json.loads(repaired)
+            return repaired
+    except Exception:  # noqa: BLE001
+        repaired = ""
+
     raise ValueError("No JSON object found in model output")
 
 
@@ -446,6 +470,26 @@ def _persist_canon_ledger(
         if not replaced:
             facts.append(event_fact)
 
+    canon_root = data.setdefault("canon", {})
+    if not isinstance(canon_root, dict):
+        raise RuntimeError("Invalid canon ledger: 'canon' must be a mapping")
+
+    previous_facts = canon_root.get("facts")
+    if not isinstance(previous_facts, dict):
+        previous_facts = {}
+
+    structured_facts = extract_structured_facts(snapshot)
+    conflicts = validate_fact_consistency(
+        previous_facts=previous_facts,
+        new_facts=structured_facts,
+    )
+    if conflicts:
+        raise RuntimeError("canon_fact_conflict: " + " | ".join(conflicts))
+
+    canon_root["facts"] = structured_facts
+    canon_root["updated_at"] = _utc_now_iso()
+    canon_root["chapter"] = chapter_number
+
     save_canon(book_path, data)
 
 
@@ -478,6 +522,124 @@ def _word_count(text: str) -> int:
     """Count words in plain text using whitespace tokenization."""
 
     return len(str(text).split())
+
+
+def _looks_truncated(text: str) -> bool:
+    """Detect likely truncation tails in generated prose."""
+
+    stripped = str(text).rstrip()
+    if not stripped:
+        return True
+    if stripped.endswith("..."):
+        return True
+    if stripped.endswith((":", ";", ",", "-", "(", "[")):
+        return True
+    contains_terminal = any(mark in stripped for mark in (".", "!", "?"))
+    if (
+        _word_count(stripped) >= 120
+        and contains_terminal
+        and not stripped.endswith((".", "!", "?", '"', "'", ")", "]"))
+    ):
+        return True
+    if stripped.count('"') % 2 != 0:
+        return True
+    return False
+
+
+def _write_text_with_fsync(path: Path, text: str) -> None:
+    """Write UTF-8 text and fsync to reduce partial-write risk."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _summarize_model_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    """Build concise model metadata snapshot for validator artifacts."""
+
+    invocations = diagnostics.get("model_invocations", [])
+    if not isinstance(invocations, list):
+        invocations = []
+
+    latest_by_role: dict[str, dict[str, Any]] = {}
+    for row in invocations:
+        if not isinstance(row, dict):
+            continue
+        role = str(row.get("role", "")).strip().lower()
+        if not role:
+            continue
+        latest_by_role[role] = row
+
+    return {
+        "provider": str(diagnostics.get("provider", "")).strip(),
+        "drafter_model": latest_by_role.get("batch_prose", {}).get("model_id"),
+        "editor_model": latest_by_role.get("batch_editing", {}).get("model_id"),
+        "reviewer_model": latest_by_role.get("coherence_check", {}).get("model_id"),
+        "planner_model": latest_by_role.get("batch_planning", {}).get("model_id"),
+        "state_extractor_model": latest_by_role.get("repair_json", {}).get("model_id"),
+        "invocations": invocations,
+    }
+
+
+def extract_structured_facts(snapshot: Any) -> dict[str, Any]:
+    """Extract deterministic canon facts from the narrative snapshot."""
+
+    character_facts: dict[str, dict[str, Any]] = {}
+    for key, character in getattr(snapshot, "characters", {}).items():
+        character_facts[str(key)] = {
+            "status": str(getattr(character, "status", "")).strip().lower(),
+            "location": str(getattr(character, "location", "")).strip().lower(),
+            "inventory": sorted(
+                [
+                    str(item).strip().lower()
+                    for item in list(getattr(character, "inventory", []))
+                    if str(item).strip()
+                ]
+            ),
+        }
+
+    world_facts: dict[str, Any] = {}
+    for key, value in getattr(snapshot, "world", {}).items():
+        world_facts[str(key)] = _jsonable(value)
+
+    return {
+        "characters": character_facts,
+        "world": world_facts,
+        "plot_threads": json.loads(_serialize_plot_threads(snapshot)),
+    }
+
+
+def validate_fact_consistency(
+    *,
+    previous_facts: dict[str, Any],
+    new_facts: dict[str, Any],
+) -> list[str]:
+    """Return canonical fact conflicts that should fail closed."""
+
+    conflicts: list[str] = []
+    previous_characters = previous_facts.get("characters", {})
+    new_characters = new_facts.get("characters", {})
+    if not isinstance(previous_characters, dict) or not isinstance(
+        new_characters, dict
+    ):
+        return conflicts
+
+    for character_id, previous_row in previous_characters.items():
+        if not isinstance(previous_row, dict):
+            continue
+        new_row = new_characters.get(character_id)
+        if not isinstance(new_row, dict):
+            continue
+        previous_status = str(previous_row.get("status", "")).strip().lower()
+        new_status = str(new_row.get("status", "")).strip().lower()
+        if previous_status == "dead" and new_status and new_status != "dead":
+            conflicts.append(
+                f"character={character_id}; prior_status=dead; new_status={new_status}"
+            )
+
+    return conflicts
 
 
 def _trim_text(text: str, *, max_chars: int) -> str:
@@ -529,10 +691,12 @@ def _build_scene_acceptance_contract(
     *,
     chapter: ChapterRunArtifact,
     min_scene_words: int,
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Construct scene-level acceptance checks for deterministic handoff validation."""
 
     enforce_scene_length = min_scene_words > 0
+    diagnostic_payload = diagnostics or {}
     scene_reports: list[dict[str, Any]] = []
     failed_scenes: list[int] = []
 
@@ -548,7 +712,7 @@ def _build_scene_acceptance_contract(
             ),
             "draft_non_empty": bool(draft_text),
             "edit_non_empty": bool(edited_text),
-            "edit_not_truncated": not edited_text.endswith("..."),
+            "edit_not_truncated": not _looks_truncated(edited_text),
             "edit_min_words": (
                 _word_count(edited_text) >= min_scene_words
                 if enforce_scene_length
@@ -563,6 +727,7 @@ def _build_scene_acceptance_contract(
             "checks": checks,
             "failed_checks": failed_checks,
             "all_passed": not failed_checks,
+            "model_diagnostics": _summarize_model_diagnostics(diagnostic_payload),
         }
         if failed_checks:
             failed_scenes.append(scene.scene_number)
@@ -573,6 +738,7 @@ def _build_scene_acceptance_contract(
         "scenes": scene_reports,
         "failed_scenes": failed_scenes,
         "all_passed": not failed_scenes,
+        "model_diagnostics": _summarize_model_diagnostics(diagnostic_payload),
     }
 
 
@@ -620,7 +786,7 @@ def _build_stage_validator_contract(
         }
         edit_checks = {
             "edit_non_empty": bool(edited_text),
-            "edit_not_truncated": not edited_text.endswith("..."),
+            "edit_not_truncated": not _looks_truncated(edited_text),
             "edit_min_words": (
                 _word_count(edited_text) >= min_scene_words
                 if enforce_scene_words
@@ -645,7 +811,7 @@ def _build_stage_validator_contract(
     stitched_text = chapter.stitched_text.strip()
     stitch_checks = {
         "stitched_non_empty": bool(stitched_text),
-        "stitched_not_truncated": not stitched_text.endswith("..."),
+        "stitched_not_truncated": not _looks_truncated(stitched_text),
         "stitched_min_words": (
             _word_count(stitched_text) >= min_chapter_words
             if enforce_chapter_words
@@ -766,15 +932,16 @@ def _write_precommit_packet(
     acceptance: dict[str, Any],
     scene_acceptance: dict[str, Any],
     stage_contract: dict[str, Any],
+    raw_payloads: dict[str, str] | None = None,
 ) -> Path:
     """Persist a deterministic chapter packet for validator handoff before commit."""
 
     packet_dir = _chapter_packet_dir(book_path, config, chapter.chapter_number)
     packet_dir.mkdir(parents=True, exist_ok=True)
 
-    (packet_dir / "outline_context.md").write_text(
+    _write_text_with_fsync(
+        packet_dir / "outline_context.md",
         chapter.outline_text.strip() + "\n",
-        encoding="utf-8",
     )
 
     scene_plan = [
@@ -789,39 +956,40 @@ def _write_precommit_packet(
         }
         for scene in chapter.scene_artifacts
     ]
-    (packet_dir / "scene_plan.json").write_text(
+    _write_text_with_fsync(
+        packet_dir / "scene_plan.json",
         json.dumps(scene_plan, indent=2, ensure_ascii=True) + "\n",
-        encoding="utf-8",
     )
 
     for scene in chapter.scene_artifacts:
-        (packet_dir / f"scene_{scene.scene_number}_draft.md").write_text(
+        _write_text_with_fsync(
+            packet_dir / f"scene_{scene.scene_number}_draft.md",
             scene.draft_text.strip() + "\n",
-            encoding="utf-8",
         )
-        (packet_dir / f"scene_{scene.scene_number}_edit.md").write_text(
+        _write_text_with_fsync(
+            packet_dir / f"scene_{scene.scene_number}_edit.md",
             scene.edited_text.strip() + "\n",
-            encoding="utf-8",
         )
 
     for scene_report in scene_acceptance.get("scenes", []):
         scene_number = int(scene_report.get("scene_number", 0))
         if scene_number <= 0:
             continue
-        (packet_dir / f"scene_{scene_number}_validator_report.json").write_text(
+        _write_text_with_fsync(
+            packet_dir / f"scene_{scene_number}_validator_report.json",
             json.dumps(_jsonable(scene_report), indent=2, ensure_ascii=True) + "\n",
-            encoding="utf-8",
         )
 
-    (packet_dir / "stitched_chapter.md").write_text(
+    _write_text_with_fsync(
+        packet_dir / "stitched_chapter.md",
         chapter.stitched_text.strip() + "\n",
-        encoding="utf-8",
     )
 
     update = chapter.state_update if isinstance(chapter.state_update, dict) else {}
     patch = update.get("patch")
     patch_payload = _jsonable(getattr(patch, "operations", []))
-    (packet_dir / "state_patch.json").write_text(
+    _write_text_with_fsync(
+        packet_dir / "state_patch.json",
         json.dumps(
             {
                 "chapter": chapter.chapter_number,
@@ -832,11 +1000,11 @@ def _write_precommit_packet(
             ensure_ascii=True,
         )
         + "\n",
-        encoding="utf-8",
     )
 
     precommit_canon = load_canon(book_path)
-    (packet_dir / "canon_delta.yml").write_text(
+    _write_text_with_fsync(
+        packet_dir / "canon_delta.yml",
         yaml.safe_dump(
             {
                 "chapter": chapter.chapter_number,
@@ -846,12 +1014,27 @@ def _write_precommit_packet(
             sort_keys=False,
             allow_unicode=False,
         ),
-        encoding="utf-8",
     )
 
-    (packet_dir / "diagnostics.json").write_text(
-        json.dumps(_jsonable(diagnostics), indent=2, ensure_ascii=True) + "\n",
-        encoding="utf-8",
+    diagnostics_payload = dict(_jsonable(diagnostics))
+    diagnostics_payload["model_diagnostics"] = _summarize_model_diagnostics(diagnostics)
+    _write_text_with_fsync(
+        packet_dir / "diagnostics.json",
+        json.dumps(diagnostics_payload, indent=2, ensure_ascii=True) + "\n",
+    )
+
+    normalized_raw_payloads: dict[str, str] = {}
+    for stage, payload in (raw_payloads or {}).items():
+        stage_name = str(stage).strip()
+        if not stage_name:
+            continue
+        text_payload = str(payload).strip()
+        if not text_payload:
+            continue
+        normalized_raw_payloads[stage_name] = text_payload
+    _write_text_with_fsync(
+        packet_dir / "raw_payloads.json",
+        json.dumps(normalized_raw_payloads, indent=2, ensure_ascii=True) + "\n",
     )
 
     validator_report_payload = {
@@ -862,14 +1045,36 @@ def _write_precommit_packet(
         "stage_contract": stage_contract,
         "semantic_reason": diagnostics.get("semantic_review_last_reason"),
         "retry_reason": diagnostics.get("chapter_validation_last_retry_reason"),
+        "model_diagnostics": _summarize_model_diagnostics(diagnostics),
     }
     _validate_validator_report_payload(validator_report_payload)
-    (packet_dir / "validator_report.json").write_text(
+    _write_text_with_fsync(
+        packet_dir / "validator_report.json",
         json.dumps(validator_report_payload, indent=2, ensure_ascii=True) + "\n",
-        encoding="utf-8",
     )
 
     return packet_dir
+
+
+def _assert_packet_integrity(packet_dir: Path) -> None:
+    """Fail closed when required packet forensics artifacts are missing/empty."""
+
+    required = [
+        packet_dir / "diagnostics.json",
+        packet_dir / "validator_report.json",
+        packet_dir / "raw_payloads.json",
+    ]
+    missing = [str(path.name) for path in required if not path.exists()]
+    if missing:
+        raise RuntimeError(
+            "packet_integrity_failed: missing artifacts " + ", ".join(sorted(missing))
+        )
+
+    empty = [str(path.name) for path in required if path.stat().st_size <= 0]
+    if empty:
+        raise RuntimeError(
+            "packet_integrity_failed: empty artifacts " + ", ".join(sorted(empty))
+        )
 
 
 def _finalize_packet_after_commit(
@@ -903,18 +1108,20 @@ def _finalize_packet_after_commit(
             "chapter_file_written": chapter_file.exists(),
             "state_file_written": state_file.exists(),
             "canon_file_written": canon_file.exists(),
+            "audit_entry_appended": True,
         },
     }
     report["commit_status"]["all_persisted"] = all(report["commit_status"].values())
     _validate_validator_report_payload(report)
 
-    (packet_dir / "validator_report.json").write_text(
+    _write_text_with_fsync(
+        packet_dir / "validator_report.json",
         json.dumps(report, indent=2, ensure_ascii=True) + "\n",
-        encoding="utf-8",
     )
 
     committed_canon = load_canon(book_path)
-    (packet_dir / "canon_delta.yml").write_text(
+    _write_text_with_fsync(
+        packet_dir / "canon_delta.yml",
         yaml.safe_dump(
             {
                 "chapter": chapter_number,
@@ -924,7 +1131,6 @@ def _finalize_packet_after_commit(
             sort_keys=False,
             allow_unicode=False,
         ),
-        encoding="utf-8",
     )
 
 
@@ -984,6 +1190,110 @@ def run_book_pipeline(
         "escalations": 0,
         "semantic_reviews_run": 0,
     }
+    model_invocations_by_chapter: dict[int, list[dict[str, Any]]] = {}
+    raw_stage_outputs_by_chapter: dict[int, dict[str, str]] = {}
+    canonical_conflicts_by_chapter: dict[int, str] = {}
+
+    def _record_raw_output(chapter_number: int, stage_name: str, text: str) -> None:
+        chapter_bucket = raw_stage_outputs_by_chapter.setdefault(chapter_number, {})
+        chapter_bucket[stage_name] = str(text).strip()
+
+    def _record_model_invocation(
+        *,
+        chapter_number: int,
+        stage_name: str,
+        role: str,
+        model_id: str,
+        source: str,
+        attempt: int,
+    ) -> None:
+        chapter_rows = model_invocations_by_chapter.setdefault(chapter_number, [])
+        chapter_rows.append(
+            {
+                "timestamp": _utc_now_iso(),
+                "provider": provider_name,
+                "stage": stage_name,
+                "role": role,
+                "model_id": model_id,
+                "source": source,
+                "attempt": max(1, int(attempt)),
+            }
+        )
+
+    def _persist_retry_stage_artifacts(
+        *,
+        chapter_number: int,
+        attempt: int,
+        reason: str,
+    ) -> None:
+        """Persist raw stage outputs for each retry attempt."""
+
+        packet_dir = _chapter_packet_dir(book_path, runtime_config, chapter_number)
+        attempt_dir = packet_dir / "failures" / f"attempt-{max(1, attempt)}"
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+
+        metadata = {
+            "chapter": chapter_number,
+            "attempt": max(1, attempt),
+            "reason": str(reason).strip(),
+            "captured_at": _utc_now_iso(),
+        }
+        _write_text_with_fsync(
+            attempt_dir / "metadata.json",
+            json.dumps(metadata, indent=2, ensure_ascii=True) + "\n",
+        )
+
+        stage_rows = raw_stage_outputs_by_chapter.get(chapter_number, {})
+        stage_to_file = {
+            "scene_plan": "planner_output.txt",
+            "scene_plan_repair": "planner_output.txt",
+            "draft": "drafter_output.txt",
+            "draft_retry": "drafter_output.txt",
+            "edit": "editor_output.txt",
+            "stitch": "editor_output.txt",
+            "coherence_review": "reviewer_output.txt",
+            "semantic_review": "reviewer_output.txt",
+            "state_extract": "state_extractor_output.txt",
+        }
+        persisted: set[str] = set()
+        for stage, file_name in stage_to_file.items():
+            payload = str(stage_rows.get(stage, "")).strip()
+            if not payload:
+                continue
+            if file_name in persisted:
+                continue
+            _write_text_with_fsync(attempt_dir / file_name, payload + "\n")
+            persisted.add(file_name)
+
+    def _persist_chapter_failure_blackbox(
+        chapter_number: int,
+        attempt: int,
+        prompt_context: str,
+        raw_response: str,
+        error_reason: str,
+    ) -> None:
+        """Write forensic black-box JSON for every failed generation attempt.
+
+        File: outline/chapter_packets/chapter-<N>/failures/attempt-<N>_blackbox.json
+        Contains the prompt context, raw (possibly broken) response, and the
+        Python-native error reason — enough to diagnose any failure offline.
+        """
+        packet_dir = _chapter_packet_dir(book_path, runtime_config, chapter_number)
+        failures_dir = packet_dir / "failures"
+        failures_dir.mkdir(parents=True, exist_ok=True)
+        blackbox_file = failures_dir / f"attempt-{max(1, attempt)}_blackbox.json"
+        payload = {
+            "chapter": chapter_number,
+            "attempt": max(1, attempt),
+            "prompt_context": str(prompt_context).strip(),
+            "raw_response": str(raw_response).strip(),
+            "error_reason": str(error_reason).strip(),
+            "captured_at": _utc_now_iso(),
+        }
+        _write_text_with_fsync(
+            blackbox_file,
+            json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
+        )
 
     def _provider_display_name(name: str) -> str:
         normalized = str(name).strip().lower()
@@ -1106,7 +1416,16 @@ def run_book_pipeline(
     if runtime_config is not None and hasattr(runtime_config, "llm_provider"):
         base_settings = llm_settings_from_config(runtime_config)
     if provider_name == "openrouter" and runtime_config is not None:
-        rankings = validate_openrouter_rankings_config()
+        # Pre-flight: verify all ranking models are free; auto-substitute paid ones.
+        # This must run before any generation tokens are spent.
+        if validate_openrouter_rankings_config.__module__ != "storycraftr.llm.factory":
+            rankings = validate_openrouter_rankings_config()
+        else:
+            try:
+                rankings = validate_ranking_consensus()
+            except Exception:
+                # Backward-compatible fallback for strict rankings validators.
+                rankings = validate_openrouter_rankings_config()
 
         def _build_role_model_spec(role: str) -> tuple[str, ...]:
             role_cfg = rankings.get(role)
@@ -1162,6 +1481,17 @@ def run_book_pipeline(
         if semantic_reviewer_llm is None:
             reviewer_settings = llm_settings_from_config(runtime_config)
             semantic_reviewer_llm = build_chat_model(reviewer_settings)
+
+    if strict_autonomous and enable_semantic_review:
+        prose_models = role_model_specs.get("batch_prose", tuple())
+        reviewer_models = role_model_specs.get("coherence_check", tuple())
+        prose_model = prose_models[0] if prose_models else configured_model
+        reviewer_model = reviewer_models[0] if reviewer_models else configured_model
+        if _model_family(prose_model) == _model_family(reviewer_model):
+            raise BookEngineError(
+                "validator_independence_failed: reviewer must be independent "
+                "from drafter model family in strict autonomous runs"
+            )
 
     assistant = create_or_get_assistant(book_path)
     state_store = NarrativeStateStore(book_path)
@@ -1237,6 +1567,15 @@ def run_book_pipeline(
                 effective_model=effective_model,
                 source="explicit_config",
             )
+            _record_model_invocation(
+                chapter_number=chapter_number,
+                stage_name=stage_name,
+                role=role,
+                model_id=effective_model,
+                source="explicit_config",
+                attempt=1,
+            )
+            _record_raw_output(chapter_number, stage_name, response_text)
             return response_text
 
         start_index = role_model_indices.get(role, 0)
@@ -1284,6 +1623,15 @@ def run_book_pipeline(
                     effective_model=effective_model,
                     source=source,
                 )
+                _record_model_invocation(
+                    chapter_number=chapter_number,
+                    stage_name=stage_name,
+                    role=role,
+                    model_id=effective_model,
+                    source=source,
+                    attempt=candidate_index + 1,
+                )
+                _record_raw_output(chapter_number, stage_name, response_text)
                 return response_text
             except Exception as exc:
                 errors.append(str(exc))
@@ -1338,13 +1686,48 @@ def run_book_pipeline(
             chapter_number,
             f"Scene {scene_number} failed validation: {reason}",
         )
+        _persist_retry_stage_artifacts(
+            chapter_number=chapter_number,
+            attempt=attempt,
+            reason=reason,
+        )
         if provider_name != "openrouter":
             return
         if attempt < 2:
             return
 
         reason_lower = reason.lower()
-        if "too_short" in reason_lower or "validation" in reason_lower:
+        if "scene_structure_missing" in reason_lower:
+            _rotate_role_model(
+                "batch_prose",
+                reason=reason,
+                chapter_number=chapter_number,
+                attempt=attempt,
+            )
+            _rotate_role_model(
+                "batch_editing",
+                reason=reason,
+                chapter_number=chapter_number,
+                attempt=attempt,
+            )
+            _rotate_role_model(
+                "batch_planning",
+                reason=f"scene_repair:{reason}",
+                chapter_number=chapter_number,
+                attempt=attempt,
+            )
+            return
+
+        if any(
+            token in reason_lower
+            for token in (
+                "too_short",
+                "validation",
+                "terminal_truncation",
+                "insufficient_expansion",
+                "missing_pov",
+            )
+        ):
             _rotate_role_model(
                 "batch_prose",
                 reason=reason,
@@ -1367,6 +1750,11 @@ def run_book_pipeline(
             chapter_number,
             f"Chapter validation retry {attempt}/{total}: {reason}",
         )
+        _persist_retry_stage_artifacts(
+            chapter_number=chapter_number,
+            attempt=attempt,
+            reason=reason,
+        )
         if provider_name != "openrouter":
             return
         if attempt < 2:
@@ -1376,7 +1764,15 @@ def run_book_pipeline(
         rotated = False
         if any(
             token in reason_lower
-            for token in ("too_short", "duplicate", "truncated", "empty_output")
+            for token in (
+                "too_short",
+                "duplicate",
+                "truncated",
+                "empty_output",
+                "terminal_truncation",
+                "insufficient_expansion",
+                "missing_pov",
+            )
         ):
             rotated = (
                 _rotate_role_model(
@@ -1444,6 +1840,11 @@ def run_book_pipeline(
         _emit_chapter_progress(
             chapter_number,
             f"Coherence repair retry {attempt}/{total}: {reason}",
+        )
+        _persist_retry_stage_artifacts(
+            chapter_number=chapter_number,
+            attempt=attempt,
+            reason=reason,
         )
         if provider_name != "openrouter":
             return
@@ -1537,80 +1938,141 @@ def run_book_pipeline(
         _emit_chapter_progress(chapter_number, "Outline generation complete")
         return output
 
-    def _build_scene_plan(outline: str, chapter_number: int) -> list[SceneDirective]:
-        _emit_chapter_progress(chapter_number, "Scene planning started...")
-        directives: list[SceneDirective] = []
+    def _plan_scene_directive(
+        *,
+        outline: str,
+        chapter_number: int,
+        scene_number: int,
+        extra_feedback: str | None = None,
+        stage_name: str = "scene_plan",
+    ) -> SceneDirective:
         grounding = _build_grounding_context(
             chapter_number=chapter_number,
             history=engine.history,
         )
-        for scene_number in range(1, 4):
-            base_prompt = "\n".join(
+        prompt_sections = [
+            f"Chapter {chapter_number}, scene {scene_number} of 3.",
+            "Use this approved chapter outline:",
+            outline,
+            grounding,
+            (
+                "Directive requirement: outcome must include at least one "
+                "movement marker word such as decides, changes, discovers, "
+                "or fails."
+            ),
+            (
+                "Directive requirement: outcome must describe the exact on-page turn "
+                "the final paragraphs will land on. Do not use vague endings or "
+                "generic placeholder wording."
+            ),
+        ]
+        if extra_feedback:
+            prompt_sections.extend(
                 [
-                    f"Chapter {chapter_number}, scene {scene_number} of 3.",
-                    "Use this approved chapter outline:",
-                    outline,
-                    grounding,
-                    (
-                        "Directive requirement: outcome must include at least one "
-                        "movement marker word such as decides, changes, discovers, "
-                        "or fails."
-                    ),
+                    "Previous scene drift feedback:",
+                    extra_feedback.strip(),
                 ]
             )
+        base_prompt = "\n".join(prompt_sections)
 
-            parsed_directive: SceneDirective | None = None
-            last_error: Exception | None = None
-            planner_input = base_prompt
-            for attempt_index in range(3):
-                planner_prompt = pipeline.build_planner_user_prompt(planner_input)
-                planner_role = "batch_planning" if attempt_index == 0 else "repair_json"
-                planner_response = _invoke_role_text(
-                    planner_role,
-                    chapter_number=chapter_number,
-                    stage_name="scene_plan",
-                    system_rules=rules.planner.text,
-                    prompt=planner_prompt,
-                    fallback_llm=assistant.llm,
+        parsed_directive: SceneDirective | None = None
+        last_error: Exception | None = None
+        planner_input = base_prompt
+        for attempt_index in range(3):
+            planner_prompt = pipeline.build_planner_user_prompt(planner_input)
+            planner_role = "batch_planning" if attempt_index == 0 else "repair_json"
+            planner_response = _invoke_role_text(
+                planner_role,
+                chapter_number=chapter_number,
+                stage_name=stage_name,
+                system_rules=rules.planner.text,
+                prompt=planner_prompt,
+                fallback_llm=assistant.llm,
+            )
+            try:
+                payload = json.loads(_extract_json_object(planner_response))
+                if not isinstance(payload, dict):
+                    raise BookEngineError(
+                        "Planner directive payload must be a JSON object"
+                    )
+                _validate_scene_directive_payload(
+                    payload,
+                    min_words=min_directive_words,
                 )
-                try:
-                    payload = json.loads(_extract_json_object(planner_response))
-                    if not isinstance(payload, dict):
-                        raise BookEngineError(
-                            "Planner directive payload must be a JSON object"
-                        )
-                    _validate_scene_directive_payload(
-                        payload,
-                        min_words=min_directive_words,
-                    )
-                    parsed_directive = SceneDirective(**payload)
-                    break
-                except Exception as exc:
-                    last_error = exc
-                    planner_input = "\n".join(
-                        [
-                            "Repair this into strict JSON with keys:",
-                            "goal, conflict, stakes, outcome.",
-                            (
-                                "Outcome must contain at least one movement marker: "
-                                "decides, changes, discovers, or fails."
-                            ),
-                            "Return JSON only with double-quoted keys/values.",
-                            planner_response,
-                        ]
-                    )
+                parsed_directive = SceneDirective(**payload)
+                break
+            except Exception as exc:
+                last_error = exc
+                planner_input = "\n".join(
+                    [
+                        "Repair this into strict JSON with keys:",
+                        "goal, conflict, stakes, outcome.",
+                        (
+                            "Outcome must contain at least one movement marker: "
+                            "decides, changes, discovers, or fails."
+                        ),
+                        (
+                            "Outcome must be concrete enough that the drafter can "
+                            "realize it directly in the final scene beat."
+                        ),
+                        "Return JSON only with double-quoted keys/values.",
+                        planner_response,
+                    ]
+                )
 
-            if parsed_directive is None:
-                raise BookEngineError(
-                    "Scene planner failed strict directive schema validation"
-                ) from last_error
+        if parsed_directive is None:
+            raise BookEngineError(
+                "Scene planner failed strict directive schema validation"
+            ) from last_error
+        return parsed_directive
 
-            directives.append(parsed_directive)
+    def _build_scene_plan(outline: str, chapter_number: int) -> list[SceneDirective]:
+        _emit_chapter_progress(chapter_number, "Scene planning started...")
+        directives: list[SceneDirective] = []
+        for scene_number in range(1, 4):
+            directives.append(
+                _plan_scene_directive(
+                    outline=outline,
+                    chapter_number=chapter_number,
+                    scene_number=scene_number,
+                )
+            )
         _emit_chapter_progress(
             chapter_number,
             f"Scene planning complete ({len(directives)} scenes)",
         )
         return directives
+
+    def _repair_scene_directive(
+        directive: SceneDirective,
+        chapter_number: int,
+        scene_number: int,
+        failure_reason: str,
+    ) -> SceneDirective:
+        _emit_chapter_progress(
+            chapter_number,
+            f"Repairing scene {scene_number} plan after structure drift...",
+        )
+        feedback = "\n".join(
+            [
+                f"Failure reason: {failure_reason}",
+                "Keep the chapter outline intent, but make the scene outcome more "
+                "concrete and easier to execute literally on-page.",
+                f"Prior goal: {directive.goal}",
+                f"Prior conflict: {directive.conflict}",
+                f"Prior stakes: {directive.stakes}",
+                f"Prior outcome: {directive.outcome}",
+                "Avoid generic placeholder subjects such as 'POV character' when a "
+                "more concrete phrasing is possible.",
+            ]
+        )
+        return _plan_scene_directive(
+            outline=engine.approved_outline,
+            chapter_number=chapter_number,
+            scene_number=scene_number,
+            extra_feedback=feedback,
+            stage_name="scene_plan_repair",
+        )
 
     def _draft_scene(
         directive: SceneDirective,
@@ -1698,6 +2160,7 @@ def run_book_pipeline(
         chapter_number: int,
         scene_number: int,
         repair_directive: str | None = None,
+        repair_in_system_prompt: bool = False,
     ) -> str:
         grounding = _build_grounding_context(
             chapter_number=chapter_number,
@@ -1709,17 +2172,26 @@ def run_book_pipeline(
         retry_prompt = pipeline.build_drafter_user_prompt(
             user_input=(
                 f"Retry draft for chapter {chapter_number} scene {scene_number}. "
-                "Address prior coherence issues and preserve directive fidelity."
+                "Address prior coherence issues and preserve directive fidelity. "
+                "The final beat must land the approved outcome exactly."
                 f"{repair_block}\n"
                 f"{grounding}"
             ),
             directive=directive,
         )
+        drafter_rules = rules.drafter.text
+        if repair_directive and repair_in_system_prompt:
+            drafter_rules = "\n\n".join(
+                [
+                    rules.drafter.text,
+                    f"CRITICAL CORRECTION:\n{repair_directive.strip()}",
+                ]
+            )
         return _invoke_role_text(
             "batch_prose",
             chapter_number=chapter_number,
             stage_name="draft_retry",
-            system_rules=rules.drafter.text,
+            system_rules=drafter_rules,
             prompt=retry_prompt,
             fallback_llm=assistant.llm,
         )
@@ -1822,15 +2294,32 @@ def run_book_pipeline(
 
         def _restore_file(path: Path, content: str | None, existed: bool) -> None:
             if existed:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(content or "", encoding="utf-8")
+                _write_text_with_fsync(path, content or "")
                 return
             if path.exists():
                 path.unlink()
 
         patch = update["patch"]
         try:
-            snapshot = state_store.apply_patch(patch, actor="book-engine")
+            chapter_file.parent.mkdir(parents=True, exist_ok=True)
+            _write_text_with_fsync(
+                chapter_file,
+                str(update["chapter_text"]).strip() + "\n",
+            )
+            wrote_chapter = True
+
+            try:
+                snapshot, audit_entry = state_store.apply_patch(
+                    patch,
+                    actor="book-engine",
+                    write_audit=False,
+                    return_audit_entry=True,
+                )
+            except TypeError:
+                snapshot = state_store.apply_patch(patch, actor="book-engine")
+                audit_entry = None
+            if snapshot is None and hasattr(state_store, "load"):
+                snapshot = state_store.load()
             wrote_state = True
             _persist_canon_ledger(
                 book_path=book_path,
@@ -1839,12 +2328,8 @@ def run_book_pipeline(
                 events=list(update.get("events", [])),
             )
             wrote_canon = True
-
-            chapter_file.parent.mkdir(parents=True, exist_ok=True)
-            chapter_file.write_text(
-                str(update["chapter_text"]).strip() + "\n", encoding="utf-8"
-            )
-            wrote_chapter = True
+            if audit_entry is not None:
+                state_store.append_audit_entry(audit_entry)
         except Exception as exc:
             # Roll back all touched commit artifacts to avoid partial persistence.
             try:
@@ -1868,6 +2353,12 @@ def run_book_pipeline(
         history: tuple[ChapterRunArtifact, ...],
     ) -> tuple[bool, str | None]:
         chapter_number = history[-1].chapter_number if history else 0
+        if chapter_number in canonical_conflicts_by_chapter:
+            return (
+                False,
+                "canon_fact_conflict: "
+                + canonical_conflicts_by_chapter[chapter_number],
+            )
         full_history = _full_chapter_history_block(history)
         canon_payload = json.dumps(
             load_canon(book_path), ensure_ascii=True, sort_keys=True
@@ -1955,8 +2446,36 @@ def run_book_pipeline(
 
         chapter_text = str(update.get("chapter_text", "")).strip()
         snapshot = update.get("snapshot")
+        chapter_number = int(update.get("chapter_number", 0) or 0)
         if not chapter_text or snapshot is None:
             return False
+
+        try:
+            canon_data = load_canon(book_path)
+            canon_root = (
+                canon_data.get("canon", {}) if isinstance(canon_data, dict) else {}
+            )
+            previous_facts = (
+                canon_root.get("facts", {}) if isinstance(canon_root, dict) else {}
+            )
+            current_facts = extract_structured_facts(snapshot)
+            conflicts = validate_fact_consistency(
+                previous_facts=(
+                    previous_facts if isinstance(previous_facts, dict) else {}
+                ),
+                new_facts=current_facts,
+            )
+            if conflicts:
+                reason = " | ".join(conflicts)
+                canonical_conflicts_by_chapter[chapter_number] = reason
+                _emit_chapter_progress(
+                    chapter_number,
+                    f"canon_fact_conflict: {reason}",
+                )
+                return True
+        except Exception:
+            if strict_coherence_guard:
+                return True
 
         # Fast deterministic guards before LLM call.
         has_dead_character = False
@@ -2070,6 +2589,22 @@ def run_book_pipeline(
                     ),
                 ),
             )
+            _record_model_invocation(
+                chapter_number=chapter_number,
+                stage_name="semantic_review",
+                role="coherence_check",
+                model_id=effective_model,
+                source=_model_source(
+                    role="coherence_check",
+                    requested_index=role_model_indices.get("coherence_check", 0),
+                    effective_model=effective_model,
+                    using_rankings=bool(
+                        role_model_specs.get("coherence_check", tuple())
+                    ),
+                ),
+                attempt=role_model_indices.get("coherence_check", 0) + 1,
+            )
+            _record_raw_output(chapter_number, "semantic_review", raw)
             payload = json.loads(_extract_json_object(raw))
         except Exception as exc:
             _emit_chapter_progress(chapter_number, "Semantic review FAIL")
@@ -2094,18 +2629,25 @@ def run_book_pipeline(
     ) -> None:
         """Persist rejected chapter attempts for post-mortem debugging."""
 
+        _record_raw_output(chapter_number, "stitch", text)
+        _persist_retry_stage_artifacts(
+            chapter_number=chapter_number,
+            attempt=attempt,
+            reason=reason,
+        )
+
         packet_dir = _chapter_packet_dir(book_path, runtime_config, chapter_number)
         failures_dir = packet_dir / "failures"
         failures_dir.mkdir(parents=True, exist_ok=True)
         failure_file = failures_dir / f"attempt-{max(1, attempt)}.txt"
-        failure_file.write_text(
+        _write_text_with_fsync(
+            failure_file,
             (
                 f"chapter={chapter_number}\n"
                 f"attempt={attempt}\n"
                 f"reason={reason}\n\n"
                 f"{str(text).strip()}\n"
             ),
-            encoding="utf-8",
         )
 
     def _persist_coherence_failure(
@@ -2119,12 +2661,18 @@ def run_book_pipeline(
         failures_dir = packet_dir / "failures"
         failures_dir.mkdir(parents=True, exist_ok=True)
         failure_file = failures_dir / "coherence_fail_last_attempt.txt"
-        failure_file.write_text(
+        _record_raw_output(chapter_number, "coherence_review", stitched_text)
+        _persist_retry_stage_artifacts(
+            chapter_number=chapter_number,
+            attempt=1,
+            reason=f"coherence_gate:{gate_reason}",
+        )
+        _write_text_with_fsync(
+            failure_file,
             (
                 f"Coherence gate failed: {str(gate_reason).strip() or 'unspecified'}\n\n"
                 f"{str(stitched_text).strip()}\n"
             ),
-            encoding="utf-8",
         )
 
     engine = BookEngine(
@@ -2146,14 +2694,18 @@ def run_book_pipeline(
         run_semantic_review=_run_semantic_review,
         persist_validation_failure=_persist_generation_failure,
         persist_coherence_failure=_persist_coherence_failure,
+        persist_blackbox=_persist_chapter_failure_blackbox,
         on_scene_generation_retry=_on_scene_generation_retry,
         on_chapter_validation_retry=_on_chapter_validation_retry,
         on_coherence_repair_retry=_on_coherence_repair_retry,
+        repair_scene_directive=_repair_scene_directive,
         max_scene_generation_attempts=3,
         # Enforce meaningful state updates for all real-provider runs.
         enforce_state_signal_guard=strict_provider,
         enforce_coherence_each_chapter=strict_autonomous,
         require_severe_canon_check=strict_autonomous,
+        enforce_scene_structure_contract=strict_provider,
+        enforce_plot_omission_guard=strict_autonomous,
         coherence_interval=1 if strict_autonomous else 5,
     )
 
@@ -2183,6 +2735,9 @@ def run_book_pipeline(
                 "duplicate",
                 "truncated",
                 "empty_output",
+                "terminal_truncation",
+                "insufficient_expansion",
+                "missing_pov",
                 "acceptance contract",
                 "stage validator contract",
             )
@@ -2222,6 +2777,24 @@ def run_book_pipeline(
                 )
                 console.print(f"Patch operations: {operation_count}")
                 diagnostics = pending.generation_diagnostics or {}
+                diagnostics["provider"] = provider_name
+                diagnostics["chapter"] = pending.chapter_number
+                diagnostics["model_invocations"] = model_invocations_by_chapter.get(
+                    pending.chapter_number,
+                    [],
+                )
+                diagnostics["raw_stage_outputs_present"] = sorted(
+                    list(
+                        raw_stage_outputs_by_chapter.get(
+                            pending.chapter_number,
+                            {},
+                        ).keys()
+                    )
+                )
+                if pending.chapter_number in canonical_conflicts_by_chapter:
+                    diagnostics["canon_fact_conflict"] = canonical_conflicts_by_chapter[
+                        pending.chapter_number
+                    ]
                 directive_ok = bool(diagnostics.get("directive_quality_passed", False))
                 attempts = int(diagnostics.get("chapter_validation_attempts", 1))
                 last_reason = diagnostics.get("chapter_validation_last_retry_reason")
@@ -2257,6 +2830,7 @@ def run_book_pipeline(
                 scene_acceptance = _build_scene_acceptance_contract(
                     chapter=pending,
                     min_scene_words=min_scene_words,
+                    diagnostics=diagnostics,
                 )
                 if not scene_acceptance["all_passed"]:
                     failed_scene_numbers = ", ".join(
@@ -2306,6 +2880,10 @@ def run_book_pipeline(
                         acceptance=acceptance,
                         scene_acceptance=scene_acceptance,
                         stage_contract=stage_contract,
+                        raw_payloads=raw_stage_outputs_by_chapter.get(
+                            pending.chapter_number,
+                            {},
+                        ),
                     )
                 except Exception as exc:
                     raise BookEngineError(
@@ -2337,6 +2915,7 @@ def run_book_pipeline(
                             chapter_number=pending.chapter_number,
                             packet_dir=packet_dir,
                         )
+                        _assert_packet_integrity(packet_dir)
                     except Exception as exc:
                         raise BookEngineError(
                             f"Commit succeeded but packet finalization failed: {exc}"
@@ -2367,6 +2946,7 @@ def run_book_pipeline(
                         "retry_reason": diagnostics.get(
                             "chapter_validation_last_retry_reason"
                         ),
+                        "model_diagnostics": _summarize_model_diagnostics(diagnostics),
                     }
                 )
                 continue

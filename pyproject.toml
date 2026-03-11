@@ -37,6 +37,7 @@ torch = ">=2.5.0"
 markdown-pdf = "^1.10"
 textual = "^8.0.2"
 mem0ai = "^1.0.5"
+json-repair = ">=0.30"
 
 [tool.poetry.scripts]
 storycraftr = "storycraftr.cli:cli"

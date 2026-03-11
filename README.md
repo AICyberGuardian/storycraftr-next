@@ -203,7 +203,7 @@ Expected output structure after a successful run:
   outline/narrative_state.json
 ```
 
-`storycraftr book` persists artifacts fail-closed on commit: state patch apply -> canon ledger write -> chapter markdown write.
+`storycraftr book` persists artifacts with fail-closed commit transactions and rollback: chapter/state/canon/audit writes are treated as one boundary.
 
 Each successful run also writes a consolidated audit summary under `outline/book_audit.json` and `outline/book_audit.md` with per-chapter validator/coherence outcomes.
 
@@ -215,14 +215,14 @@ Current `storycraftr book` guarantees in strict autonomous mode are strong at th
 
 - Chapters must pass planner-schema checks, chapter-completeness validation, semantic review, state-extraction sanity checks, and acceptance-contract gating before state/canon/chapter persistence.
 - Successful runs persist chapter packets under `outline/chapter_packets/chapter-<nnn>/`, run-level audits under `outline/book_audit.json` and `outline/book_audit.md`, and state mutation history in `outline/narrative_audit.jsonl`.
-- Commit ordering is fail-closed: state patch apply -> canon ledger write -> chapter markdown write, with rollback on commit-path failure.
+- Commit persistence is fail-closed and transactional with rollback on commit-path failure.
 
 Current limitations still matter, especially for unreliable free-tier models:
 
 - Semantic review and coherence review are still primarily LLM-judged gates, not fully deterministic contradiction engines.
 - Coherence review is strict on autonomous real-provider runs, but in non-strict runs it can still execute on an interval instead of every chapter.
-- Validator independence is preferred in OpenRouter routing, but not guaranteed for every provider/runtime path.
-- Raw planner, reviewer, coherence, and extractor model responses are not all persisted yet, so failed runs are not fully reconstructable from disk artifacts alone.
+- Strict autonomous runs fail closed when validator independence cannot be established from model-family routing; non-strict runs may still use same-family validator paths.
+- Retry/failure attempts now persist packet-local raw artifacts (`outline/chapter_packets/chapter-<nnn>/failures/attempt-<x>/`), but full all-attempt raw response persistence is still incomplete.
 - The deeper story corpus in `storycraftr/prompts/corpus.md` is present in the repository, but runtime enforcement still comes mainly from the distilled prompt fragments plus validator contracts.
 - A legacy direct-write chapter path still exists as an explicit unsafe bypass (`storycraftr chapters chapter --unsafe-direct-write` with `STORYCRAFTR_ALLOW_UNSAFE=1`).
 
@@ -231,6 +231,8 @@ Treat autonomous real-provider runs as supervised, high-risk workflows rather th
 Operational note: for live OpenRouter runs, buy at least $10 in credits to avoid the free-tier 1000 req/day cap during repeated smoke or soak testing.
 
 Model escalation stress test profile: copy `examples/rankings_stress_weak_primary.json` to `storycraftr/config/rankings.json` in a test branch/worktree to simulate a weaker prose primary and verify retry-time fallback rotation behavior under real-provider runs.
+
+Smoke forensics profile: run `./rerun_smoke_only_storycraftr.sh` to capture per-run packet inventories, guard signals, runtime environment snapshots, and narrative-audit excerpts under a timestamped log directory.
 
 ## 💬 Introducing Chat!!! – A Simple Yet Powerful Tool to Supercharge Your Conversations! 💥
 

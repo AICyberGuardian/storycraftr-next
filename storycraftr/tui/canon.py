@@ -23,7 +23,7 @@ class CanonFact:
 
 
 _ALLOWED_SOURCES = {"manual", "accepted"}
-_DEFAULT_CANON: dict[str, Any] = {"version": 1, "chapters": {}}
+_DEFAULT_CANON: dict[str, Any] = {"version": 1, "chapters": {}, "canon": {}}
 
 
 def canon_file_path(book_path: str) -> Path:
@@ -37,7 +37,7 @@ def load_canon(book_path: str) -> dict[str, Any]:
 
     path = canon_file_path(book_path)
     if not path.exists():
-        return {"version": 1, "chapters": {}}
+        return {"version": 1, "chapters": {}, "canon": {}}
 
     try:
         raw = path.read_text(encoding="utf-8")
@@ -45,7 +45,7 @@ def load_canon(book_path: str) -> dict[str, Any]:
         raise RuntimeError(f"Could not read canon file at {path}: {exc}") from exc
 
     if not raw.strip():
-        return {"version": 1, "chapters": {}}
+        return {"version": 1, "chapters": {}, "canon": {}}
 
     try:
         parsed = yaml.safe_load(raw)
@@ -59,14 +59,23 @@ def load_canon(book_path: str) -> dict[str, Any]:
 
     version = parsed.get("version", 1)
     chapters = parsed.get("chapters", {})
+    canon = parsed.get("canon", {})
     if not isinstance(version, int):
         raise RuntimeError(f"Invalid canon format at {path}: 'version' must be int.")
     if not isinstance(chapters, dict):
         raise RuntimeError(
             f"Invalid canon format at {path}: 'chapters' must be a mapping."
         )
+    if not isinstance(canon, dict):
+        raise RuntimeError(
+            f"Invalid canon format at {path}: 'canon' must be a mapping."
+        )
 
-    normalized: dict[str, Any] = {"version": version, "chapters": {}}
+    normalized: dict[str, Any] = {
+        "version": version,
+        "chapters": {},
+        "canon": canon,
+    }
     for chapter_key, chapter_payload in chapters.items():
         chapter_id = str(chapter_key)
         if not isinstance(chapter_payload, dict):
@@ -110,6 +119,7 @@ def save_canon(book_path: str, data: dict[str, Any]) -> None:
     payload = {
         "version": int(data.get("version", 1)),
         "chapters": data.get("chapters", {}),
+        "canon": data.get("canon", {}),
     }
 
     try:

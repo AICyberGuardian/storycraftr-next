@@ -18,7 +18,11 @@ from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from rich.console import Console
 
 from storycraftr.llm.credentials import credential_lookup_details
-from storycraftr.llm.openrouter_discovery import get_model_limits, is_model_free
+from storycraftr.llm.openrouter_discovery import (
+    get_free_models,
+    get_model_limits,
+    is_model_free,
+)
 
 console = Console()
 
@@ -58,6 +62,8 @@ _OPENROUTER_REPAIR_JSON_PRIMARY_ALLOWLIST = {
     "openai/gpt-oss-120b:free",
 }
 _OPENROUTER_DEFAULT_MAX_TOKENS = 4000
+_MODEL_HEALTH_MAX_MEAN_LATENCY_SECONDS = 300.0
+_MODEL_HEALTH_MAX_ERRORS = 3
 
 _OPENROUTER_MODEL_REQUIRED_MESSAGE = (
     "Missing 'llm_model' for provider 'openrouter'. Set it explicitly in storycraftr.json, "
@@ -109,9 +115,25 @@ def _classify_provider_exception(exc: Exception) -> str:
     if any(token in text for token in ("timeout", "timed out")):
         return "timeout"
     if any(
+        token in text
+        for token in (
+            "500",
+            "502",
+            "503",
+            "504",
+            "bad gateway",
+            "gateway timeout",
+            "service unavailable",
+            "server error",
+        )
+    ):
+        return "server_error"
+    if any(
         token in text for token in ("connection", "connect", "refused", "unreachable")
     ):
         return "connection"
+    if any(token in text for token in ("empty response", "no content returned")):
+        return "empty_response"
     return "unknown"
 
 
@@ -184,6 +206,89 @@ class LLMSettings:
     request_timeout: Optional[float] = None
     max_tokens: Optional[int] = 8192
     default_headers: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class ModelHealthStats:
+    """In-memory per-model health counters for the current process/session."""
+
+    latency_samples: List[float] = field(default_factory=list)
+    error_count: int = 0
+    empty_response_count: int = 0
+    degraded: bool = False
+
+    @property
+    def mean_latency(self) -> float:
+        if not self.latency_samples:
+            return 0.0
+        return sum(self.latency_samples) / len(self.latency_samples)
+
+
+class ModelHealthRegistry:
+    """Track per-model runtime health and quarantine degraded model IDs."""
+
+    def __init__(self) -> None:
+        self._stats: Dict[str, ModelHealthStats] = {}
+
+    def _key(self, model_id: str) -> str:
+        return str(model_id).strip().lower()
+
+    def _entry(self, model_id: str) -> ModelHealthStats:
+        key = self._key(model_id)
+        if key not in self._stats:
+            self._stats[key] = ModelHealthStats()
+        return self._stats[key]
+
+    def record_success(self, model_id: str, *, latency_seconds: float) -> None:
+        entry = self._entry(model_id)
+        entry.latency_samples.append(max(0.0, float(latency_seconds)))
+        self._refresh_degraded(entry)
+
+    def record_error(self, model_id: str) -> None:
+        entry = self._entry(model_id)
+        entry.error_count += 1
+        self._refresh_degraded(entry)
+
+    def record_empty_response(self, model_id: str) -> None:
+        entry = self._entry(model_id)
+        entry.empty_response_count += 1
+        entry.error_count += 1
+        self._refresh_degraded(entry)
+
+    def is_degraded(self, model_id: str) -> bool:
+        return self._entry(model_id).degraded
+
+    def mark_degraded(self, model_id: str) -> None:
+        self._entry(model_id).degraded = True
+
+    def reset(self) -> None:
+        self._stats.clear()
+
+    def snapshot(self) -> Dict[str, Dict[str, float | int | bool]]:
+        rows: Dict[str, Dict[str, float | int | bool]] = {}
+        for model_id, entry in self._stats.items():
+            rows[model_id] = {
+                "mean_latency": entry.mean_latency,
+                "error_count": entry.error_count,
+                "empty_response_count": entry.empty_response_count,
+                "degraded": entry.degraded,
+            }
+        return rows
+
+    def _refresh_degraded(self, entry: ModelHealthStats) -> None:
+        entry.degraded = (
+            entry.error_count > _MODEL_HEALTH_MAX_ERRORS
+            or entry.mean_latency > _MODEL_HEALTH_MAX_MEAN_LATENCY_SECONDS
+        )
+
+
+_MODEL_HEALTH_REGISTRY = ModelHealthRegistry()
+
+
+def get_model_health_registry() -> ModelHealthRegistry:
+    """Return process-local model health registry used by resilient routing."""
+
+    return _MODEL_HEALTH_REGISTRY
 
 
 def _resolve_api_key(
@@ -386,6 +491,115 @@ def validate_openrouter_rankings_config() -> dict[str, Any]:
         ) from exc
 
 
+def validate_ranking_consensus(
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    """Pre-flight: verify all ranking models are currently free; auto-substitute paid ones.
+
+    Loads rankings.json and queries the OpenRouter discovery catalog (cached by default).
+    For each role, if the primary or fallback model is paid/unavailable it is replaced with
+    the next free candidate in the live catalog.  Raises ``LLMConfigurationError`` if no
+    free model is available for any required role.
+
+    Must be called BEFORE Chapter 1 begins so no generation tokens are spent on a
+    misconfigured model.
+
+    Returns:
+        Validated (possibly substituted) rankings dict ready for runtime use.
+    """
+    try:
+        raw = _OPENROUTER_RANKINGS_PATH.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise LLMConfigurationError(
+            f"Pre-flight cannot read OpenRouter rankings config: {exc}"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise LLMConfigurationError("OpenRouter rankings config must be a JSON object.")
+
+    expected_roles = _OPENROUTER_RANKING_ROLES
+    if set(data.keys()) != expected_roles:
+        expected = ", ".join(sorted(expected_roles))
+        found = ", ".join(sorted(data.keys()))
+        raise LLMConfigurationError(
+            f"OpenRouter rankings config has invalid roles; "
+            f"expected [{expected}], found [{found}]."
+        )
+
+    free_models = get_free_models(force_refresh=force_refresh)
+    free_ids_ordered: list[str] = []
+    for entry in free_models:
+        model_id = getattr(entry, "model_id", entry)
+        if isinstance(model_id, str):
+            cleaned = model_id.strip()
+            if cleaned:
+                free_ids_ordered.append(cleaned)
+    free_ids_lower: set[str] = {model_id.lower() for model_id in free_ids_ordered}
+
+    def _model_is_free(model_id: str) -> bool:
+        return model_id == "openrouter/free" or model_id.lower() in free_ids_lower
+
+    def _next_free_excluding(exclude: set[str]) -> Optional[str]:
+        for candidate in free_ids_ordered:
+            if candidate.lower() not in {e.lower() for e in exclude}:
+                return candidate
+        return None
+
+    result: dict[str, Any] = {}
+    for role, entry in data.items():
+        if not isinstance(entry, dict):
+            raise LLMConfigurationError(f"rankings.{role} must be a JSON object.")
+
+        primary = str(entry.get("primary", "")).strip()
+        fallbacks: list[str] = [str(fb).strip() for fb in entry.get("fallbacks", [])]
+        used_in_role: set[str] = set()
+
+        # Validate / substitute primary
+        if _model_is_free(primary):
+            new_primary = primary
+            used_in_role.add(primary.lower())
+        else:
+            exclude = {primary.lower()} | {fb.lower() for fb in fallbacks}
+            sub = _next_free_excluding(exclude)
+            if sub is None:
+                raise LLMConfigurationError(
+                    f"Pre-flight consensus failed for role '{role}': primary model "
+                    f"'{primary}' is not currently free and no free substitute is "
+                    "available. Update rankings.json or wait for a free model slot."
+                )
+            console.print(
+                f"[yellow]Pre-flight: '{primary}' is not free (role={role}). "
+                f"Auto-substituting with '{sub}'.[/yellow]"
+            )
+            new_primary = sub
+            used_in_role.add(sub.lower())
+
+        # Validate / substitute fallbacks
+        new_fallbacks: list[str] = []
+        for fb in fallbacks:
+            if _model_is_free(fb) and fb.lower() not in used_in_role:
+                new_fallbacks.append(fb)
+                used_in_role.add(fb.lower())
+            else:
+                sub = _next_free_excluding(used_in_role)
+                if sub is not None:
+                    console.print(
+                        f"[yellow]Pre-flight: fallback '{fb}' is not free "
+                        f"(role={role}). Auto-substituting with '{sub}'.[/yellow]"
+                    )
+                    new_fallbacks.append(sub)
+                    used_in_role.add(sub.lower())
+                # Fewer fallbacks is acceptable; fail only when primary has no free path.
+
+        new_entry = dict(entry)
+        new_entry["primary"] = new_primary
+        new_entry["fallbacks"] = new_fallbacks
+        result[role] = new_entry
+
+    return result
+
+
 def _openrouter_allow_free_prose() -> bool:
     """Return True when openrouter/free is explicitly allowed for prose batches."""
 
@@ -552,6 +766,53 @@ def _is_http_429(exc: Exception) -> bool:
     return "429" in text and "too many" in text
 
 
+def _is_http_5xx(exc: Exception) -> bool:
+    """Return True when an exception indicates a transient upstream 5xx error."""
+
+    status_candidates = [
+        getattr(exc, "status_code", None),
+        getattr(exc, "http_status", None),
+    ]
+    response = getattr(exc, "response", None)
+    if response is not None:
+        status_candidates.append(getattr(response, "status_code", None))
+
+    for candidate in status_candidates:
+        if isinstance(candidate, int) and 500 <= candidate <= 599:
+            return True
+
+    text = str(exc).lower()
+    return any(
+        token in text
+        for token in (
+            "500",
+            "502",
+            "503",
+            "504",
+            "bad gateway",
+            "gateway timeout",
+            "service unavailable",
+        )
+    )
+
+
+def _is_empty_chat_result(result: ChatResult) -> bool:
+    """Treat blank provider responses as transient transport failures."""
+
+    generations = getattr(result, "generations", None)
+    if generations is None:
+        return False
+    if not generations:
+        return True
+
+    for generation in generations:
+        message = getattr(generation, "message", None)
+        content = getattr(message, "content", "") if message is not None else ""
+        if str(content).strip():
+            return False
+    return True
+
+
 def _ensure_openrouter_model_is_free(model_name: str) -> None:
     if is_model_free(model_name):
         return
@@ -605,6 +866,7 @@ class _ResilientOpenRouterChatModel(BaseChatModel):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs,
     ) -> ChatResult:
+        health_registry = get_model_health_registry()
         models = [self.primary_model, *self.fallback_models]
         last_exc: Exception | None = None
 
@@ -614,15 +876,31 @@ class _ResilientOpenRouterChatModel(BaseChatModel):
                 if model_index < len(self.model_sequence)
                 else f"openrouter-model-{model_index + 1}"
             )
+
+            if health_registry.is_degraded(model_name):
+                console.print(
+                    "[yellow]OpenRouter router: skipping degraded model "
+                    f"'{model_name}'.[/yellow]"
+                )
+                continue
+
             primary_rate_limit_hits = 0
 
             for attempt in range(1, max(1, self.max_attempts) + 1):
+                started = time.monotonic()
                 try:
                     result = model._generate(  # noqa: SLF001
                         messages,
                         stop=stop,
                         run_manager=run_manager,
                         **kwargs,
+                    )
+                    if _is_empty_chat_result(result):
+                        health_registry.record_empty_response(model_name)
+                        raise RuntimeError("empty response from provider")
+                    health_registry.record_success(
+                        model_name,
+                        latency_seconds=time.monotonic() - started,
                     )
                     if attempt > 1 or model_index > 0:
                         console.print(
@@ -633,6 +911,7 @@ class _ResilientOpenRouterChatModel(BaseChatModel):
                     self.last_resolved_model = model_name
                     return result
                 except Exception as exc:
+                    health_registry.record_error(model_name)
                     last_exc = exc
                     error_kind = (
                         "rate_limit"
@@ -645,7 +924,13 @@ class _ResilientOpenRouterChatModel(BaseChatModel):
                     if error_kind == "rate_limit" and model_index == 0:
                         primary_rate_limit_hits += 1
 
-                    retryable = error_kind in {"rate_limit", "timeout", "connection"}
+                    retryable = error_kind in {
+                        "rate_limit",
+                        "timeout",
+                        "connection",
+                        "server_error",
+                        "empty_response",
+                    } or _is_http_5xx(exc)
                     if (
                         model_index == 0
                         and error_kind == "rate_limit"

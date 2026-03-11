@@ -9,6 +9,8 @@
 
 ### Added
 
+- **Deterministic self-healing sieve** — Added `storycraftr/agent/deterministic_guards.py` and wired chapter-level terminal-truncation, directive-expansion, and POV-presence checks into `guarded_generation()` so obvious mechanical failures retry before the semantic reviewer runs.
+
 - **Continuity-grounded generation prompts** — `storycraftr book` now injects canonical continuity grounding (`narrative_state`, `canon.yml`, and recent chapter history summary) into outline, planning, drafting, editing, stitching, and retry prompts to reduce post-hoc-only validation gaps.
 - **Global coherence context enforcement** — Coherence review now evaluates `seed + narrative state + canon facts + chapter history + latest chapter` instead of latest-chapter-only context, while retaining strict `PASS`/`FAIL` fail-closed gating semantics.
 - **Failure-path run audits** — `outline/book_audit.json` and `outline/book_audit.md` are now written for both successful and failed `storycraftr book` runs.
@@ -40,7 +42,7 @@
 - **Core local-embedding install path** — `torch` and `sentence-transformers` are now core dependencies so `uv pip install -e .` and `poetry install` include local embedding runtime support by default.
 - **Fail-closed chapter completeness guard for `storycraftr book`** — `BookEngine` now validates scene/chapter outputs for minimum length and obvious truncation and retries scene generation on incomplete edits with bounded attempts. If stitch output is invalid, runtime attempts a deterministic fallback to concatenated edited scenes only when fallback content passes the same completeness checks.
 - **Disciplined `book` artifact contract with canon ledger persistence** — `storycraftr book` now persists `outline/canon.yml` on successful state commit with a stable `plot_threads` fact entry, alongside `outline/narrative_state.json` and `chapters/chapter-<n>.md` artifacts.
-- **Fail-closed commit ordering for `book` runtime artifacts** — Success-path commit now enforces deterministic ordering (`apply state patch` -> `write canon ledger` -> `write chapter file`). Canon write failures are treated as commit failures to prevent false-success chapter persistence.
+- **Fail-closed commit transaction for `book` runtime artifacts** — Success-path commit now stages chapter/state/canon/audit persistence under one fail-closed boundary with rollback on commit-path write failure, preventing partial-success artifact persistence.
 
 - **Static storytelling-mechanics injection (no RAG dependency)** — Added corpus-derived prompt fragments (`storycraftr/prompts/planner_rules.md`, `storycraftr/prompts/drafter_rules.md`, `storycraftr/prompts/editor_rules.md`) and deterministic loader (`storycraftr/prompts/craft_rules.py`). `NarrativeStateEngine` now injects `[Planner Rules]`, `[Drafter Rules]`, and `[Editor Rules]` into prompt composition so universal craft constraints remain always present without probabilistic retrieval.
 - **Sequential scene generation pipeline (planner -> drafter -> editor)** — Added `storycraftr/agent/generation_pipeline.py` and switched TUI generation to three role-isolated passes with one bounded planner JSON repair attempt. This reduces instruction dilution by separating directive planning, prose drafting, and revision stages.

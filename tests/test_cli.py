@@ -782,6 +782,241 @@ def test_run_book_pipeline_emits_progress_heartbeat_and_model_telemetry(
     assert summary.semantic_reviews_run >= 1
 
 
+def test_run_book_pipeline_repairs_scene_plan_after_repeated_structure_drift(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    class _FakeEvent:
+        def wait(self, _timeout: float | None = None) -> bool:
+            return True
+
+        def set(self) -> None:
+            return None
+
+    class _FakeThread:
+        def __init__(self, *, target, daemon: bool = True) -> None:
+            self._target = target
+            self.daemon = daemon
+
+        def start(self) -> None:
+            return None
+
+        def join(self, timeout: float | None = None) -> None:
+            _ = timeout
+
+    def _scene_text(outcome: str, label: str) -> str:
+        core = (
+            "Lyra seeks proof of the hidden rebellion. "
+            "City guards crowd the alley and block her contact. "
+            "She acts because capture would mean execution as a rebel courier. "
+            f"{outcome}. "
+        )
+        filler = " ".join(f"{label}{idx}" for idx in range(260))
+        return core + filler + "."
+
+    state = {
+        "scene_one_edit_calls": 0,
+        "planner_repair_calls": 0,
+    }
+
+    original_outcome = "Lyra discovers the coded message and decides to find the scribe"
+    repaired_outcome = "Lyra reveals the coded message and chooses the eastern tunnels"
+
+    class _RoleLLM:
+        def __init__(self, model_name: str):
+            self.model_name = model_name
+            self.model_sequence = [model_name]
+            self.last_resolved_model_index = 0
+            self.last_resolved_model = model_name
+
+        def invoke(self, prompt):
+            text = str(prompt)
+            if "canon safety checker" in text:
+                return SimpleNamespace(content='{"violation": false}')
+            if "Run a global coherence audit over chapter progression." in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
+            if "Generated Chapter:" in text and "Approved Scene Plan:" in text:
+                return SimpleNamespace(content='{"status":"PASS"}')
+            if "Extract narrative state deltas from chapter prose" in text:
+                return SimpleNamespace(
+                    content=(
+                        '{"character_deltas":[{"id":"lyra","name":"Lyra",'
+                        '"location":"east tunnels"}],'
+                        '"relationship_changes":[],"world_facts":[],'
+                        '"thread_changes":[{"id":"rebellion","action":"advance",'
+                        '"description":"Lyra commits to the tunnel lead"}]}'
+                    )
+                )
+            if "Create a concise rolling outline for the next chapter." in text:
+                return SimpleNamespace(
+                    content="- Lyra hunts for proof in the curfewed city."
+                )
+            if (
+                "Return ONLY valid JSON" in text
+                or "Repair this into strict JSON" in text
+            ):
+                scene_match = re.search(r"Chapter 1, scene (\d) of 3", text)
+                scene_number = int(scene_match.group(1)) if scene_match else 1
+                if "Previous scene drift feedback:" in text:
+                    state["planner_repair_calls"] += 1
+                    return SimpleNamespace(
+                        content=(
+                            '{"goal":"Lyra seeks proof of the hidden rebellion",'
+                            '"conflict":"City guards crowd the alley and block her contact",'
+                            '"stakes":"If caught Lyra will be executed as a rebel courier",'
+                            f'"outcome":"{repaired_outcome}"'
+                            "}"
+                        )
+                    )
+                outcome = original_outcome
+                if scene_number == 2:
+                    outcome = "Lyra bribes the watch clerk and decides to trust Mara"
+                if scene_number == 3:
+                    outcome = "Lyra escapes the raid and changes the rebel timetable"
+                return SimpleNamespace(
+                    content=(
+                        '{"goal":"Lyra seeks proof of the hidden rebellion",'
+                        '"conflict":"City guards crowd the alley and block her contact",'
+                        '"stakes":"If caught Lyra will be executed as a rebel courier",'
+                        f'"outcome":"{outcome}"'
+                        "}"
+                    )
+                )
+            if "Retry draft for chapter 1 scene 1" in text:
+                if repaired_outcome in text:
+                    return SimpleNamespace(
+                        content=_scene_text(repaired_outcome, "repair")
+                    )
+                return SimpleNamespace(content=_scene_text(original_outcome, "retry"))
+            if "Chapter 1 scene 1." in text and "Write 800-1200 words" in text:
+                return SimpleNamespace(content=_scene_text(original_outcome, "draft"))
+            if "Revise chapter 1 scene 1 for craft and canon." in text:
+                state["scene_one_edit_calls"] += 1
+                if state["scene_one_edit_calls"] < 3:
+                    return SimpleNamespace(
+                        content=(
+                            "Lyra moved through the alley under heavy guard pressure, "
+                            "but the scene ended on a substitute beat that never landed "
+                            "the planned turn. "
+                            + " ".join(f"drift{idx}" for idx in range(260))
+                            + "."
+                        )
+                    )
+                if repaired_outcome in text:
+                    return SimpleNamespace(
+                        content=_scene_text(repaired_outcome, "edit")
+                    )
+                return SimpleNamespace(content=_scene_text(original_outcome, "edit"))
+            if "Revise chapter 1 scene 2 for craft and canon." in text:
+                return SimpleNamespace(
+                    content=_scene_text(
+                        "Lyra bribes the watch clerk and decides to trust Mara",
+                        "scene2",
+                    )
+                )
+            if "Revise chapter 1 scene 3 for craft and canon." in text:
+                return SimpleNamespace(
+                    content=_scene_text(
+                        "Lyra escapes the raid and changes the rebel timetable",
+                        "scene3",
+                    )
+                )
+            if "Stitch chapter" in text and "[Scene 1]" in text:
+                return SimpleNamespace(
+                    content=" ".join(f"stitched{idx}" for idx in range(2600))
+                )
+            return SimpleNamespace(content=" ".join(f"word{idx}" for idx in range(900)))
+
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.threading.Event",
+        _FakeEvent,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.threading.Thread",
+        _FakeThread,
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.create_or_get_assistant",
+        lambda _book_path: SimpleNamespace(llm=_RoleLLM("assistant-model")),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_craft_rule_set",
+        lambda: SimpleNamespace(
+            planner=SimpleNamespace(text="planner-rules"),
+            drafter=SimpleNamespace(text="drafter-rules"),
+            editor=SimpleNamespace(text="editor-rules"),
+            stitcher=SimpleNamespace(text="stitcher-rules"),
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.load_book_config",
+        lambda _book_path: SimpleNamespace(
+            book_name="Demo",
+            llm_provider="openrouter",
+            llm_model="arcee-ai/trinity-large-preview:free",
+            llm_endpoint="",
+            llm_api_key_env="",
+            temperature=0.7,
+            request_timeout=30,
+            max_tokens=8192,
+            enable_semantic_review=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.validate_openrouter_rankings_config",
+        lambda: {
+            "batch_planning": {
+                "primary": "meta-llama/llama-3.3-70b-instruct:free",
+                "fallbacks": ["stepfun/step-3.5-flash:free"],
+                "why": "planner rationale",
+            },
+            "batch_prose": {
+                "primary": "z-ai/glm-4.5-air:free",
+                "fallbacks": ["google/gemma-3-27b-it:free"],
+                "why": "prose rationale",
+            },
+            "batch_editing": {
+                "primary": "google/gemma-3-27b-it:free",
+                "fallbacks": ["meta-llama/llama-3.3-70b-instruct:free"],
+                "why": "editing rationale",
+            },
+            "repair_json": {
+                "primary": "google/gemma-3-27b-it:free",
+                "fallbacks": ["stepfun/step-3.5-flash:free"],
+                "why": "repair rationale",
+            },
+            "coherence_check": {
+                "primary": "stepfun/step-3.5-flash:free",
+                "fallbacks": ["openai/gpt-oss-120b:free"],
+                "why": "coherence rationale",
+                "context_limit": 128000,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.build_chat_model",
+        lambda settings: _RoleLLM(settings.model),
+    )
+    monkeypatch.setattr(
+        "storycraftr.cmd.story.book.NarrativeMemoryManager",
+        lambda **_kwargs: SimpleNamespace(add_memory=lambda **__kwargs: True),
+    )
+
+    summary = run_book_pipeline(
+        book_path=str(tmp_path),
+        seed_text="# Seed\n\nPinned context",
+        chapters=1,
+        auto_approve=True,
+    )
+
+    output = capsys.readouterr().out
+    assert summary.final_status == "succeeded"
+    assert state["planner_repair_calls"] == 1
+    assert "Repairing scene 1 plan after structure drift..." in output
+    assert "Escalating batch_planning model" in output
+
+
 def test_book_command_fails_when_seed_file_missing(tmp_path, monkeypatch) -> None:
     runner = CliRunner()
     project = tmp_path / "demo"

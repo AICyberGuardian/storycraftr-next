@@ -447,7 +447,7 @@ CLI discovery commands:
 - `storycraftr models list|refresh` provides grouped model discovery commands.
 - `storycraftr models validate-rankings [--refresh] [--format text|json]` validates strict `rankings.json` routing configuration and reports actionable failures.
 - `storycraftr book --seed <seed.md> --chapters <n> --yes` now persists three success-path artifacts: `chapters/chapter-<n>.md`, `outline/narrative_state.json`, and `outline/canon.yml`.
-- `storycraftr book` commit semantics are fail-closed and ordered: state patch apply, then canon ledger write, then chapter markdown persistence.
+- `storycraftr book` commit semantics are fail-closed and transactional: chapter/state/canon/audit writes are treated as one boundary with rollback on failure.
 - `storycraftr book` emits deterministic chapter packet artifacts under `outline/chapter_packets/chapter-<nnn>/` (including `validator_report.json`, stage/scene reports, and diagnostics).
 - `storycraftr chapters chapter` is a developer-only bypass and now requires both `--unsafe-direct-write` and `STORYCRAFTR_ALLOW_UNSAFE=1`.
 - CLI and TUI control-plane mode/audit/canon checks now share one service layer (`storycraftr/services/control_plane.py`) to keep behavior and edge-case handling aligned.
@@ -456,7 +456,7 @@ CLI discovery commands:
 
 When you run `storycraftr book --yes` on a real provider (`openai`, `openrouter`, or `ollama`), StoryCraftr is intentionally fail-closed at the commit boundary. Chapters do not commit unless planner validation, prose-completeness checks, semantic review, state-extraction checks, and packet acceptance contracts all pass.
 
-That said, the runtime is not yet a fully proven autonomous novelist. Semantic and coherence checks are still mostly LLM-evaluated, validator independence is not guaranteed in every provider path, and some raw model responses are not persisted yet for full post-mortem reconstruction. If you are using free-tier OpenRouter models, treat the workflow as supervised and review packet artifacts plus run audits after each run.
+That said, the runtime is not yet a fully proven autonomous novelist. Semantic and coherence checks are still mostly LLM-evaluated, strict autonomous runs fail closed when validator independence cannot be established, and non-strict runs can still use same-family validator paths. Retry/failure attempts now persist packet-local raw artifacts, but full all-attempt raw response persistence is still incomplete for complete disk-only reconstruction. If you are using free-tier OpenRouter models, treat the workflow as supervised and review packet artifacts plus run audits after each run.
 
 Also note that coherence gating is strict in autonomous real-provider runs, but can still be interval-based in non-strict runs. The legacy `storycraftr chapters chapter` path remains an explicit unsafe bypass and should be avoided outside controlled developer scenarios.
 

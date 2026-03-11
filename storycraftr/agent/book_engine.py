@@ -7,10 +7,15 @@ from typing import Any, Callable
 
 from storycraftr.agent.chapter_validator import (
     MAX_RETRIES,
+    MechanicalSieve,
     guarded_generation,
     has_meaningful_state_signal,
 )
+from storycraftr.agent.deterministic_guards import (
+    check_draft_expansion,
+)
 from storycraftr.agent.narrative_state import SceneDirective
+from storycraftr.agent.self_healer import HealingTicket, NarrativeHealer
 
 
 class BookEngineError(RuntimeError):
@@ -80,6 +85,7 @@ class BookEngine:
     commit_state_update: Callable[[Any, int], None]
     push_soft_memory: Callable[[ChapterRunArtifact], None] | None = None
     retry_draft_scene: Callable[..., str] | None = None
+    repair_scene_directive: Callable[..., SceneDirective] | None = None
     check_severe_canon_violation: Callable[[Any], bool] | None = None
     on_scene_generation_retry: Callable[[int, int, int, str], None] | None = None
     on_chapter_validation_retry: Callable[[int, int, str], None] | None = None
@@ -92,6 +98,7 @@ class BookEngine:
     ] | None = None
     persist_validation_failure: Callable[[int, int, str, str], None] | None = None
     persist_coherence_failure: Callable[[int, str, str], None] | None = None
+    persist_blackbox: Callable[[int, int, str, str, str], None] | None = None
     enable_semantic_review: bool = False
     coherence_interval: int = 5
     min_scene_words: int = 0
@@ -102,6 +109,9 @@ class BookEngine:
     enforce_state_signal_guard: bool = False
     enforce_coherence_each_chapter: bool = False
     require_severe_canon_check: bool = False
+    enforce_scene_structure_contract: bool = False
+    enforce_plot_omission_guard: bool = False
+    healer: NarrativeHealer = field(default_factory=NarrativeHealer)
 
     stage: BookEngineStage = BookEngineStage.IDLE
     seed_markdown: str = ""
@@ -117,6 +127,12 @@ class BookEngine:
         "Expand the scene by deepening the GOAL, escalating the CONFLICT, "
         "clarifying the DISASTER, or expanding the character's internal "
         "reaction in the SEQUEL, as required by the Master Story Engineering rules."
+    )
+    _SCENE_STRUCTURE_REPAIR_PREFIX = (
+        "Correction: The previous scene drifted from the approved Scene Plan. "
+        "Rewrite from scratch if needed. Do not keep substitute beats, invented "
+        "discoveries, or alternate endings. The revised scene must visibly land "
+        "the approved outcome on-page in the final paragraphs."
     )
     _OUTCOME_MOVEMENT_MARKERS = (
         "decides",
@@ -136,6 +152,56 @@ class BookEngine:
         "abandons",
         "joins",
     )
+    _SCENE_STRUCTURE_STOPWORDS = frozenset(
+        {
+            "that",
+            "with",
+            "from",
+            "into",
+            "their",
+            "there",
+            "about",
+            "after",
+            "before",
+            "through",
+            "while",
+            "because",
+            "would",
+            "could",
+            "should",
+        }
+    )
+    _POV_NAME_STOPWORDS = frozenset(
+        {
+            "goal",
+            "conflict",
+            "stakes",
+            "outcome",
+            "decides",
+            "decision",
+            "chooses",
+            "changes",
+            "discovers",
+            "fails",
+            "reveals",
+            "forces",
+            "cost",
+            "consequence",
+            "dilemma",
+            "turn",
+            "escalates",
+            "confrontation",
+            "abandons",
+            "joins",
+            "chapter",
+            "scene",
+            "the",
+            "and",
+            "but",
+        }
+    )
+
+    _TERMINAL_PUNCTUATION = (".", "!", "?", '"', "'", ")", "]")
 
     def start(self, *, seed_markdown: str, target_chapters: int) -> EngineStatus:
         """Initialize engine run and generate the first outline for approval."""
@@ -252,6 +318,14 @@ class BookEngine:
         for index, directive in enumerate(directives, start=1):
             self._validate_scene_directive(directive, scene_number=index)
 
+        combined_directive_text = self._build_combined_directive_text(directives)
+        expected_pov = self._infer_expected_pov(directives)
+        planned_outcome = " ".join(
+            directive.outcome.strip()
+            for directive in directives
+            if directive.outcome.strip()
+        )
+
         generation_diagnostics: dict[str, Any] = {
             "directive_quality_passed": True,
             "chapter_validation_attempts": 1,
@@ -265,6 +339,7 @@ class BookEngine:
             "coherence_gate_passed": None,
             "severe_canon_violation": False,
             "retry_feedback_last": None,
+            "expected_pov": expected_pov,
         }
 
         scene_artifacts: list[SceneRunArtifact] = []
@@ -288,16 +363,17 @@ class BookEngine:
                     repair_directive=repair_directive,
                     repair_in_system_prompt=repair_in_system_prompt,
                 )
-                edited_text = self._generate_edited_text(
+                final_directive, edited_text = self._generate_edited_text(
                     directive,
                     draft_text,
                     chapter_number,
                     index,
                 )
+                directives[index - 1] = final_directive
                 refreshed_artifacts.append(
                     SceneRunArtifact(
                         scene_number=index,
-                        directive=directive,
+                        directive=final_directive,
                         draft_text=draft_text,
                         edited_text=edited_text,
                     )
@@ -318,20 +394,9 @@ class BookEngine:
         should_use_guarded_generation = enforce_chapter_guard or semantic_review_enabled
         generation_diagnostics["state_signal_enforced"] = enforce_state_signal
         generation_diagnostics["semantic_review_enabled"] = semantic_review_enabled
+        healing_tickets: dict[str, HealingTicket] = {}
 
         def _semantic_validator(text: str) -> tuple[bool, str]:
-            parity_ok, parity_reason = self._validate_stitch_parity(
-                text,
-                edited_scenes,
-            )
-            if not parity_ok:
-                generation_diagnostics["stitch_parity_passed"] = False
-                generation_diagnostics["stitch_parity_last_reason"] = parity_reason
-                return False, parity_reason
-
-            generation_diagnostics["stitch_parity_passed"] = True
-            generation_diagnostics["stitch_parity_last_reason"] = None
-
             if not semantic_review_enabled or self.run_semantic_review is None:
                 return True, "ok"
 
@@ -346,24 +411,93 @@ class BookEngine:
                 return True, "ok"
 
             cleaned_reason = str(reason or "unspecified_violation").strip()
+            ticket = self.healer.ticket(
+                stage="semantic_review",
+                failure_class=f"semantic_review:{cleaned_reason}",
+                raw_output=text,
+            )
+            healing_tickets[
+                self.healer.normalize_failure_class(ticket.failure_class)
+            ] = ticket
+            generation_diagnostics["last_healing_ticket"] = {
+                "stage": ticket.stage,
+                "failure_class": ticket.failure_class,
+                "remediation_instruction": ticket.remediation_instruction,
+            }
             generation_diagnostics["semantic_review_passed"] = False
             generation_diagnostics["semantic_review_last_reason"] = cleaned_reason
             return False, f"semantic_review:{cleaned_reason}"
+
+        def _deterministic_validator(text: str) -> tuple[bool, str]:
+            parity_ok, parity_reason = self._validate_stitch_parity(
+                text,
+                edited_scenes,
+            )
+            if not parity_ok:
+                generation_diagnostics["stitch_parity_passed"] = False
+                generation_diagnostics["stitch_parity_last_reason"] = parity_reason
+                return False, parity_reason
+
+            generation_diagnostics["stitch_parity_passed"] = True
+            generation_diagnostics["stitch_parity_last_reason"] = None
+
+            sieve = MechanicalSieve(
+                pov_name=expected_pov or "",
+                planned_outcome=(
+                    planned_outcome if self.enforce_plot_omission_guard else ""
+                ),
+            )
+
+            def _mechanical_checks(raw_text: str) -> tuple[bool, str]:
+                ok, reason = sieve(raw_text)
+                if not ok:
+                    return False, reason
+                return check_draft_expansion(raw_text, combined_directive_text)
+
+            result = self.healer.evaluate(
+                stage="chapter_validation",
+                raw_output=text,
+                validator=_mechanical_checks,
+            )
+            if result == "PASS":
+                return True, "ok"
+
+            healing_tickets[
+                self.healer.normalize_failure_class(result.failure_class)
+            ] = result
+            generation_diagnostics["last_healing_ticket"] = {
+                "stage": result.stage,
+                "failure_class": result.failure_class,
+                "remediation_instruction": result.remediation_instruction,
+            }
+            return False, result.failure_class
 
         def _generate_validated_chapter(*, feedback: str | None = None) -> str:
             if feedback is not None:
                 cleaned_feedback = str(feedback).strip()
                 generation_diagnostics["retry_feedback_last"] = cleaned_feedback
-                if cleaned_feedback.startswith(("semantic_review:", "coherence_gate:")):
-                    correction = (
-                        "CRITICAL CORRECTION: The previous chapter attempt failed "
-                        "validation. You must delete non-compliant text and rewrite "
-                        "to follow the approved Scene Plan exactly. "
-                        f"Failure reason: {cleaned_feedback}."
+                ticket = healing_tickets.get(
+                    self.healer.normalize_failure_class(cleaned_feedback)
+                )
+                if (
+                    ticket is not None
+                    and self.healer.normalize_failure_class(ticket.failure_class)
+                    == "PLOT_OMISSION"
+                ):
+                    correction = ticket.remediation_instruction
+                    repair_in_system_prompt = True
+                else:
+                    (
+                        correction,
+                        repair_in_system_prompt,
+                    ) = self._build_chapter_retry_repair_directive(
+                        cleaned_feedback,
+                        expected_pov=expected_pov,
                     )
+                if correction is not None:
                     _regenerate_scene_pipeline(
                         repair_directive=correction,
-                        repair_in_system_prompt=True,
+                        repair_in_system_prompt=repair_in_system_prompt,
                     )
                 else:
                     _regenerate_scene_pipeline()
@@ -405,19 +539,39 @@ class BookEngine:
 
             def _on_failure(attempt: int, total: int, reason: str, text: str) -> None:
                 del total
-                if self.persist_validation_failure is None:
-                    return
-                try:
-                    self.persist_validation_failure(
-                        chapter_number,
-                        attempt,
-                        reason,
-                        text,
+                if self.persist_validation_failure is not None:
+                    try:
+                        self.persist_validation_failure(
+                            chapter_number,
+                            attempt,
+                            reason,
+                            text,
+                        )
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"Failed to persist validation failure artifact: {exc}"
+                        ) from exc
+
+                # Forensic black-box: raw response + Python-native error reason.
+                if self.persist_blackbox is not None:
+                    prompt_context = (
+                        str(
+                            generation_diagnostics.get("retry_feedback_last", "")
+                        ).strip()
+                        or "<initial_attempt>"
                     )
-                except Exception as exc:
-                    raise RuntimeError(
-                        f"Failed to persist validation failure artifact: {exc}"
-                    ) from exc
+                    try:
+                        self.persist_blackbox(
+                            chapter_number,
+                            attempt,
+                            prompt_context,
+                            text,
+                            reason,
+                        )
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"Failed to persist blackbox artifact: {exc}"
+                        ) from exc
 
             def _on_retry(attempt: int, total: int, reason: str) -> None:
                 retry_state["attempts"] = min(total, attempt + 1)
@@ -440,6 +594,7 @@ class BookEngine:
                     _generate_validated_chapter,
                     max_retries=max(1, self.max_chapter_validation_attempts),
                     min_words=max(1, min_chapter_words),
+                    deterministic_validator=_deterministic_validator,
                     semantic_validator=_semantic_validator,
                     on_failure=_on_failure,
                     on_retry=_on_retry,
@@ -645,16 +800,18 @@ class BookEngine:
         draft_text: str,
         chapter_number: int,
         scene_number: int,
-    ) -> str:
+    ) -> tuple[SceneDirective, str]:
         """Generate edited scene text with one fallback-redraft retry path."""
 
+        current_directive = directive
         current_draft = draft_text
         attempts = max(1, self.max_scene_generation_attempts)
+        planner_repair_used = False
 
         for attempt_index in range(attempts):
             try:
                 edited_text = self.edit_scene(
-                    directive,
+                    current_directive,
                     current_draft,
                     chapter_number,
                     scene_number,
@@ -669,10 +826,11 @@ class BookEngine:
                     reason=f"edit_exception:{exc}",
                 )
                 current_draft = self._call_retry_draft_scene(
-                    directive,
+                    current_directive,
                     chapter_number,
                     scene_number,
                     repair_directive=None,
+                    repair_in_system_prompt=False,
                 ).strip()
                 if not current_draft:
                     raise BookEngineError(
@@ -691,10 +849,11 @@ class BookEngine:
                     reason="edit_empty_output",
                 )
                 current_draft = self._call_retry_draft_scene(
-                    directive,
+                    current_directive,
                     chapter_number,
                     scene_number,
                     repair_directive=None,
+                    repair_in_system_prompt=False,
                 ).strip()
                 if not current_draft:
                     raise BookEngineError(
@@ -708,17 +867,29 @@ class BookEngine:
                     min_words=self.min_scene_words,
                     artifact_name="scene",
                 )
-                return cleaned
-            except BookEngineError:
+                if self.enforce_scene_structure_contract and self.min_scene_words > 0:
+                    self._validate_scene_structure(current_directive, cleaned)
+                return current_directive, cleaned
+            except BookEngineError as exc:
                 if self.retry_draft_scene is None or attempt_index == attempts - 1:
                     raise
                 repair_directive: str | None = None
+                repair_in_system_prompt = False
                 reason = "scene_validation_failed"
+                exc_message = str(exc)
+                if "scene_structure_missing" in exc_message:
+                    reason = "scene_structure_missing"
+                    repair_directive = self._build_scene_structure_repair_directive(
+                        current_directive,
+                        exc_message,
+                    )
+                    repair_in_system_prompt = True
                 if self.min_scene_words > 0:
                     produced_words = self._word_count(cleaned)
                     if produced_words < self.min_scene_words:
                         reason = "scene_too_short"
                         repair_directive = self._SCENE_DENSITY_REPAIR_DIRECTIVE
+                        repair_in_system_prompt = False
 
                 self._notify_scene_retry(
                     chapter_number,
@@ -726,11 +897,34 @@ class BookEngine:
                     attempt=attempt_index + 1,
                     reason=reason,
                 )
+                if (
+                    reason == "scene_structure_missing"
+                    and self.repair_scene_directive is not None
+                    and attempt_index >= 1
+                    and not planner_repair_used
+                ):
+                    current_directive = self._call_repair_scene_directive(
+                        current_directive,
+                        chapter_number,
+                        scene_number,
+                        exc_message,
+                    )
+                    self._validate_scene_directive(
+                        current_directive,
+                        scene_number=scene_number,
+                    )
+                    repair_directive = self._build_scene_structure_repair_directive(
+                        current_directive,
+                        exc_message,
+                    )
+                    repair_in_system_prompt = True
+                    planner_repair_used = True
                 current_draft = self._call_retry_draft_scene(
-                    directive,
+                    current_directive,
                     chapter_number,
                     scene_number,
                     repair_directive=repair_directive,
+                    repair_in_system_prompt=repair_in_system_prompt,
                 ).strip()
                 if not current_draft:
                     raise BookEngineError(
@@ -759,6 +953,237 @@ class BookEngine:
             raise BookEngineError(
                 f"{artifact_name.title()} output appears truncated or incomplete"
             )
+
+        truncation_reason = self._detect_truncation_reason(text)
+        if truncation_reason is not None:
+            raise BookEngineError(
+                f"{artifact_name.title()} output appears truncated or incomplete: "
+                f"{truncation_reason}"
+            )
+
+    def _detect_truncation_reason(self, text: str) -> str | None:
+        """Return truncation reason when prose likely ends mid-thought."""
+
+        stripped = text.rstrip()
+        if not stripped:
+            return "empty_output"
+
+        if stripped.endswith("..."):
+            return "ellipsis_tail"
+
+        words = self._word_count(stripped)
+        contains_terminal = any(mark in stripped for mark in (".", "!", "?"))
+        if (
+            words >= 120
+            and contains_terminal
+            and not stripped.endswith(self._TERMINAL_PUNCTUATION)
+        ):
+            return "missing_terminal_punctuation"
+
+        if stripped.count('"') % 2 != 0:
+            return "unbalanced_double_quote"
+
+        if stripped.endswith((":", ";", ",", "-", "(", "[")):
+            return "open_clause_tail"
+
+        return None
+
+    def _validate_scene_structure(
+        self,
+        directive: SceneDirective,
+        scene_text: str,
+    ) -> None:
+        """Ensure scene prose reflects directive pillars before acceptance."""
+
+        if not any(marker in scene_text for marker in (".", "!", "?", "\n")):
+            return
+
+        normalized_scene = scene_text.lower()
+        missing: list[str] = []
+        for field_name in ("goal", "conflict", "outcome"):
+            raw = str(getattr(directive, field_name, "")).strip().lower()
+            tokens = self._extract_scene_structure_tokens(raw)
+            if not tokens:
+                continue
+            matched = [token for token in tokens[:6] if token in normalized_scene]
+            required_matches = 2 if field_name == "outcome" and len(tokens) >= 2 else 1
+            if len(set(matched)) < required_matches:
+                missing.append(field_name)
+
+        stakes_tokens = [
+            token
+            for token in str(getattr(directive, "stakes", "")).strip().lower().split()
+            if len(token) > 3
+        ]
+        has_stakes_signal = any(
+            token in normalized_scene for token in stakes_tokens[:4]
+        )
+        has_motivation_signal = any(
+            marker in normalized_scene
+            for marker in ("because", "wanted", "needed", "afraid", "decided")
+        )
+        if not has_stakes_signal and not has_motivation_signal:
+            missing.append("motivation")
+
+        if missing:
+            raise BookEngineError(
+                "scene_structure_missing:" + ",".join(sorted(set(missing)))
+            )
+
+    def _extract_scene_structure_tokens(self, text: str) -> list[str]:
+        """Select meaningful tokens for directive-to-prose structure checks."""
+
+        cleaned_tokens: list[str] = []
+        for raw_token in str(text).split():
+            token = re.sub(r"[^a-z0-9']+", "", raw_token.lower()).strip("'")
+            if len(token) <= 3:
+                continue
+            if token in self._SCENE_STRUCTURE_STOPWORDS:
+                continue
+            cleaned_tokens.append(token)
+        return cleaned_tokens
+
+    @staticmethod
+    def _extract_missing_scene_fields(reason: str) -> tuple[str, ...]:
+        """Parse missing scene-structure fields from validator error text."""
+
+        prefix, separator, suffix = str(reason).partition(":")
+        if prefix.strip() != "scene_structure_missing" or not separator:
+            return ()
+        return tuple(
+            field.strip().lower() for field in suffix.split(",") if field.strip()
+        )
+
+    def _build_combined_directive_text(
+        self,
+        directives: list[SceneDirective],
+    ) -> str:
+        """Serialize all scene directives into one deterministic reference string."""
+
+        return "\n".join(
+            " ".join(
+                [
+                    directive.goal,
+                    directive.conflict,
+                    directive.stakes,
+                    directive.outcome,
+                ]
+            )
+            for directive in directives
+        )
+
+    def _infer_expected_pov(self, directives: list[SceneDirective]) -> str | None:
+        """Infer a likely POV character name from repeated directive proper nouns."""
+
+        counts: dict[str, int] = {}
+        for directive in directives:
+            combined = " ".join(
+                [
+                    directive.goal,
+                    directive.conflict,
+                    directive.stakes,
+                    directive.outcome,
+                ]
+            )
+            for match in re.findall(r"\b[A-Z][a-z]{2,}\b", combined):
+                lowered = match.lower()
+                if lowered in self._POV_NAME_STOPWORDS:
+                    continue
+                counts[match] = counts.get(match, 0) + 1
+
+        ranked = sorted(
+            counts.items(),
+            key=lambda item: (-item[1], item[0].lower()),
+        )
+        if not ranked or ranked[0][1] < 2:
+            return None
+        return ranked[0][0]
+
+    def _build_chapter_retry_repair_directive(
+        self,
+        failure_reason: str,
+        *,
+        expected_pov: str | None,
+    ) -> tuple[str | None, bool]:
+        """Translate chapter-level validator failures into targeted retry guidance."""
+
+        cleaned_reason = str(failure_reason).strip()
+        lowered = cleaned_reason.lower()
+
+        if lowered.startswith("missing_pov:"):
+            pov_name = cleaned_reason.split(":", 1)[1].strip() or expected_pov or ""
+            if not pov_name:
+                return None, False
+            return (
+                "[CRITICAL SYSTEM CORRECTION: Your previous attempt was rejected "
+                "because you completely omitted the required POV character: "
+                f"{pov_name}. You MUST write from their perspective.]",
+                True,
+            )
+
+        if lowered.startswith(("semantic_review:", "coherence_gate:")):
+            return (
+                "CRITICAL CORRECTION: The previous chapter attempt failed "
+                "validation. You must delete non-compliant text and rewrite "
+                "to follow the approved Scene Plan exactly. "
+                f"Failure reason: {cleaned_reason}.",
+                True,
+            )
+
+        if lowered.startswith("terminal_truncation:") or "truncated" in lowered:
+            return (
+                "CRITICAL SYSTEM CORRECTION: Your previous attempt was rejected "
+                "because the prose ended mid-thought or with broken dialogue. "
+                "Rewrite the chapter so the ending lands on complete sentences, "
+                "balanced quotation marks, and a fully closed final beat.",
+                True,
+            )
+
+        if lowered.startswith("insufficient_expansion:"):
+            return (
+                "CRITICAL SYSTEM CORRECTION: Your previous attempt was rejected "
+                "because the prose did not expand the approved directives into "
+                "enough narrative substance. Expand action, conflict, reaction, "
+                "and outcome beats without adding filler.",
+                False,
+            )
+
+        if lowered.startswith("plot_omission"):
+            return (
+                "CRITICAL: Your draft does not mention the planned outcome. "
+                "Ensure this happens on-page.",
+                True,
+            )
+
+        return None, False
+
+    def _build_scene_structure_repair_directive(
+        self,
+        directive: SceneDirective,
+        failure_reason: str,
+    ) -> str:
+        """Generate a concrete rewrite note for directive-to-prose drift."""
+
+        missing = set(self._extract_missing_scene_fields(failure_reason))
+        lines = [self._SCENE_STRUCTURE_REPAIR_PREFIX]
+        if "goal" in missing:
+            lines.append(f"Required goal on-page: {directive.goal}")
+        if "conflict" in missing:
+            lines.append(f"Required conflict on-page: {directive.conflict}")
+        if "motivation" in missing or "stakes" in missing:
+            lines.append(f"Make the stakes or motive explicit: {directive.stakes}")
+        if "outcome" in missing or not missing:
+            lines.extend(
+                [
+                    "Required final outcome beat:",
+                    directive.outcome,
+                    (
+                        "The ending must show that exact discovery, decision, failure, "
+                        "or change directly in action, dialogue, or realization."
+                    ),
+                ]
+            )
+        return "\n".join(lines)
 
     def _validate_stitch_parity(
         self,
@@ -846,6 +1271,7 @@ class BookEngine:
         scene_number: int,
         *,
         repair_directive: str | None,
+        repair_in_system_prompt: bool,
     ) -> str:
         """Call retry draft callback with backward-compatible signature support."""
 
@@ -862,11 +1288,43 @@ class BookEngine:
                     chapter_number,
                     scene_number,
                     repair_directive,
+                    repair_in_system_prompt,
                 )
             except TypeError:
-                # Backward compatibility for 3-argument callbacks.
-                pass
+                try:
+                    return retry_fn(
+                        directive,
+                        chapter_number,
+                        scene_number,
+                        repair_directive,
+                    )
+                except TypeError:
+                    # Backward compatibility for 3-argument callbacks.
+                    pass
         return retry_fn(directive, chapter_number, scene_number)
+
+    def _call_repair_scene_directive(
+        self,
+        directive: SceneDirective,
+        chapter_number: int,
+        scene_number: int,
+        failure_reason: str,
+    ) -> SceneDirective:
+        """Call planner-side repair callback with backward-compatible signatures."""
+
+        if self.repair_scene_directive is None:
+            raise BookEngineError("Scene directive repair callback is not configured")
+
+        repair_fn = self.repair_scene_directive
+        try:
+            return repair_fn(
+                directive,
+                chapter_number,
+                scene_number,
+                failure_reason,
+            )
+        except TypeError:
+            return repair_fn(directive, chapter_number, scene_number)
 
     def _call_draft_scene(
         self,

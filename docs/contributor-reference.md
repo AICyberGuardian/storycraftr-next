@@ -66,7 +66,7 @@ or story-quality enforcement scope.
 | File | Summary | Update When |
 | --- | --- | --- |
 | `storycraftr/cmd/control_plane.py` | Grouped Click commands for automation/headless workflows (tui/state/canon/mode/models). | Control-plane command behavior, Click group structure, or runtime service integration changes. |
-| `storycraftr/cmd/story/book.py` | Disciplined `storycraftr book` CLI runtime orchestration (outline -> plan -> draft -> edit -> stitch -> state commit) with explicit approvals and fail-closed commit ordering. | `storycraftr book` CLI flags, approval gates, artifact persistence contract (`chapter`, `narrative_state`, `canon`), or commit-failure semantics change. |
+| `storycraftr/cmd/story/book.py` | Disciplined `storycraftr book` CLI runtime orchestration (outline -> plan -> draft -> edit -> stitch -> state commit) with explicit approvals and fail-closed transactional commit/rollback semantics. | `storycraftr book` CLI flags, approval gates, artifact persistence contract (`chapter`, `narrative_state`, `canon`, `book_audit`, packet failures), or commit-failure semantics change. |
 | `storycraftr/agent/book_engine.py` | Fail-closed chapter-generation state machine with explicit stages and approval checkpoints. | Book stage transitions, retry behavior, coherence hooks, or approval/commit lifecycle semantics change. |
 | `storycraftr/agent/chapter_validator.py` | Shared completeness/state-signal guard helpers (`guarded_generation`, duplicate-paragraph detection, meaningful state-signal checks) used by `BookEngine`. | Chapter completeness thresholds, retry contracts, duplicate-loop heuristics, or state-signal guard semantics change. |
 | `storycraftr/config/validator_report.schema.json` | Machine-readable schema contract for chapter packet `validator_report.json` artifacts. | Chapter packet validator report structure, required keys, or precommit/postcommit schema contract changes. |
@@ -196,12 +196,11 @@ or story-quality enforcement scope.
 - Treat `docs/CHANGE_IMPACT_CHECKLIST.md` as mandatory on every change.
 - Treat `AGENTS.md` and `.github/copilot-instructions.md` as canonical contracts.
 - Use the deep reference only when subsystem depth is actually needed.
-- `AGENTS.md` still references `behavior.txt`, but the runtime and project
-  templates use project-local behavior files under `behaviors/default.txt`.
+- Agent behavior defaults are project-local files under `behaviors/` (for example `behaviors/default.txt`).
 
 ### Recent Architecture Context
 
-- **Canon Guard**: Chapter-scoped fact ledger (`outline/canon.yml`) with duplicate/negation conflict detection; fail-closed verification gates autopilot commits. Successful `storycraftr book` state commits also persist chapter canon entries (including `plot_threads` snapshots) before chapter markdown writes.
+- **Canon Guard**: Chapter-scoped fact ledger (`outline/canon.yml`) with duplicate/negation conflict detection; fail-closed verification gates autopilot commits. Successful `storycraftr book` commit transactions persist chapter canon entries (including `plot_threads` snapshots) with rollback safety across chapter/state/canon/audit artifacts.
 - **Narrative State**: Structured character/world state (`outline/narrative_state.json`) with prompt injection via `[Structured Narrative State]` section and version-aware headers (DSVL Phase 1C, 2C).
 - **Audit Trail**: Append-only mutation log (`outline/narrative_audit.jsonl`) with DSVL Phase 2A query API, queryable by entity/type with `/state audit` TUI command (DSVL Phase 2B).
 - **State Extraction & Verification**: Deterministic prose-to-patch extraction (`storycraftr/agent/state_extractor.py`) with fail-closed verification, operation-order retry, and unsafe-operation dropping (DSVL Phase 3-4).

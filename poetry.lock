@@ -1972,6 +1972,21 @@ files = [
 ]
 
 [[package]]
+name = "json-repair"
+version = "0.58.5"
+description = "A package to repair broken json strings"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "json_repair-0.58.5-py3-none-any.whl", hash = "sha256:16f65addc58d8e0b2b8514e3f6ea9ff568267ce94ead95f4faf90e40dd35d526"},
+    {file = "json_repair-0.58.5.tar.gz", hash = "sha256:2dfdb44573197eeea8eda23f23677412634b2fe2a93bd1dbe4f1b88e4896efa3"},
+]
+
+[package.extras]
+schema = ["jsonschema (>=4.21)", "pydantic (>=2)"]
+
+[[package]]
 name = "jsonpatch"
 version = "1.33"
 description = "Apply JSON-Patches (RFC 6902)"
@@ -6719,4 +6734,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<3.14"
-content-hash = "19b47b44f25f6dacfc158880514e7e587bc2e4c082fe0e9a72ae6fd6b3ac9a16"
+content-hash = "0a4dd7ab5e9089477cef9e454779ca791d03a8e378589be04a29ec0fc31cdef6"

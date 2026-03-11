@@ -5,13 +5,13 @@ Current development target: `v0.19` (`0.19.0-dev`).
 ### Highlights
 
 - Synchronized public and contributor documentation with the current `storycraftr book` runtime contract: strict autonomous runs are strongly fail-closed at the commit boundary and persist chapter packets, run audits, and state audit trails.
-- Added an explicit documentation note that the runtime is not yet a fully proven autonomous novelist for unreliable free-tier models: semantic/coherence checks remain mostly LLM-judged, validator independence is not guaranteed in every provider path, and some raw model responses are not yet persisted.
+- Added an explicit documentation note that the runtime is not yet a fully proven autonomous novelist for unreliable free-tier models: semantic/coherence checks remain mostly LLM-judged, strict autonomous runs now fail closed when validator independence cannot be established, non-strict runs may still use same-family validator paths, and full all-attempt raw response persistence is still incomplete.
 - Published a repository-level `TODO.md` backlog covering the remaining hardening work for validator independence, deterministic contradiction checks, full raw artifact persistence, corpus-to-validator promotion, and real-provider operational proof.
 
 ### Known Limits
 
 - Treat `storycraftr book --yes` on real providers as a supervised workflow, not a fire-and-forget automation path.
-- Packet artifacts and audits are strong, but failed-stage forensics are still incomplete until raw planner/reviewer/extractor outputs are persisted.
+- Packet artifacts and audits are stronger (including retry/failure attempt snapshots), but failed-stage forensics are still incomplete until all-attempt raw planner/reviewer/extractor outputs are persisted.
 - Story-quality enforcement is still a mix of validator contracts and prompt guidance; the deeper corpus is not yet fully executed as machine checks.
 
 For complete line-item history, see `CHANGELOG.md`, `docs/CHANGE_IMPACT_CHECKLIST.md`, and `TODO.md`.

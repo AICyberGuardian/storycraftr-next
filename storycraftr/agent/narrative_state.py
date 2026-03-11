@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from contextlib import contextmanager
+from typing import Any, Generator, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -349,10 +351,76 @@ class NarrativeStateStore:
         }
 
         with project_write_lock(self.book_path):
-            self._file_path.write_text(
+            self._atomic_write_text(
+                self._file_path,
                 json.dumps(payload, indent=2, sort_keys=True),
-                encoding="utf-8",
             )
+
+    @staticmethod
+    def _atomic_write_text(path: Path, content: str) -> None:
+        """Atomically write file content and fsync before replace."""
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_suffix(path.suffix + ".tmp")
+        with temp_path.open("w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temp_path.replace(path)
+
+    def append_audit_entry(self, entry: Any) -> None:
+        """Append an already-prepared audit entry with fail-closed semantics."""
+
+        audit_log = self._get_audit_log()
+        if audit_log is None:
+            return
+        try:
+            audit_log.append_entry(entry)
+        except Exception as exc:
+            logger.error("audit_commit_failure: %s", exc)
+            raise RuntimeError(f"audit_commit_failure: {exc}") from exc
+
+    @contextmanager
+    def begin_state_transaction(self) -> Generator[None, None, None]:
+        """Context manager: roll back the state file to pre-transaction content on error.
+
+        Usage::
+
+            with store.begin_state_transaction():
+                store.save(new_snapshot)   # if this or anything inside raises...
+                store.append_audit_entry(entry)  # ...the file is restored from backup.
+
+        The backup is taken as a raw bytes snapshot of the current file before yielding.
+        On any exception the original file is atomically restored, then the exception
+        is re-raised so the caller sees the original error unchanged.
+        """
+        backup_text: str | None = None
+        if self._file_path.exists():
+            try:
+                backup_text = self._file_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                raise StateValidationError(
+                    f"Cannot read state file for transaction backup: {exc}"
+                ) from exc
+        try:
+            yield
+        except Exception:
+            # Restore pre-transaction state atomically.
+            if backup_text is not None:
+                try:
+                    self._atomic_write_text(self._file_path, backup_text)
+                except Exception as restore_exc:
+                    logger.error(
+                        "state_rollback_failed after transaction error: %s",
+                        restore_exc,
+                    )
+            elif self._file_path.exists():
+                # File did not exist before the transaction - remove partial write.
+                try:
+                    self._file_path.unlink()
+                except OSError:
+                    pass
+            raise
 
     def upsert_character(
         self, name: str, fields: dict[str, Any]
@@ -564,8 +632,13 @@ class NarrativeStateStore:
                 )
 
     def apply_patch(
-        self, patch: StatePatch, actor: str = "system"
-    ) -> NarrativeStateSnapshot:
+        self,
+        patch: StatePatch,
+        actor: str = "system",
+        *,
+        write_audit: bool = True,
+        return_audit_entry: bool = False,
+    ) -> Any:
         """
         Apply a validated patch to the narrative state.
 
@@ -610,6 +683,7 @@ class NarrativeStateStore:
 
         # Compute diff for audit trail
         changeset: StateChangeset | None = None
+        audit_entry: Any | None = None
         audit_log = self._get_audit_log()
         if audit_log is not None:
             from storycraftr.agent.state_diff import compute_state_diff
@@ -617,8 +691,8 @@ class NarrativeStateStore:
 
             changeset = compute_state_diff(old_snapshot, new_snapshot)
 
-            # Log the patch application
-            entry = AuditEntry(
+            # Build the patch audit entry; caller decides when to append.
+            audit_entry = AuditEntry(
                 timestamp=new_snapshot.last_modified,
                 operation_type="patch",
                 actor=actor,
@@ -626,10 +700,15 @@ class NarrativeStateStore:
                 changeset=changeset,
                 metadata={"version": new_snapshot.version},
             )
-            audit_log.append_entry(entry)
 
-        # Persist
-        self.save(new_snapshot)
+        # Persist under transaction: any exception restores the pre-patch file state.
+        with self.begin_state_transaction():
+            self.save(new_snapshot)
+            if write_audit and audit_entry is not None:
+                self.append_audit_entry(audit_entry)
+
+        if return_audit_entry:
+            return new_snapshot, audit_entry
         return new_snapshot
 
     def _apply_character_operation(

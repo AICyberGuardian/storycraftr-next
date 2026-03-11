@@ -53,7 +53,8 @@ Recent architecture additions (must be treated as current behavior):
 - `storycraftr book` is a fail-closed staged runtime (`outline -> plan -> draft -> edit -> stitch -> state/canon commit`) backed by `storycraftr/agent/book_engine.py`
 - Chapter generation guardrails include directive-quality checks, prose completeness checks, duplicate-paragraph loop detection, bounded retries, and state-signal sanity checks before commit
 - Optional semantic reviewer loop (`enable_semantic_review`) runs before state extraction/commit and participates in bounded retries when reviewer returns `FAIL`
-- `storycraftr book` success-path artifact contract persists `outline/narrative_state.json`, `outline/canon.yml`, and `chapters/chapter-<n>.md` in fail-closed order: `apply state patch -> write canon ledger -> write chapter file`
+- `storycraftr book` success-path artifact contract persists `outline/narrative_state.json`, `outline/canon.yml`, and `chapters/chapter-<n>.md` under fail-closed transactional semantics with rollback on commit-path failure.
+- `storycraftr book` retry/failure forensics persist packet-local failure artifacts (`failures/attempt-<x>.txt`) and attempt snapshots (`failures/attempt-<x>/metadata.json` + raw stage outputs).
 - Embedding defaults are API-first (`embed_model=text-embedding-3-small`, `embed_device=api`) with local embeddings still supported through core install (`poetry install` / `uv pip install -e .`)
 
 Primary workflows include:
@@ -104,7 +105,7 @@ The VS Code extension reads events from a JSONL file emitted by the CLI.
 14. Canon writes from candidate flows must remain fail-closed (verification first, commit second).
 15. Keep retrieval and memory contracts explicit: vector recall (`vector_store`) plus canon constraints (`outline/canon.yml`) plus session metadata (`.storycraftr/sessions/session.json`).
 16. Use Context7 for external library/framework behavior that is version-sensitive; do not use it to infer repository-local behavior that can be read directly from this codebase.
-17. Preserve `storycraftr book` fail-closed commit ordering (`state -> canon -> chapter`) and do not allow partial-success chapter writes when canon/state persistence fails.
+17. Preserve `storycraftr book` fail-closed commit transaction semantics (chapter/state/canon/audit writes must roll back together on failure) and do not allow partial-success persistence.
 18. Preserve chapter guard contracts (directive quality, prose completeness, duplicate-loop detection, meaningful state signal, optional semantic-review retry loop).
 
 ### Context7 Usage Contract (Mandatory)

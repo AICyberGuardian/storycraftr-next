@@ -47,7 +47,7 @@ Deep reference note:
    deep architecture reference and is not part of the routine must-read set.
 
 Reliability note:
-- The current `storycraftr book` runtime is strong at fail-closed commit safety, but it is not yet fully proven as a deterministic autonomous writing pipeline. Semantic/coherence validation is still largely LLM-judged, and some raw model outputs are not yet persisted for complete disk-only forensics.
+- The current `storycraftr book` runtime is strong at fail-closed commit safety (transactional commit boundary with rollback), but it is not yet fully proven as a deterministic autonomous writing pipeline. Semantic/coherence validation is still largely LLM-judged. Retry/failure attempts now persist packet-local raw artifacts, but full all-attempt raw persistence is still incomplete for complete disk-only forensics.
 
 ## System In One View
 
@@ -212,9 +212,7 @@ Give a new developer these files in this order:
 Only after that should they read:
 - `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md`
 
-## Known Documentation Gap
+## Behavior Contract Note
 
-`AGENTS.md` still references `behavior.txt` as canonical for agent behavior
-changes, while the repository now ships behavior defaults under `behaviors/`
-(for example `behaviors/default.txt`). Treat the `behavior.txt` wording as a
-legacy reference until the contract text is normalized.
+Use project-local behavior files under `behaviors/` (for example
+`behaviors/default.txt`) as the canonical behavior contract.

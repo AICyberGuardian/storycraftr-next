@@ -13,6 +13,8 @@ from storycraftr.llm.factory import (
     _load_openrouter_rankings,
     _rankings_fallback_models_for_batch,
     build_chat_model,
+    get_model_health_registry,
+    validate_ranking_consensus,
 )
 from storycraftr.utils.core import llm_settings_from_config
 from storycraftr.utils.core import BookConfig
@@ -36,6 +38,14 @@ def clean_llm_env(monkeypatch):
 @pytest.fixture(autouse=True)
 def allow_openrouter_models_by_default(monkeypatch):
     monkeypatch.setattr("storycraftr.llm.factory.is_model_free", lambda model_id: True)
+
+
+@pytest.fixture(autouse=True)
+def reset_model_health_registry():
+    registry = get_model_health_registry()
+    registry.reset()
+    yield
+    registry.reset()
 
 
 def test_openrouter_requires_explicit_provider_model(monkeypatch):
@@ -275,6 +285,52 @@ def test_openrouter_wrapper_uses_env_fallback_chain(monkeypatch):
     assert mock_chat_openai.call_count == 3
 
 
+def test_model_health_registry_marks_model_degraded_after_errors() -> None:
+    registry = get_model_health_registry()
+    for _ in range(4):
+        registry.record_error("openrouter/free")
+
+    assert registry.is_degraded("openrouter/free") is True
+
+
+def test_model_health_registry_marks_model_degraded_after_high_latency() -> None:
+    registry = get_model_health_registry()
+    registry.record_success("openrouter/free", latency_seconds=301.0)
+
+    assert registry.is_degraded("openrouter/free") is True
+
+
+def test_openrouter_wrapper_skips_degraded_primary_model(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    get_model_health_registry().mark_degraded("openrouter/free")
+
+    primary = mock.Mock()
+    primary._generate.side_effect = RuntimeError("primary should be skipped")
+
+    fallback_result = object()
+    fallback = mock.Mock()
+    fallback._generate.return_value = fallback_result
+
+    with mock.patch(
+        "storycraftr.llm.factory.ChatOpenAI",
+        side_effect=[primary, fallback],
+    ):
+        with mock.patch("storycraftr.llm.factory._openrouter_fallback_chain") as chain:
+            chain.return_value = ["stepfun/step-3.5-flash:free"]
+            model = build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="openrouter/free",
+                )
+            )
+
+    result = model._generate(messages=[], stop=None, run_manager=None)
+
+    assert result is fallback_result
+    assert primary._generate.call_count == 0
+    assert fallback._generate.call_count == 1
+
+
 def test_openrouter_fallback_init_warning_redacts_api_key(monkeypatch):
     secret = "or-super-secret"  # nosec B105  # pragma: allowlist secret
     monkeypatch.setenv(
@@ -346,6 +402,56 @@ def test_openrouter_wrapper_retries_then_succeeds(monkeypatch):
     assert result is mock_result
     assert primary._generate.call_count == 3
     assert mock_sleep.call_count == 2
+
+
+def test_openrouter_wrapper_retries_on_http_502(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+
+    mock_result = object()
+    primary = mock.Mock()
+    primary._generate.side_effect = [
+        RuntimeError("Error code: 502 - bad gateway"),
+        mock_result,
+    ]
+    with mock.patch("storycraftr.llm.factory.ChatOpenAI", return_value=primary):
+        with mock.patch("storycraftr.llm.factory.time.sleep") as mock_sleep:
+            model = build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="openrouter/free",
+                )
+            )
+
+            result = model._generate(messages=[], stop=None, run_manager=None)
+
+    assert result is mock_result
+    assert primary._generate.call_count == 2
+    assert mock_sleep.call_count == 1
+
+
+def test_openrouter_wrapper_retries_on_empty_response(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+
+    mock_result = object()
+    primary = mock.Mock()
+    primary._generate.side_effect = [
+        SimpleNamespace(generations=[]),
+        mock_result,
+    ]
+    with mock.patch("storycraftr.llm.factory.ChatOpenAI", return_value=primary):
+        with mock.patch("storycraftr.llm.factory.time.sleep") as mock_sleep:
+            model = build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="openrouter/free",
+                )
+            )
+
+            result = model._generate(messages=[], stop=None, run_manager=None)
+
+    assert result is mock_result
+    assert primary._generate.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 def test_openrouter_wrapper_falls_back_after_retry_exhaustion(monkeypatch):
@@ -558,6 +664,37 @@ def test_rankings_fallback_models_for_batch_reads_fallbacks(monkeypatch, tmp_pat
 
     fallbacks = _rankings_fallback_models_for_batch("batch_planning")
     assert fallbacks == ["stepfun/step-3.5-flash:free"]
+
+
+def test_validate_ranking_consensus_substitutes_non_free_models(monkeypatch, tmp_path):
+    rankings_path = tmp_path / "rankings.json"
+    payload = _valid_rankings_payload()
+    payload["batch_prose"]["primary"] = "openai/gpt-4o-mini"
+    payload["batch_editing"]["fallbacks"] = [
+        "openai/gpt-4o-mini",
+        "stepfun/step-3.5-flash:free",
+    ]
+    rankings_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    monkeypatch.setattr(
+        "storycraftr.llm.factory._OPENROUTER_RANKINGS_PATH", rankings_path
+    )
+    monkeypatch.setattr(
+        "storycraftr.llm.factory.get_free_models",
+        lambda force_refresh=False: [
+            "z-ai/glm-4.5-air:free",
+            "stepfun/step-3.5-flash:free",
+            "google/gemma-3-27b-it:free",
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "openai/gpt-oss-120b:free",
+        ],
+    )
+
+    validated = validate_ranking_consensus()
+    assert validated["batch_prose"]["primary"].endswith(":free")
+    assert validated["batch_prose"]["primary"] != "openai/gpt-4o-mini"
+    assert validated["batch_editing"]["fallbacks"][0].endswith(":free")
+    assert validated["batch_editing"]["fallbacks"][0] != "openai/gpt-4o-mini"
 
 
 def test_ollama_connection_error_is_actionable(monkeypatch):

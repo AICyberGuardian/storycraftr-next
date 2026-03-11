@@ -10,7 +10,14 @@ Current development target: v0.19.
 - `CI_INSTALL_PATTERN`: CI uses `setup-uv` cache + `uv sync` + `uv run`; local development continues to use `poetry install`.
 
 ## Project Structure & Module Organization
-StoryCraftr ships a Python CLI plus a lightweight VS Code companion extension. Python sources live in `storycraftr/` (agents, CLI entrypoints, prompts, templates, and a Textual TUI under `storycraftr/tui/`) with tests under `tests/` partitioned into `unit/` and `integration/`. The extension code sits in `src/` (TypeScript) and compiles to `out/` during builds. Shared documentation belongs in `docs/`, while runnable samples and starter outlines live in `examples/`. Treat `behavior.txt` as the canonical agent contract when adjusting automated behaviors.
+StoryCraftr ships a Python CLI plus a lightweight VS Code companion extension. Python sources live in `storycraftr/` (agents, CLI entrypoints, prompts, templates, and a Textual TUI under `storycraftr/tui/`) with tests under `tests/` partitioned into `unit/` and `integration/`. The extension code sits in `src/` (TypeScript) and compiles to `out/` during builds. Shared documentation belongs in `docs/`, while runnable samples and starter outlines live in `examples/`. Treat project-local behavior files under `behaviors/` (for example `behaviors/default.txt`) as the canonical agent behavior contract.
+
+### Key Runtime Contract: `storycraftr book`
+
+- `storycraftr book` remains fail-closed at the commit boundary and now stages chapter markdown before state/canon persistence so the final commit path can roll back all artifacts together on any write failure.
+- Deterministic chapter packet artifacts are persisted under `outline/chapter_packets/chapter-<nnn>/`, including validator reports, diagnostics, and scene-level reports.
+- Retry/failure forensic captures now persist packet-local failure artifacts (`failures/attempt-<x>.txt`) and attempt snapshots (`failures/attempt-<x>/`) with metadata and raw stage outputs.
+- Strict autonomous runs (`--yes` on real providers) enforce semantic validation and fail closed when validator independence cannot be established from model-family routing.
 
 ### Key Architecture: Sequential Scene Generation Pipeline
 

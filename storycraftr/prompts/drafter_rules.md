@@ -21,5 +21,6 @@ max_tokens: 360
 ## STRICT ADHERENCE
 
 You must follow the Scene Plan exactly. Do not invent new locations, skip interactions, or change the agreed-upon sequence of events. If you are provided with a Correction stating you deviated, you must delete the deviation.
+The final beat must cash the approved `outcome` exactly. If the outcome says the POV discovers, decides, fails, or changes, that beat must happen on-page before the scene ends. Do not substitute a different ending.
 
 CRITICAL MULTI-THREAD RULE: When the Scene Plan includes multiple POV characters or explicit scene owners, every required scene must appear in the chapter in the listed order with meaningful coverage. Never merge or omit a required POV thread.

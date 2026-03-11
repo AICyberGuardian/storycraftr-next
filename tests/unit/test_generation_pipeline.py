@@ -36,6 +36,16 @@ def test_parse_scene_directive_accepts_markdown_json_block() -> None:
     assert directive.stakes == "Lose leverage"
 
 
+def test_parse_scene_directive_repairs_trailing_commas_deterministically() -> None:
+    pipeline = _pipeline()
+
+    directive = pipeline.parse_scene_directive(
+        '{"goal":"Reach vault","conflict":"Guard blocks path","stakes":"Lose leverage","outcome":"No-and collapse",}'
+    )
+
+    assert directive.outcome == "No-and collapse"
+
+
 def test_parse_scene_directive_rejects_missing_json() -> None:
     pipeline = _pipeline()
 

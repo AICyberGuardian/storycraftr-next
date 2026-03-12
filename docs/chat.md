@@ -28,7 +28,7 @@ This will provide you with clear guidance directly within the chat, ensuring you
 
 ## Overview
 
-The **Chat** feature in **StoryCraftr** allows you to interact directly with the AI assistant to brainstorm ideas, refine content, or improve any aspect of your book in real time. The feature includes the ability to prompt specific commands related to story development, iterative refinement, and world-building, all from within the chat environment. This guide will help you get started with using the chat feature effectively.
+The **Chat** feature in **StoryCraftr** allows you to interact directly with the AI assistant to brainstorm ideas, refine content, or improve any aspect of your book in real time. The feature includes the ability to prompt specific commands related to story development, iterative refinement, and world-building, all from within the chat environment. Reliability stack contracts (prompt-budget preflight, structured retry logging, validator checks) are enforced throughout chat-driven workflows, and audit artifacts are persisted for each chapter and scene.
 
 ## Getting Started with Chat
 

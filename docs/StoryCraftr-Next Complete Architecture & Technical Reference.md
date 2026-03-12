@@ -10,6 +10,7 @@ Current development target: `v0.19` (`0.19.0-dev`).
 
 ## System Summary
 
+
 StoryCraftr-Next is a local-first writing platform with:
 - Dual Python CLI entrypoints: `storycraftr` and `papercraftr`
 - Textual terminal-native TUI shell (`python -m storycraftr.tui.app`)
@@ -17,6 +18,8 @@ StoryCraftr-Next is a local-first writing platform with:
 - Local Chroma vector store for retrieval-augmented generation (RAG)
 - Background sub-agent execution via thread pool
 - VS Code companion extension that consumes JSONL events
+- Completed minimal reliability stack: prompt-budget preflight (`tiktoken`), structured retry/quarantine logging (`structlog`), sentence-boundary validation (`pysbd`), bounded retries (`tenacity`), circuit-breaker resilience (`pybreaker`), entity-ledger checks (`flashtext2`), strict contract validation (`pydantic`).
+- Deterministic validator reports and audit artifacts are persisted for each chapter and scene, with regression tests covering reliability stack behavior.
 
 ## Core Runtime Flow
 

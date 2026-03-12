@@ -7,6 +7,7 @@ set -euo pipefail
 # - run a fully logged smoke outside the repo
 # - keep all generated logs/artifacts in a single timestamped folder
 # - generate AI-friendly snapshot files for later diagnosis
+# - surface structured reliability signals (token budget, retry, breaker/quarantine, truncation)
 #
 # Default output root:
 #   /home/orion22/Logs/storycraftr_smokes/
@@ -18,16 +19,24 @@ set -euo pipefail
 #   MAIN_MODEL=...
 #   CHAPTERS=...
 #   EMBED_DEVICE=...
+#   MERGED_LOG_NAME=...
+#   MAX_RUN_ATTEMPTS=...
+#   RETRY_SLEEP_SECONDS=...
 #
 # Example:
-#   RUN_LABEL=v101_trinity CHAPTERS=3 /home/orion22/rerun_smoke_only_storycraftr.sh
+#   RUN_LABEL=v101_trinity CHAPTERS=3 ./rerun_smoke_only_storycraftr.sh
 
 REPO_DIR="${REPO_DIR:-$HOME/storycraftr-next}"
 LOGS_ROOT="${LOGS_ROOT:-$HOME/Logs/storycraftr_smokes}"
 RUN_LABEL="${RUN_LABEL:-smoke}"
-MAIN_MODEL="${MAIN_MODEL:-arcee-ai/trinity-large-preview:free}"
+MAIN_MODEL="${MAIN_MODEL:-openrouter/free}"
 CHAPTERS="${CHAPTERS:-3}"
 EMBED_DEVICE="${EMBED_DEVICE:-cuda}"
+MERGED_LOG_NAME="${MERGED_LOG_NAME:-merged_diagnostics.log}"
+MAX_RUN_ATTEMPTS="${MAX_RUN_ATTEMPTS:-2}"
+RETRY_SLEEP_SECONDS="${RETRY_SLEEP_SECONDS:-10}"
+
+EMBED_DEVICE_NORMALIZED="$(printf '%s' "$EMBED_DEVICE" | tr '[:upper:]' '[:lower:]')"
 
 : "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY must be set in the environment}"
 # Example export command for local setup:
@@ -52,11 +61,42 @@ SHORT_SHA="$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo unkno
 RUN_DIR="$LOGS_ROOT/${TIMESTAMP}_${RUN_LABEL}_${SHORT_SHA}"
 BOOK_DIR="$RUN_DIR/book"
 LOG_DIR="$RUN_DIR/logs"
+MERGED_LOG="$RUN_DIR/$MERGED_LOG_NAME"
 
 mkdir -p "$BOOK_DIR" "$LOG_DIR"
 
+append_merged_file() {
+  local path="$1"
+  local title="${2:-$1}"
+  {
+    echo
+    echo "================================================================================"
+    echo "TITLE: $title"
+    echo "PATH: $path"
+    echo "================================================================================"
+    if [[ -f "$path" ]]; then
+      cat "$path"
+    else
+      echo "[MISSING] $path"
+    fi
+    echo
+  } >> "$MERGED_LOG"
+}
+
 cd "$REPO_DIR"
 source .venv/bin/activate
+
+SC_CLI=(storycraftr)
+if ! command -v storycraftr >/dev/null 2>&1; then
+  if command -v poetry >/dev/null 2>&1; then
+    SC_CLI=(poetry run storycraftr)
+  else
+    echo "ERROR: storycraftr CLI not found and poetry is unavailable."
+    exit 1
+  fi
+fi
+
+echo "==> StoryCraftr command: ${SC_CLI[*]}"
 
 echo "==> Repo: $REPO_DIR"
 echo "==> HEAD: $(git log --oneline -n 1)"
@@ -79,27 +119,6 @@ if [[ -z "${HF_TOKEN:-}" ]]; then
   echo "WARNING: HF_TOKEN is not set; Hugging Face downloads may be slower or rate-limited."
 fi
 
-echo "==> Quick CUDA verification"
-python - <<'PY' | tee "$LOG_DIR/cuda_check.log"
-import torch
-print("torch_version =", torch.__version__)
-print("cuda_available =", torch.cuda.is_available())
-print("cuda_version =", torch.version.cuda)
-print("device_count =", torch.cuda.device_count())
-if torch.cuda.is_available():
-    print("device_name =", torch.cuda.get_device_name(0))
-PY
-
-echo "==> Quick sentence-transformers verification"
-python - <<PY | tee "$LOG_DIR/embedding_check.log"
-from sentence_transformers import SentenceTransformer
-device = "$EMBED_DEVICE"
-model = SentenceTransformer("BAAI/bge-small-en-v1.5", device=device)
-print("sentence_transformer_device =", model.device)
-vec = model.encode(["StoryCraftr smoke verification"])
-print("embedding_ok =", len(vec), len(vec[0]))
-PY
-
 cat > "$BOOK_DIR/storycraftr.json" <<JSON
 {
   "book_name": "Storm Couriers",
@@ -117,6 +136,8 @@ cat > "$BOOK_DIR/seed.md" <<'MD'
 # Seed
 
 A coastal city is sealed at dusk while a hidden rebellion forms inside the walls.
+Primary POV character: Lyra Voss, a courier embedded in the dockworkers' guild.
+Every scene should keep Lyra present on-page and acting on the main decision beat.
 MD
 
 echo "==> Smoke config"
@@ -127,8 +148,9 @@ echo "==> Runtime environment snapshot"
   echo "date_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "hostname=$(hostname)"
   echo "pwd=$(pwd)"
+  echo "storycraftr_command=${SC_CLI[*]}"
   echo "which_storycraftr=$(command -v storycraftr || true)"
-  echo "storycraftr_version=$(storycraftr --version 2>/dev/null || true)"
+  echo "storycraftr_version=$(${SC_CLI[@]} --version 2>/dev/null || true)"
   echo "python_executable=$(command -v python || true)"
   echo "python_version=$(python --version 2>&1 || true)"
   echo "poetry_version=$(poetry --version 2>&1 || true)"
@@ -137,15 +159,62 @@ echo "==> Runtime environment snapshot"
   echo "chapters=$CHAPTERS"
 } | tee "$LOG_DIR/runtime_env.log"
 
+if [[ "$EMBED_DEVICE_NORMALIZED" == "api" ]]; then
+  echo "==> Skipping local CUDA and sentence-transformers checks (embed_device=api)"
+else
+  if [[ "$EMBED_DEVICE_NORMALIZED" == "cuda" ]]; then
+    echo "==> Quick CUDA verification"
+    python - <<'PY' | tee "$LOG_DIR/cuda_check.log"
+import torch
+print("torch_version =", torch.__version__)
+print("cuda_available =", torch.cuda.is_available())
+print("cuda_version =", torch.version.cuda)
+print("device_count =", torch.cuda.device_count())
+if torch.cuda.is_available():
+    print("device_name =", torch.cuda.get_device_name(0))
+PY
+  else
+    echo "==> CUDA check skipped (embed_device=$EMBED_DEVICE)" | tee "$LOG_DIR/cuda_check.log"
+  fi
+
+  echo "==> Quick sentence-transformers verification"
+  python - <<PY | tee "$LOG_DIR/embedding_check.log"
+from sentence_transformers import SentenceTransformer
+device = "$EMBED_DEVICE"
+model = SentenceTransformer("BAAI/bge-small-en-v1.5", device=device)
+print("sentence_transformer_device =", model.device)
+vec = model.encode(["StoryCraftr smoke verification"])
+print("embedding_ok =", len(vec), len(vec[0]))
+PY
+fi
+
 echo "==> Running StoryCraftr smoke"
-set +e
-storycraftr book \
-  --book-path "$BOOK_DIR" \
-  --seed "$BOOK_DIR/seed.md" \
-  --chapters "$CHAPTERS" \
-  --yes 2>&1 | tee "$LOG_DIR/run.log"
-BOOK_EXIT=${PIPESTATUS[0]}
-set -e
+BOOK_EXIT=1
+attempt=1
+while [[ "$attempt" -le "$MAX_RUN_ATTEMPTS" ]]; do
+  attempt_log="$LOG_DIR/run.attempt-${attempt}.log"
+  echo "==> StoryCraftr run attempt $attempt/$MAX_RUN_ATTEMPTS"
+  set +e
+  "${SC_CLI[@]}" book \
+    --book-path "$BOOK_DIR" \
+    --seed "$BOOK_DIR/seed.md" \
+    --chapters "$CHAPTERS" \
+    --yes 2>&1 | tee "$attempt_log"
+  BOOK_EXIT=${PIPESTATUS[0]}
+  set -e
+
+  cp "$attempt_log" "$LOG_DIR/run.log"
+  if [[ "$BOOK_EXIT" -eq 0 ]]; then
+    echo "==> StoryCraftr run succeeded on attempt $attempt"
+    break
+  fi
+
+  if [[ "$attempt" -lt "$MAX_RUN_ATTEMPTS" ]]; then
+    echo "==> Attempt $attempt failed with exit code $BOOK_EXIT; retrying in $RETRY_SLEEP_SECONDS seconds"
+    sleep "$RETRY_SLEEP_SECONDS"
+  fi
+  attempt=$((attempt + 1))
+done
 
 echo "$BOOK_EXIT" > "$RUN_DIR/exit_code.txt"
 
@@ -225,27 +294,39 @@ find "$BOOK_DIR/outline" -maxdepth 6 \( -name "*validator*" -o -name "*coherence
 
 echo
 echo "==> Structured packet forensics inventory"
-find "$BOOK_DIR/outline/chapter_packets" -maxdepth 8 -type f \( \
-  -name "diagnostics.json" -o \
-  -name "validator_report.json" -o \
-  -name "scene_*_validator_report.json" -o \
-  -name "canon_delta.yml" -o \
-  -name "state_patch.json" -o \
-  -name "metadata.json" -o \
-  -name "planner_output.txt" -o \
-  -name "drafter_output.txt" -o \
-  -name "editor_output.txt" -o \
-  -name "reviewer_output.txt" -o \
-  -name "state_extractor_output.txt" \
-\) | sort | tee "$LOG_DIR/forensics_inventory.log" || true
+if [[ -d "$BOOK_DIR/outline/chapter_packets" ]]; then
+  find "$BOOK_DIR/outline/chapter_packets" -maxdepth 8 -type f \( \
+    -name "diagnostics.json" -o \
+    -name "validator_report.json" -o \
+    -name "scene_*_validator_report.json" -o \
+    -name "canon_delta.yml" -o \
+    -name "state_patch.json" -o \
+    -name "metadata.json" -o \
+    -name "planner_output.txt" -o \
+    -name "drafter_output.txt" -o \
+    -name "editor_output.txt" -o \
+    -name "reviewer_output.txt" -o \
+    -name "state_extractor_output.txt" \
+  \) | sort | tee "$LOG_DIR/forensics_inventory.log" || true
+else
+  echo "chapter_packets directory missing" | tee "$LOG_DIR/forensics_inventory.log"
+fi
 
 echo
 echo "==> Chapter packet inventory"
-find "$BOOK_DIR/outline/chapter_packets" -maxdepth 6 -type f | sort | tee "$LOG_DIR/chapter_packet_inventory.txt" || true
+if [[ -d "$BOOK_DIR/outline/chapter_packets" ]]; then
+  find "$BOOK_DIR/outline/chapter_packets" -maxdepth 6 -type f | sort | tee "$LOG_DIR/chapter_packet_inventory.txt" || true
+else
+  echo "chapter_packets directory missing" | tee "$LOG_DIR/chapter_packet_inventory.txt"
+fi
 
 echo
 echo "==> Failure inventory"
-find "$BOOK_DIR/outline/chapter_packets" -path "*/failures/*" -type f | sort | tee "$LOG_DIR/failure_inventory.txt" || true
+if [[ -d "$BOOK_DIR/outline/chapter_packets" ]]; then
+  find "$BOOK_DIR/outline/chapter_packets" -path "*/failures/*" -type f | sort | tee "$LOG_DIR/failure_inventory.txt" || true
+else
+  echo "chapter_packets directory missing" | tee "$LOG_DIR/failure_inventory.txt"
+fi
 
 echo
 echo "==> Narrative audit inventory"
@@ -258,7 +339,7 @@ fi
 
 echo
 echo "==> Run guard signal grep"
-grep -nEi "guard|semantic|coherence|validator|canon_fact_conflict|validator_independence_failed|scene_structure_missing|audit_commit_failure|retry|escalat" "$LOG_DIR/run.log" | tee "$LOG_DIR/run_guard_signals.log" || true
+grep -nEi "guard|semantic|coherence|validator|canon_fact_conflict|validator_independence_failed|scene_structure_missing|audit_commit_failure|retry|escalat|token_budget_exceeded|sentence_boundary_truncation|breaker_open|quarantin|openrouter_retry|semantic_transport" "$LOG_DIR/run.log" | tee "$LOG_DIR/run_guard_signals.log" || true
 
 echo
 echo "==> Tail of run.log"
@@ -509,6 +590,75 @@ print(json.dumps(summary, indent=2))
 PY
 
 echo
+echo "==> Building merged diagnostics bundle"
+: > "$MERGED_LOG"
+{
+  echo "# StoryCraftr merged diagnostics bundle"
+  echo "repo=$REPO_DIR"
+  echo "run_dir=$RUN_DIR"
+  echo "book_dir=$BOOK_DIR"
+  echo "log_dir=$LOG_DIR"
+  echo "merged_log=$MERGED_LOG"
+  echo "timestamp=$TIMESTAMP"
+  echo "run_label=$RUN_LABEL"
+  echo "main_model=$MAIN_MODEL"
+  echo "chapters=$CHAPTERS"
+  echo "embed_device=$EMBED_DEVICE"
+  echo "exit_code=$BOOK_EXIT"
+  echo
+  echo "This file merges the run-level logs, summary files, outline artifacts,"
+  echo "chapter-packet artifacts, and failure forensics for single-file diagnosis."
+  echo
+} >> "$MERGED_LOG"
+
+for p in \
+  "$RUN_DIR/exit_code.txt" \
+  "$RUN_DIR/git_revision.txt" \
+  "$RUN_DIR/git_describe.txt" \
+  "$RUN_DIR/git_status.txt" \
+  "$RUN_DIR/rankings.snapshot.json" \
+  "$RUN_DIR/validator_report.schema.snapshot.json" \
+  "$BOOK_DIR/storycraftr.json" \
+  "$BOOK_DIR/seed.md"
+do
+  append_merged_file "$p"
+done
+
+while IFS= read -r path; do
+  append_merged_file "$path"
+done < <(find "$LOG_DIR" -maxdepth 1 -type f | sort)
+
+for p in \
+  "$BOOK_DIR/outline/book_audit.json" \
+  "$BOOK_DIR/outline/book_audit.md" \
+  "$BOOK_DIR/outline/canon.yml" \
+  "$BOOK_DIR/outline/narrative_state.json" \
+  "$BOOK_DIR/outline/narrative_audit.jsonl"
+do
+  append_merged_file "$p"
+done
+
+if [[ -d "$BOOK_DIR/chapters" ]]; then
+  while IFS= read -r path; do
+    append_merged_file "$path"
+  done < <(find "$BOOK_DIR/chapters" -maxdepth 2 -type f | sort)
+fi
+
+if [[ -d "$BOOK_DIR/outline/chapter_packets" ]]; then
+  while IFS= read -r path; do
+    append_merged_file "$path"
+  done < <(find "$BOOK_DIR/outline/chapter_packets" -maxdepth 8 -type f | sort)
+fi
+
+for p in \
+  "$RUN_DIR/snapshot_manifest.md" \
+  "$RUN_DIR/snapshot_packets.md" \
+  "$RUN_DIR/run_summary.json"
+do
+  append_merged_file "$p"
+done
+
+echo
 echo "==> Summary"
 echo "RUN_DIR=$RUN_DIR"
 echo "BOOK_DIR=$BOOK_DIR"
@@ -518,6 +668,7 @@ echo "EXIT_CODE=$BOOK_EXIT"
 echo "SNAPSHOT_MANIFEST=$RUN_DIR/snapshot_manifest.md"
 echo "SNAPSHOT_PACKETS=$RUN_DIR/snapshot_packets.md"
 echo "RUN_SUMMARY_JSON=$RUN_DIR/run_summary.json"
+echo "MERGED_LOG=$MERGED_LOG"
 
 if [[ "$BOOK_EXIT" -eq 0 ]]; then
   echo "Smoke run completed successfully."

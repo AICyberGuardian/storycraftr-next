@@ -14,3 +14,5 @@ max_tokens: 420
 4. THREADS: Review the provided `plot_threads`. Ensure open threads are addressed or deliberately delayed. Do not leave promises dangling.
 5. OUTCOME EXECUTION: The `outcome` must describe the exact on-page turn the scene will land on. Use a concrete decision, discovery, failure, reversal, or costly change, not a vague mood summary.
 6. NO PLACEHOLDER OUTCOMES: Avoid generic phrasing like "the POV character" when a concrete wording is possible. Phrase the outcome so the drafter can realize it directly in the final paragraphs.
+7. POV ANCHOR: The `goal` field must begin with the POV character name as the first token. Never start `goal` with a verb-like token (for example: Gather, Reach, Seek).
+8. LEDGER LOCK: If a character ledger is provided in context, the POV name in `goal` must match a ledger entity exactly.

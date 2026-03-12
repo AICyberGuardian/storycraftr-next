@@ -26,6 +26,19 @@ Quick sanity check:
 
 ```bash
 storycraftr --help
+
+### Reliability Stack and Validator Contracts
+
+StoryCraftr now includes a minimal reliability stack for robust generation:
+- Prompt-budget preflight (`tiktoken`)
+- Structured retry/quarantine logging (`structlog`)
+- Sentence-boundary validation (`pysbd`)
+- Bounded retries (`tenacity`)
+- Circuit-breaker resilience (`pybreaker`)
+- Entity-ledger checks (`flashtext2`)
+- Strict contract validation (`pydantic`)
+
+Each chapter and scene is validated and logged, with deterministic validator reports and audit artifacts persisted for reliability and auditability. Regression tests cover reliability stack behavior.
 ```
 
 ### Configure credentials
@@ -84,9 +97,12 @@ When you run `storycraftr init`, the generated `storycraftr.json` includes the n
 - Provider/model/endpoint settings are validated before runtime model invocation, with provider-specific error messages for invalid config or missing keys.
 - OpenRouter model discovery is dynamic: StoryCraftr fetches `https://openrouter.ai/api/v1/models`, filters models to current free pricing, and uses that free-only catalog as the source of truth.
 - OpenRouter discovery metadata is cached at `~/.storycraftr/openrouter-models-cache.json` with a default 6-hour TTL and stale-cache fallback when the live API is unavailable.
-- OpenRouter requests include native resilience in the model factory: bounded exponential-backoff retries for transient errors and an explicit fallback model chain where each fallback is validated as currently free.
+- OpenRouter requests include native resilience in the model factory: bounded exponential-backoff retries for transient errors, per-model circuit breakers/quarantine, and an explicit fallback model chain where each fallback is validated as currently free.
+- OpenRouter routing now performs tokenizer-backed prompt-budget preflight against discovered model context limits. If prompt tokens plus reserved completion tokens exceed the target context window, StoryCraftr fails early with deterministic diagnostics instead of sending a guaranteed-overflow request to the provider.
 - Configure additional fallback models with `STORYCRAFTR_OPENROUTER_FALLBACK_MODELS` (comma-separated model IDs).
 - `max_tokens` limits completion size per request (default `8192`) to reduce truncated outputs.
+- Chapter completeness validation now includes sentence-boundary truncation detection before semantic review, catching long outputs that still end mid-sentence.
+- Retry, quarantine, token-budget, and chapter-validation failures now emit structured runtime logs for smoke/soak diagnosis.
 - `embed_model` defaults to `text-embedding-3-small` for API-first embeddings.
 - `embed_device=api` uses OpenAI-compatible embedding endpoints (OpenAI/OpenRouter, based on `llm_provider`).
 - For local embeddings, install dependencies with `poetry install` or `uv pip install -e .`, then set `embed_device` to `auto`, `cpu`, or `cuda` with a local model such as `BAAI/bge-large-en-v1.5`.
@@ -449,12 +465,13 @@ CLI discovery commands:
 - `storycraftr book --seed <seed.md> --chapters <n> --yes` now persists three success-path artifacts: `chapters/chapter-<n>.md`, `outline/narrative_state.json`, and `outline/canon.yml`.
 - `storycraftr book` commit semantics are fail-closed and transactional: chapter/state/canon/audit writes are treated as one boundary with rollback on failure.
 - `storycraftr book` emits deterministic chapter packet artifacts under `outline/chapter_packets/chapter-<nnn>/` (including `validator_report.json`, stage/scene reports, and diagnostics).
+- OpenRouter chapter generation now performs token-budget preflight before provider invocation, reducing wasted retries on oversized prompts during long-context runs.
 - `storycraftr chapters chapter` is a developer-only bypass and now requires both `--unsafe-direct-write` and `STORYCRAFTR_ALLOW_UNSAFE=1`.
 - CLI and TUI control-plane mode/audit/canon checks now share one service layer (`storycraftr/services/control_plane.py`) to keep behavior and edge-case handling aligned.
 
 ### Current Safety Profile For `storycraftr book`
 
-When you run `storycraftr book --yes` on a real provider (`openai`, `openrouter`, or `ollama`), StoryCraftr is intentionally fail-closed at the commit boundary. Chapters do not commit unless planner validation, prose-completeness checks, semantic review, state-extraction checks, and packet acceptance contracts all pass.
+When you run `storycraftr book --yes` on a real provider (`openai`, `openrouter`, or `ollama`), StoryCraftr is intentionally fail-closed at the commit boundary. Chapters do not commit unless planner validation, prose-completeness checks (including sentence-boundary truncation checks), semantic review, state-extraction checks, and packet acceptance contracts all pass.
 
 That said, the runtime is not yet a fully proven autonomous novelist. Semantic and coherence checks are still mostly LLM-evaluated, strict autonomous runs fail closed when validator independence cannot be established, and non-strict runs can still use same-family validator paths. Retry/failure attempts now persist packet-local raw artifacts, but full all-attempt raw response persistence is still incomplete for complete disk-only reconstruction. If you are using free-tier OpenRouter models, treat the workflow as supervised and review packet artifacts plus run audits after each run.
 

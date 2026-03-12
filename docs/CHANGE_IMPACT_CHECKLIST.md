@@ -2,6 +2,24 @@
 
 ## Change History
 
+### 2026-03-11 — Reliability stack runtime completion + smoke-doc sync
+- **Sections reviewed:** 3, 8 (Prompt/Runtime Behavior and Documentation & Versioning)
+- **Impact:**
+	- Completed runtime wiring for the approved minimal reliability stack in `storycraftr/llm/factory.py` by adding tokenizer-backed OpenRouter prompt-budget preflight (`tiktoken`), structured retry/quarantine/token-budget logs (`structlog`), and offline-safe token-count fallback behavior.
+	- Completed deterministic chapter-validation wiring in `storycraftr/agent/chapter_validator.py` by adding sentence-boundary truncation detection (`pysbd`) and structured validator/semantic-transport retry logging (`structlog`).
+	- Added focused regression coverage in `tests/unit/test_llm_factory.py` and `tests/unit/test_chapter_validator.py` for token-budget failures, structured retry logging, sentence-boundary truncation detection, and semantic-transport retry behavior.
+	- Updated `README.md`, `docs/getting_started.md`, `release_notes.md`, `CHANGELOG.md`, and `rerun_smoke_only_storycraftr.sh` so the documented runtime contract and smoke forensics surfaces reflect the completed reliability-stack behavior.
+- **No impact:** sections 1, 2, 4, 5, 6, and 7 (no additional dependency/lockfile changes beyond the already recorded baseline declaration, no config/schema file-shape changes, no sub-agent lifecycle/path contract changes, no VS Code event schema changes, and no security-tooling policy changes).
+
+### 2026-03-11 — Minimal reliability stack foundation (P0)
+- **Sections reviewed:** 1, 3, 8 (Dependency & Lockfiles, Prompt/Runtime Behavior, Documentation & Versioning)
+- **Impact:**
+	- Added explicit runtime dependencies in `pyproject.toml` for the approved minimal reliability stack foundation: `pydantic`, `tenacity`, `pybreaker`, `tiktoken`, `pysbd`, `flashtext2`, and `structlog` (alongside existing `json-repair`).
+	- Hardened OpenRouter invocation resilience in `storycraftr/llm/factory.py` by integrating tenacity-backed bounded retries and pybreaker circuit-breaker wrapping in the resilient model router while preserving fail-closed behavior for auth failures.
+	- Added a strict Contract Gate layer in `storycraftr/agent/book_engine.py` using Pydantic validation for scene directive structure and flashtext2 entity-ledger presence checks in deterministic chapter validation.
+	- Updated `CHANGELOG.md` to publish the new reliability-stack foundation changes in the unreleased section.
+- **No impact:** sections 2, 4, 5, 6, and 7 (no Story/Paper config schema file-shape changes, no sub-agent lifecycle/path contract changes, no VS Code event contract changes, and no security-tooling policy changes).
+
 ### 2026-03-11 — Docs and agent-contract sync for book runtime semantics
 - **Sections reviewed:** 8 (Documentation & Versioning)
 - **Impact:**

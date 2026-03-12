@@ -1,6 +1,6 @@
 ## Advanced Usage of StoryCraftr
 
-StoryCraftr provides advanced features for users who want more control over how the tool interacts with their projects. This guide will walk you through these features, including multi-prompt responses, file backups, and the `reload-files` command.
+StoryCraftr provides advanced features for users who want more control over how the tool interacts with their projects. Reliability stack contracts (prompt-budget preflight, structured retry logging, validator checks) and deterministic audit artifacts are enforced throughout advanced workflows. This guide will walk you through these features, including multi-prompt responses, file backups, and the `reload-files` command.
 
 ### Multiple Prompts Feature
 

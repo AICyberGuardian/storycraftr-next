@@ -23,9 +23,9 @@ For most code changes, read these first:
 Read `README.md` too if the change affects install flow, CLI/TUI behavior,
 configuration examples, or public workflow descriptions.
 
-Read `TODO.md` too if the change affects validator-gated `storycraftr book`
 runtime guarantees, audit artifact completeness, semantic/coherence validation,
 or story-quality enforcement scope.
+Read `TODO.md` too if the change affects validator-gated `storycraftr book` runtime guarantees, reliability stack coverage, audit artifact completeness, semantic/coherence validation, or story-quality enforcement scope.
 
 ## File Catalog
 
@@ -47,6 +47,7 @@ or story-quality enforcement scope.
 | `docs/advanced.md` | area-specific | Advanced or non-default usage guidance. | Advanced config or expert workflows change. |
 | `docs/iterate.md` | area-specific | Iterate workflow semantics and command usage. | Iterate commands or flow behavior changes. |
 | `docs/StoryCraftr-Next Complete Architecture & Technical Reference.md` | deep-reference | Long-form architecture reference for subsystem depth; not part of the routine must-read set. | Deep architecture details, code map, or technical reference content changes. |
+| `docs/component_inventory.md` | shared-reference | Machine-readable inventory of all core and reliability stack components, including integration points and contract coverage. | Component additions/removals, reliability stack changes, or integration point updates. |
 | `docs/python-3.13-full-stack-upgrade-matrix.md` | area-specific | Runtime and dependency version matrix for upgrade work. | Python/runtime/dependency baseline or upgrade notes change. |
 | `.github/agents/storycraftr-engineering.agent.md` | area-specific | Repo-specific AI engineering agent contract and workflow. | AI-agent guidance, repo-specific engineering flow, or supported validation path changes. |
 | `src/event-contract.ts` | sync-contract | Typed VS Code event payload contract. | Backend event payload shape, event names, or extension contract changes. |

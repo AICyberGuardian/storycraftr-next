@@ -930,6 +930,31 @@ testing = ["covdefaults (>=2.3)", "coverage (>=7.6.10)", "diff-cover (>=9.2.1)",
 typing = ["typing-extensions (>=4.12.2) ; python_version < \"3.11\""]
 
 [[package]]
+name = "flashtext2"
+version = "1.1.0"
+description = "A package for extracting keywords from large text very quickly (much faster than regex and the original flashtext package"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "flashtext2-1.1.0-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:e5e766210be8457938f44b85d43c8b9ef7fc6cdb5a0503c1cd5bf29326511f8d"},
+    {file = "flashtext2-1.1.0-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:d08bcd69a2f7ab8e18b156e5bfe8a9e7539037ceb6e4b8b9dced77c59a703883"},
+    {file = "flashtext2-1.1.0-cp38-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:cffcfe5b1ea4d5c4326cd4de2fab9a54dc2c2c7b7f6bea27521ee7138f5b0ad2"},
+    {file = "flashtext2-1.1.0-cp38-abi3-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:92cd3e73f1ce5d00eefdb564540d70cd2a40d71a2f79662823f125908aa34a5c"},
+    {file = "flashtext2-1.1.0-cp38-abi3-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:27113d3fd260b69dccd50611fd38fda792dc16bab2e938e60959e4a655ffd602"},
+    {file = "flashtext2-1.1.0-cp38-abi3-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:db9f11b0c0debca21b7691e89912f188bad560f856aa9caa4b127ff4c898512a"},
+    {file = "flashtext2-1.1.0-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:06cd7787ac8b497f5725e76e168b4cbe8ddb96ef488315aea1fb23476071199a"},
+    {file = "flashtext2-1.1.0-cp38-abi3-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:2811d7205bed2e1562b0b96c7540b12c92eb1a2236d0aade2f4f6304b2db67b8"},
+    {file = "flashtext2-1.1.0-cp38-abi3-win32.whl", hash = "sha256:f3c062a52f14840de76daa6180eb035d7f80151b7111bd419bfb34e2ced3cf24"},
+    {file = "flashtext2-1.1.0-cp38-abi3-win_amd64.whl", hash = "sha256:2049a62895a23db9b385e295f6bce16e6fb5e60444a1943d9978029683fc184c"},
+    {file = "flashtext2-1.1.0.tar.gz", hash = "sha256:2eb9d8c5400f59321e0c64e52bbbd310a2cab32b4269f2fc3c824f6e0c3320a3"},
+]
+
+[package.extras]
+benchmark = ["flashtext (>=2.7)", "matplotlib (>=3.7.2)", "pandas (>=2.0.3)"]
+test = ["coverage (>=7.2.1)", "pytest (>=7.2.1)"]
+
+[[package]]
 name = "flatbuffers"
 version = "25.9.23"
 description = "The FlatBuffers serialization format for Python"
@@ -4246,6 +4271,21 @@ files = [
 ]
 
 [[package]]
+name = "pybreaker"
+version = "1.4.1"
+description = "Python implementation of the Circuit Breaker pattern"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "pybreaker-1.4.1-py3-none-any.whl", hash = "sha256:b4dab4a05195b7f2a64a6c1a6c4ba7a96534ef56ea7210e6bcb59f28897160e0"},
+    {file = "pybreaker-1.4.1.tar.gz", hash = "sha256:8df2d245c73ba40c8242c56ffb4f12138fbadc23e296224740c2028ea9dc1178"},
+]
+
+[package.extras]
+test = ["fakeredis", "mock", "pytest", "redis", "tornado", "types-mock", "types-redis"]
+
+[[package]]
 name = "pycparser"
 version = "3.0"
 description = "C parser in Python"
@@ -4486,6 +4526,17 @@ files = [
 
 [package.extras]
 dev = ["build", "flake8", "mypy", "pytest", "twine"]
+
+[[package]]
+name = "pysbd"
+version = "0.3.4"
+description = "pysbd (Python Sentence Boundary Disambiguation) is a rule-based sentence boundary detection that works out-of-the-box across many languages."
+optional = false
+python-versions = ">=3"
+groups = ["main"]
+files = [
+    {file = "pysbd-0.3.4-py3-none-any.whl", hash = "sha256:cd838939b7b0b185fcf86b0baf6636667dfb6e474743beeff878e9f42e022953"},
+]
 
 [[package]]
 name = "pytest"
@@ -5632,6 +5683,18 @@ pure-eval = "*"
 tests = ["cython", "littleutils", "pygments", "pytest", "typeguard"]
 
 [[package]]
+name = "structlog"
+version = "25.5.0"
+description = "Structured Logging for Python"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "structlog-25.5.0-py3-none-any.whl", hash = "sha256:a8453e9b9e636ec59bd9e79bbd4a72f025981b3ba0f5837aebf48f02f37a7f9f"},
+    {file = "structlog-25.5.0.tar.gz", hash = "sha256:098522a3bebed9153d4570c6d0288abf80a031dfdb2048d59a49e9dc2190fc98"},
+]
+
+[[package]]
 name = "sympy"
 version = "1.14.0"
 description = "Computer algebra system (CAS) in Python"
@@ -6734,4 +6797,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<3.14"
-content-hash = "0a4dd7ab5e9089477cef9e454779ca791d03a8e378589be04a29ec0fc31cdef6"
+content-hash = "dafd29327a794c7e411c00072294479efa876d4efec676c10a34f5737f882396"

@@ -38,6 +38,13 @@ markdown-pdf = "^1.10"
 textual = "^8.0.2"
 mem0ai = "^1.0.5"
 json-repair = ">=0.30"
+pydantic = ">=2.10"
+tenacity = ">=9.0.0"
+pybreaker = ">=1.4.1"
+tiktoken = ">=0.12.0"
+pysbd = ">=0.3.4"
+flashtext2 = ">=1.1.0"
+structlog = ">=25.5.0"
 
 [tool.poetry.scripts]
 storycraftr = "storycraftr.cli:cli"

@@ -5,8 +5,18 @@ import time
 from difflib import SequenceMatcher
 from typing import Callable
 
+import pysbd
+import structlog
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
 from storycraftr.agent.deterministic_guards import (
     check_draft_expansion,
+    check_narrative_stasis,
     check_pov_presence,
     check_terminal_truncation,
 )
@@ -26,6 +36,13 @@ _TRANSIENT_MODEL_ERROR_TOKENS = (
     "service unavailable",
     "gateway timeout",
     "empty response",
+)
+_SEMANTIC_TRANSPORT_ERROR_TOKENS = (
+    "reviewer_invalid_response",
+    "reviewer_empty_output",
+    "reviewer_transport_error",
+    "openrouter request failed without an explicit exception",
+    "semantic_review_error:model invocation failed",
 )
 _OUTCOME_STOPWORDS = {
     "the",
@@ -47,6 +64,23 @@ _OUTCOME_STOPWORDS = {
     "outcome",
     "chapter",
 }
+_SENTENCE_ENDINGS = (".", "!", "?", '"', "'", ")", "]")
+_SEGMENTER = pysbd.Segmenter(language="en", clean=False)
+logger = structlog.get_logger("storycraftr.chapter_validator")
+
+
+class _TransientGenerationRetry(RuntimeError):
+    """Retryable transient generation transport failure."""
+
+
+class _SemanticTransportRetry(RuntimeError):
+    """Retryable semantic-review transport failure."""
+
+
+def _sleep(seconds: float) -> None:
+    """Wrapper so tests can monkeypatch module-local sleep deterministically."""
+
+    time.sleep(seconds)
 
 
 def word_count(text: str) -> int:
@@ -68,6 +102,21 @@ def detect_duplicate_paragraphs(paragraphs: list[str]) -> bool:
     return False
 
 
+def _has_sentence_boundary_truncation(text: str) -> bool:
+    raw_text = str(text)
+    # Skip pySBD boundary checks for punctuation-free token streams used in
+    # deterministic scaffolding; truncation is handled by other guards there.
+    if not any(mark in raw_text for mark in (".", "!", "?")):
+        return False
+    sentences = _SEGMENTER.segment(raw_text)
+    if not sentences:
+        return False
+    last_sentence = str(sentences[-1]).rstrip()
+    if not last_sentence:
+        return False
+    return not last_sentence.endswith(_SENTENCE_ENDINGS)
+
+
 def validate_chapter(text: str, min_words: int = MIN_WORDS) -> tuple[bool, str]:
     """Validate chapter completeness and return `(is_valid, reason)` contract."""
 
@@ -82,12 +131,101 @@ def validate_chapter(text: str, min_words: int = MIN_WORDS) -> tuple[bool, str]:
     if detect_duplicate_paragraphs(paragraphs):
         return False, "duplicate_paragraphs"
 
+    if _has_sentence_boundary_truncation(text):
+        logger.error(
+            "sentence_boundary_truncation",
+            last_sentence=_SEGMENTER.segment(str(text))[-1],
+        )
+        return False, "sentence_boundary_truncation"
+
     return True, "ok"
 
 
 def _is_transient_model_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return any(token in message for token in _TRANSIENT_MODEL_ERROR_TOKENS)
+
+
+def is_semantic_transport_error(reason: str) -> bool:
+    """Classify reviewer transport failures that should not burn creative retries."""
+
+    lowered = str(reason).strip().lower()
+    return any(token in lowered for token in _SEMANTIC_TRANSPORT_ERROR_TOKENS)
+
+
+def _log_transient_generation_retry(retry_state: object) -> None:
+    outcome = getattr(retry_state, "outcome", None)
+    exc = (
+        outcome.exception()
+        if outcome is not None and hasattr(outcome, "exception")
+        else None
+    )
+    logger.warning(
+        "guarded_generation_transient_model_error",
+        attempt=getattr(retry_state, "attempt_number", 0),
+        error=str(exc) if exc is not None else "",
+        action="retry_without_budget_consumption",
+    )
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=2, max=10),
+    retry=retry_if_exception_type(_TransientGenerationRetry),
+    before_sleep=_log_transient_generation_retry,
+    sleep=_sleep,
+    reraise=True,
+)
+def _invoke_generation_with_transient_retry(
+    generate_fn: Callable[..., str],
+    feedback: str | None,
+) -> str:
+    try:
+        if feedback is None:
+            return generate_fn()
+        try:
+            return generate_fn(feedback=feedback)
+        except TypeError:
+            # Backward compatibility for generators that do not accept
+            # feedback keyword arguments.
+            return generate_fn()
+    except Exception as exc:
+        if _is_transient_model_error(exc):
+            raise _TransientGenerationRetry(str(exc)) from exc
+        raise
+
+
+def _log_semantic_transport_retry(retry_state: object) -> None:
+    outcome = getattr(retry_state, "outcome", None)
+    exc = (
+        outcome.exception()
+        if outcome is not None and hasattr(outcome, "exception")
+        else None
+    )
+    logger.warning(
+        "guarded_generation_semantic_transport_retry",
+        attempt=getattr(retry_state, "attempt_number", 0),
+        reason=str(exc) if exc is not None else "unknown",
+        action="retry_without_chapter_budget_consumption",
+    )
+
+
+@retry(
+    stop=stop_after_attempt(max(3, MAX_RETRIES * 2)),
+    wait=wait_exponential(multiplier=2, min=2, max=8),
+    retry=retry_if_exception_type(_SemanticTransportRetry),
+    before_sleep=_log_semantic_transport_retry,
+    sleep=_sleep,
+    reraise=True,
+)
+def _run_semantic_validator_with_transport_retry(
+    semantic_validator: Callable[[str], tuple[bool, str]],
+    text: str,
+) -> tuple[bool, str]:
+    valid, reason = semantic_validator(text)
+    if not valid and is_semantic_transport_error(reason):
+        raise _SemanticTransportRetry(str(reason))
+    return valid, reason
 
 
 def guarded_generation(
@@ -104,27 +242,19 @@ def guarded_generation(
 
     last_reason = "unknown"
     next_feedback: str | None = None
-    attempt = 1
-    while attempt <= max_retries:
+    previous_attempt_text: str | None = None
+    stasis_repeat_count = 0
+
+    for attempt in range(1, max_retries + 1):
+        logger.info(
+            "guarded_generation_attempt",
+            attempt=attempt,
+            last_reason=last_reason,
+        )
         try:
-            if next_feedback is None:
-                text = generate_fn()
-            else:
-                try:
-                    text = generate_fn(feedback=next_feedback)
-                except TypeError:
-                    # Backward compatibility for generators that do not accept
-                    # feedback keyword arguments.
-                    text = generate_fn()
-        except Exception as exc:
-            if _is_transient_model_error(exc):
-                print(
-                    "[CompletenessGuard] transient model/network failure; "
-                    "retrying without consuming generation budget"
-                )
-                time.sleep(10)
-                continue
-            raise
+            text = _invoke_generation_with_transient_retry(generate_fn, next_feedback)
+        except _TransientGenerationRetry as exc:
+            raise RuntimeError(str(exc)) from exc
 
         valid, reason = validate_chapter(text, min_words=min_words)
         if valid and deterministic_validator is not None:
@@ -133,25 +263,60 @@ def guarded_generation(
             except Exception as exc:  # pragma: no cover - defensive fail-closed path
                 valid = False
                 reason = f"deterministic_guard_error:{exc}"
+        if valid and previous_attempt_text is not None:
+            retry_context = str(next_feedback or "").strip().lower()
+            should_check_stasis = any(
+                token in retry_context
+                for token in (
+                    "too_short",
+                    "duplicate",
+                    "terminal_truncation",
+                    "insufficient_expansion",
+                    "missing_pov",
+                    "required_outline_thread",
+                    "narrative_stasis",
+                )
+            )
+            if should_check_stasis:
+                stasis_ok, stasis_reason = check_narrative_stasis(
+                    previous_attempt_text,
+                    text,
+                )
+                if not stasis_ok:
+                    stasis_repeat_count += 1
+                    if stasis_repeat_count >= 2:
+                        valid, reason = stasis_ok, stasis_reason
+                    else:
+                        valid, reason = True, "ok"
+                else:
+                    stasis_repeat_count = 0
+            else:
+                stasis_repeat_count = 0
         if valid and semantic_validator is not None:
             try:
-                valid, reason = semantic_validator(text)
+                valid, reason = _run_semantic_validator_with_transport_retry(
+                    semantic_validator,
+                    text,
+                )
+            except _SemanticTransportRetry as exc:
+                raise RuntimeError(
+                    f"Semantic reviewer transport exhausted retries: {exc}"
+                ) from exc
             except Exception as exc:  # pragma: no cover - defensive fail-closed path
                 valid = False
                 reason = f"semantic_review_error:{exc}"
         if valid:
+            logger.info("guarded_generation_success", attempt=attempt)
             return text
 
+        previous_attempt_text = text
         last_reason = reason
-
+        logger.error("guarded_generation_failure", attempt=attempt, reason=reason)
         if on_failure is not None:
             on_failure(attempt, max_retries, reason, text)
-
         if on_retry is not None:
             on_retry(attempt, max_retries, reason)
-
         next_feedback = reason
-        attempt += 1
 
     raise RuntimeError(
         "Chapter generation failed completeness validation after retries: "
@@ -181,11 +346,10 @@ class MechanicalSieve:
             return False, reason
         has_narrative_punctuation = any(mark in text for mark in (".", "!", "?"))
         looks_sentence_like = has_narrative_punctuation or len(text.split()) < 50
-        if self.pov_name:
-            if looks_sentence_like:
-                ok, reason = check_pov_presence(text, self.pov_name)
-                if not ok:
-                    return False, reason
+        if self.pov_name and looks_sentence_like:
+            ok, reason = check_pov_presence(text, self.pov_name)
+            if not ok:
+                return False, reason
 
         if self.planned_outcome:
             overlap = self._keyword_overlap(self.planned_outcome, text)
@@ -200,11 +364,8 @@ class MechanicalSieve:
         pov_name: str = "",
         planned_outcome: str = "",
     ) -> str:
-        """Return a targeted system correction string for the given failure token.
+        """Return a targeted system correction string for the given failure token."""
 
-        The string is injected verbatim as a ``feedback`` argument into the next
-        generation attempt via ``guarded_generation``.
-        """
         if reason.startswith("terminal_truncation"):
             return (
                 "CORRECTION: Your response was cut off mid-sentence. "

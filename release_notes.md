@@ -1,3 +1,23 @@
+## Draft Update - 2026-03-11 (Reliability Stack Runtime Completion and Smoke Sync)
+
+Current development target: `v0.19` (`0.19.0-dev`).
+
+### Highlights
+
+- Completed the runtime wiring for the approved minimal reliability stack rather than stopping at dependency declaration.
+- OpenRouter routing now performs tokenizer-backed prompt-budget preflight against discovered model limits before invocation, reducing wasted retries on guaranteed-overflow requests.
+- OpenRouter resilience now emits structured retry, breaker/quarantine, and token-budget diagnostics in addition to the existing fail-closed transport payloads.
+- Chapter validation now includes sentence-boundary truncation detection before semantic review so long-but-cut-off prose fails deterministically instead of relying on downstream LLM review.
+- Added focused unit coverage for token-budget rejection, structured retry logging, sentence-boundary truncation detection, and semantic-transport retry behavior.
+- Updated README/getting-started docs and the smoke rerun script so user-facing guidance and smoke forensics now reflect token-budget, breaker/quarantine, and sentence-boundary diagnostics.
+
+### Known Limits
+
+- The runtime still uses an offline-safe heuristic fallback when tokenizer assets are unavailable locally; this protects execution but is less exact than a loaded tokenizer.
+- Semantic and coherence checks remain partly LLM-judged even though mechanical failures are now caught earlier and logged more clearly.
+
+For complete line-item history, see `CHANGELOG.md` and `docs/CHANGE_IMPACT_CHECKLIST.md`.
+
 ## Draft Update - 2026-03-10 (Validator-Gated Runtime Status Sync and Backlog Publication)
 
 Current development target: `v0.19` (`0.19.0-dev`).

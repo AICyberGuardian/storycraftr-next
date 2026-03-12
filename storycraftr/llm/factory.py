@@ -1,21 +1,24 @@
 from __future__ import annotations
 
+import json
 import os
-import time
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
-import json
 
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_openai import ChatOpenAI
+import pybreaker
+import structlog
+import tiktoken
 from langchain_community.chat_models import ChatOllama
+from langchain_core.callbacks.manager import CallbackManagerForLLMRun
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from langchain_core.callbacks.manager import CallbackManagerForLLMRun
-from rich.console import Console
+from langchain_openai import ChatOpenAI
+from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from storycraftr.llm.credentials import credential_lookup_details
 from storycraftr.llm.openrouter_discovery import (
@@ -24,7 +27,7 @@ from storycraftr.llm.openrouter_discovery import (
     is_model_free,
 )
 
-console = Console()
+_OPENROUTER_LOGGER = structlog.get_logger("storycraftr.openrouter")
 
 
 _PROVIDER_DEFAULT_ENV = {
@@ -64,6 +67,18 @@ _OPENROUTER_REPAIR_JSON_PRIMARY_ALLOWLIST = {
 _OPENROUTER_DEFAULT_MAX_TOKENS = 4000
 _MODEL_HEALTH_MAX_MEAN_LATENCY_SECONDS = 300.0
 _MODEL_HEALTH_MAX_ERRORS = 3
+_MODEL_HEALTH_QUARANTINE_THRESHOLD = 2
+_MODEL_HEALTH_QUARANTINE_SECONDS = 600
+_OPENROUTER_BREAKER_FAIL_MAX = 3
+_OPENROUTER_BREAKER_RESET_SECONDS = 60
+_TOKEN_COUNT_FALLBACK_ENCODING = "cl100k_base"  # nosec B105
+_PROVIDER_RETRY_BASE_SECONDS = 2.0
+_PROVIDER_MAX_BACKOFF_SECONDS = 20.0
+_PROVIDER_MAX_ATTEMPTS = 3
+_PROVIDER_BREAKER_FAIL_MAX = 3
+_PROVIDER_BREAKER_RESET_SECONDS = 30
+_OPENAI_DEFAULT_CONTEXT_LENGTH = 128000
+_OLLAMA_DEFAULT_CONTEXT_LENGTH = 8192
 
 _OPENROUTER_MODEL_REQUIRED_MESSAGE = (
     "Missing 'llm_model' for provider 'openrouter'. Set it explicitly in storycraftr.json, "
@@ -137,6 +152,32 @@ def _classify_provider_exception(exc: Exception) -> str:
     return "unknown"
 
 
+def _extract_provider_error_details(exc: Exception) -> tuple[str, str]:
+    """Extract stable HTTP status and raw payload text from provider exceptions."""
+
+    status = _extract_http_status_code(exc)
+    response = getattr(exc, "response", None)
+    raw_body = ""
+
+    if response is not None:
+        response_text = getattr(response, "text", None)
+        if isinstance(response_text, str) and response_text.strip():
+            raw_body = response_text.strip()
+
+    if not raw_body:
+        body = getattr(exc, "body", None)
+        if isinstance(body, str):
+            raw_body = body.strip()
+        elif body is not None:
+            raw_body = str(body).strip()
+
+    if not raw_body:
+        raw_body = str(exc).strip() or "<no-error-body>"
+
+    code = str(status) if isinstance(status, int) else "unknown"
+    return code, raw_body
+
+
 def _sanitize_error_text(text: str, secrets: list[str]) -> str:
     sanitized = text
     for secret in secrets:
@@ -173,9 +214,18 @@ def _raise_provider_error(
 ) -> None:
     error_kind = _classify_provider_exception(exc)
     next_action = _next_action_for_error(provider, error_kind, endpoint, env_var)
+    detail_prefix = ""
+    if provider == "openrouter":
+        code, raw_body = _extract_provider_error_details(exc)
+        sanitized_body = raw_body
+        if env_var:
+            secret = os.getenv(env_var)
+            if secret:
+                sanitized_body = _sanitize_error_text(raw_body, [secret])
+        detail_prefix = f" OpenRouter Error [{code}]: {sanitized_body}."
     message = (
         f"Provider '{provider}' failed to initialize model '{model_name}' "
-        f"at endpoint '{endpoint}'. {next_action}"
+        f"at endpoint '{endpoint}'.{detail_prefix} {next_action}"
     )
     if error_kind == "auth":
         raise LLMAuthenticationError(message) from None
@@ -192,6 +242,31 @@ class LLMAuthenticationError(RuntimeError):
 
 class LLMInitializationError(RuntimeError):
     """Raised when a provider client fails to initialize."""
+
+
+class LLMInvocationError(RuntimeError):
+    """Raised when provider invocation fails with structured telemetry."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        transport_error: dict[str, Any] | None = None,
+        quarantine_events: list[dict[str, Any]] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.transport_error = dict(transport_error or {})
+        self.quarantine_events = [
+            dict(row) for row in (quarantine_events or []) if isinstance(row, dict)
+        ]
+
+
+class _PrimaryRateLimitFailover(RuntimeError):
+    """Signal early model rotation after repeated primary 429 responses."""
+
+
+class _QuarantinedModelFailover(RuntimeError):
+    """Signal immediate model rotation once transient failures trigger quarantine."""
 
 
 @dataclass
@@ -215,6 +290,9 @@ class ModelHealthStats:
     latency_samples: List[float] = field(default_factory=list)
     error_count: int = 0
     empty_response_count: int = 0
+    rate_limit_count: int = 0
+    service_unavailable_count: int = 0
+    quarantined_until: float = 0.0
     degraded: bool = False
 
     @property
@@ -229,6 +307,7 @@ class ModelHealthRegistry:
 
     def __init__(self) -> None:
         self._stats: Dict[str, ModelHealthStats] = {}
+        self._transient_streaks: Dict[str, tuple[str, int]] = {}
 
     def _key(self, model_id: str) -> str:
         return str(model_id).strip().lower()
@@ -242,6 +321,9 @@ class ModelHealthRegistry:
     def record_success(self, model_id: str, *, latency_seconds: float) -> None:
         entry = self._entry(model_id)
         entry.latency_samples.append(max(0.0, float(latency_seconds)))
+        entry.rate_limit_count = 0
+        entry.service_unavailable_count = 0
+        self._clear_transient_streaks_for_model(model_id)
         self._refresh_degraded(entry)
 
     def record_error(self, model_id: str) -> None:
@@ -258,11 +340,79 @@ class ModelHealthRegistry:
     def is_degraded(self, model_id: str) -> bool:
         return self._entry(model_id).degraded
 
+    def is_quarantined(self, model_id: str) -> bool:
+        entry = self._entry(model_id)
+        if entry.quarantined_until <= 0:
+            return False
+        if time.time() >= entry.quarantined_until:
+            entry.quarantined_until = 0.0
+            entry.rate_limit_count = 0
+            entry.service_unavailable_count = 0
+            return False
+        return True
+
     def mark_degraded(self, model_id: str) -> None:
         self._entry(model_id).degraded = True
 
+    def mark_quarantined(self, model_id: str, *, seconds: int) -> None:
+        entry = self._entry(model_id)
+        entry.quarantined_until = time.time() + max(1, int(seconds))
+
+    def record_http_failure(self, model_id: str, *, status_code: int | None) -> None:
+        """Track repeat 429/503 failures and quarantine unstable models."""
+
+        entry = self._entry(model_id)
+        if status_code == 429:
+            entry.rate_limit_count += 1
+        elif status_code == 503:
+            entry.service_unavailable_count += 1
+
+        if (
+            entry.rate_limit_count >= _MODEL_HEALTH_QUARANTINE_THRESHOLD
+            or entry.service_unavailable_count >= _MODEL_HEALTH_QUARANTINE_THRESHOLD
+        ):
+            self.mark_quarantined(
+                model_id,
+                seconds=_MODEL_HEALTH_QUARANTINE_SECONDS,
+            )
+
     def reset(self) -> None:
         self._stats.clear()
+        self._transient_streaks.clear()
+
+    def record_stage_transient_failure(
+        self,
+        model_id: str,
+        *,
+        stage_name: str,
+        failure_signature: str,
+    ) -> bool:
+        """Track stage/model consecutive transient failures and quarantine quickly."""
+
+        normalized_stage = str(stage_name or "unknown").strip().lower() or "unknown"
+        normalized_signature = str(failure_signature).strip().lower()
+        if not normalized_signature:
+            return False
+
+        key = f"{normalized_stage}|{self._key(model_id)}"
+        prior_signature, prior_count = self._transient_streaks.get(key, ("", 0))
+        if prior_signature == normalized_signature:
+            current_count = prior_count + 1
+        else:
+            current_count = 1
+        self._transient_streaks[key] = (normalized_signature, current_count)
+
+        if current_count >= _MODEL_HEALTH_QUARANTINE_THRESHOLD:
+            self.mark_quarantined(model_id, seconds=_MODEL_HEALTH_QUARANTINE_SECONDS)
+            return True
+        return False
+
+    def _clear_transient_streaks_for_model(self, model_id: str) -> None:
+        model_key = self._key(model_id)
+        prefix = f"|{model_key}"
+        stale = [key for key in self._transient_streaks.keys() if key.endswith(prefix)]
+        for key in stale:
+            self._transient_streaks.pop(key, None)
 
     def snapshot(self) -> Dict[str, Dict[str, float | int | bool]]:
         rows: Dict[str, Dict[str, float | int | bool]] = {}
@@ -271,6 +421,9 @@ class ModelHealthRegistry:
                 "mean_latency": entry.mean_latency,
                 "error_count": entry.error_count,
                 "empty_response_count": entry.empty_response_count,
+                "rate_limit_count": entry.rate_limit_count,
+                "service_unavailable_count": entry.service_unavailable_count,
+                "quarantined_until": entry.quarantined_until,
                 "degraded": entry.degraded,
             }
         return rows
@@ -283,12 +436,90 @@ class ModelHealthRegistry:
 
 
 _MODEL_HEALTH_REGISTRY = ModelHealthRegistry()
+_OPENROUTER_CIRCUIT_BREAKERS: Dict[str, pybreaker.CircuitBreaker] = {}
+_PROVIDER_CIRCUIT_BREAKERS: Dict[str, pybreaker.CircuitBreaker] = {}
 
 
 def get_model_health_registry() -> ModelHealthRegistry:
     """Return process-local model health registry used by resilient routing."""
 
     return _MODEL_HEALTH_REGISTRY
+
+
+def _openrouter_circuit_breaker(model_name: str) -> pybreaker.CircuitBreaker:
+    """Return process-local circuit breaker per model ID."""
+
+    key = str(model_name).strip().lower()
+    breaker = _OPENROUTER_CIRCUIT_BREAKERS.get(key)
+    if breaker is None:
+        breaker = pybreaker.CircuitBreaker(
+            fail_max=_OPENROUTER_BREAKER_FAIL_MAX,
+            reset_timeout=_OPENROUTER_BREAKER_RESET_SECONDS,
+        )
+        _OPENROUTER_CIRCUIT_BREAKERS[key] = breaker
+    return breaker
+
+
+def _provider_circuit_breaker(
+    provider_name: str,
+    model_name: str,
+) -> pybreaker.CircuitBreaker:
+    """Return process-local circuit breaker for non-OpenRouter providers."""
+
+    key = f"{str(provider_name).strip().lower()}::{str(model_name).strip().lower()}"
+    breaker = _PROVIDER_CIRCUIT_BREAKERS.get(key)
+    if breaker is None:
+        breaker = pybreaker.CircuitBreaker(
+            fail_max=_PROVIDER_BREAKER_FAIL_MAX,
+            reset_timeout=_PROVIDER_BREAKER_RESET_SECONDS,
+        )
+        _PROVIDER_CIRCUIT_BREAKERS[key] = breaker
+    return breaker
+
+
+def _should_retry_openrouter_exception(exc: BaseException) -> bool:
+    """Retry only transient provider errors; fail closed on auth/breaker signals."""
+
+    if not isinstance(exc, Exception):
+        return False
+    if isinstance(
+        exc,
+        (
+            pybreaker.CircuitBreakerError,
+            _PrimaryRateLimitFailover,
+            _QuarantinedModelFailover,
+        ),
+    ):
+        return False
+    error_kind = _classify_provider_exception(exc)
+    if error_kind == "auth":
+        return False
+    return error_kind in {
+        "rate_limit",
+        "timeout",
+        "connection",
+        "server_error",
+        "empty_response",
+    } or _is_http_5xx(exc)
+
+
+def _should_retry_provider_exception(exc: BaseException) -> bool:
+    """Retry transient non-auth provider invocation failures."""
+
+    if not isinstance(exc, Exception):
+        return False
+    if isinstance(exc, pybreaker.CircuitBreakerError):
+        return False
+    error_kind = _classify_provider_exception(exc)
+    if error_kind == "auth":
+        return False
+    return error_kind in {
+        "rate_limit",
+        "timeout",
+        "connection",
+        "server_error",
+        "empty_response",
+    } or _is_http_5xx(exc)
 
 
 def _resolve_api_key(
@@ -438,9 +669,9 @@ def _load_openrouter_rankings() -> dict[str, Any]:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        console.print(
-            "[yellow]Warning: ignoring malformed OpenRouter rankings config at "
-            f"'{_OPENROUTER_RANKINGS_PATH}'.[/yellow]"
+        _OPENROUTER_LOGGER.warning(
+            "openrouter_rankings_malformed",
+            path=str(_OPENROUTER_RANKINGS_PATH),
         )
         return {}
 
@@ -450,9 +681,10 @@ def _load_openrouter_rankings() -> dict[str, Any]:
     try:
         return _validate_openrouter_rankings(data)
     except ValueError as exc:
-        console.print(
-            "[yellow]Warning: ignoring invalid OpenRouter rankings config at "
-            f"'{_OPENROUTER_RANKINGS_PATH}': {exc}[/yellow]"
+        _OPENROUTER_LOGGER.warning(
+            "openrouter_rankings_invalid",
+            path=str(_OPENROUTER_RANKINGS_PATH),
+            error=str(exc),
         )
         return {}
 
@@ -568,9 +800,11 @@ def validate_ranking_consensus(
                     f"'{primary}' is not currently free and no free substitute is "
                     "available. Update rankings.json or wait for a free model slot."
                 )
-            console.print(
-                f"[yellow]Pre-flight: '{primary}' is not free (role={role}). "
-                f"Auto-substituting with '{sub}'.[/yellow]"
+            _OPENROUTER_LOGGER.warning(
+                "openrouter_preflight_primary_substituted",
+                role=role,
+                previous_model=primary,
+                substituted_model=sub,
             )
             new_primary = sub
             used_in_role.add(sub.lower())
@@ -584,9 +818,11 @@ def validate_ranking_consensus(
             else:
                 sub = _next_free_excluding(used_in_role)
                 if sub is not None:
-                    console.print(
-                        f"[yellow]Pre-flight: fallback '{fb}' is not free "
-                        f"(role={role}). Auto-substituting with '{sub}'.[/yellow]"
+                    _OPENROUTER_LOGGER.warning(
+                        "openrouter_preflight_fallback_substituted",
+                        role=role,
+                        previous_model=fb,
+                        substituted_model=sub,
                     )
                     new_fallbacks.append(sub)
                     used_in_role.add(sub.lower())
@@ -766,6 +1002,25 @@ def _is_http_429(exc: Exception) -> bool:
     return "429" in text and "too many" in text
 
 
+def _extract_http_status_code(exc: Exception) -> int | None:
+    """Return an HTTP status code from known provider exception shapes."""
+
+    status_candidates = [
+        getattr(exc, "status_code", None),
+        getattr(exc, "http_status", None),
+    ]
+    response = getattr(exc, "response", None)
+    if response is not None:
+        status_candidates.append(getattr(response, "status_code", None))
+
+    for candidate in status_candidates:
+        if isinstance(candidate, int):
+            return candidate
+        if isinstance(candidate, str) and candidate.isdigit():
+            return int(candidate)
+    return None
+
+
 def _is_http_5xx(exc: Exception) -> bool:
     """Return True when an exception indicates a transient upstream 5xx error."""
 
@@ -813,6 +1068,57 @@ def _is_empty_chat_result(result: ChatResult) -> bool:
     return True
 
 
+def _extract_request_id(exc: Exception) -> str | None:
+    """Extract provider request ID from common exception shapes."""
+
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if isinstance(headers, dict):
+        for key in ("x-request-id", "request-id", "x-amzn-requestid"):
+            value = headers.get(key) or headers.get(key.upper())
+            if value is not None:
+                cleaned = str(value).strip()
+                if cleaned:
+                    return cleaned
+    request_id = getattr(exc, "request_id", None)
+    if request_id is None:
+        return None
+    cleaned = str(request_id).strip()
+    return cleaned or None
+
+
+def build_transport_error_payload(
+    exc: Exception,
+    *,
+    provider: str,
+    configured_model: str,
+    effective_model: str,
+) -> dict[str, Any]:
+    """Build stable provider failure telemetry for packet diagnostics."""
+
+    status_code = _extract_http_status_code(exc)
+    _code, raw_body = _extract_provider_error_details(exc)
+    error_kind = _classify_provider_exception(exc)
+    retryable = error_kind in {
+        "rate_limit",
+        "timeout",
+        "connection",
+        "server_error",
+        "empty_response",
+    } or (_is_http_5xx(exc) and error_kind != "auth")
+    return {
+        "http_status": status_code,
+        "exception_class": type(exc).__name__,
+        "provider": str(provider).strip(),
+        "configured_model": str(configured_model).strip(),
+        "effective_model": str(effective_model).strip(),
+        "raw_error_body": str(raw_body).strip() or "<no-error-body>",
+        "request_id": _extract_request_id(exc),
+        "retryable": bool(retryable),
+        "error_kind": error_kind,
+    }
+
+
 def _ensure_openrouter_model_is_free(model_name: str) -> None:
     if is_model_free(model_name):
         return
@@ -821,6 +1127,85 @@ def _ensure_openrouter_model_is_free(model_name: str) -> None:
         f"Model '{model_name}' is not currently listed as free, unknown, or unavailable. "
         "Use a current free model ID from /model-list or storycraftr model-list."
     )
+
+
+def _message_content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("input_text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text)
+            elif item is not None:
+                parts.append(str(item))
+        return "\n".join(part for part in parts if part)
+    if content is None:
+        return ""
+    return str(content)
+
+
+def _estimate_prompt_tokens(messages: list[BaseMessage], model_name: str) -> int:
+    prompt_text = "\n".join(
+        _message_content_to_text(getattr(message, "content", ""))
+        for message in messages
+    ).strip()
+    if not prompt_text:
+        return 0
+
+    try:
+        encoding = tiktoken.encoding_for_model(model_name)
+    except Exception:
+        try:
+            encoding = tiktoken.get_encoding(_TOKEN_COUNT_FALLBACK_ENCODING)
+        except Exception:
+            # Offline fallback when tokenizer assets are unavailable locally.
+            return max(1, len(prompt_text) // 4)
+    return len(encoding.encode(prompt_text, disallowed_special=()))
+
+
+def _default_context_length_for_provider(provider_name: str) -> int:
+    normalized = str(provider_name).strip().lower()
+    if normalized == "openai":
+        return _OPENAI_DEFAULT_CONTEXT_LENGTH
+    if normalized == "ollama":
+        return _OLLAMA_DEFAULT_CONTEXT_LENGTH
+    return _OLLAMA_DEFAULT_CONTEXT_LENGTH
+
+
+def _token_budget_payload(
+    *,
+    provider: str,
+    configured_model: str,
+    effective_model: str,
+    prompt_tokens: int,
+    reserved_completion_tokens: int,
+    context_length: int,
+) -> dict[str, Any]:
+    detail = (
+        "token_budget_exceeded: "
+        f"prompt={prompt_tokens}, "
+        f"reserved={reserved_completion_tokens}, "
+        f"context={context_length}"
+    )
+    return {
+        "http_status": None,
+        "exception_class": "TokenBudgetExceeded",
+        "provider": str(provider).strip() or "unknown",
+        "configured_model": str(configured_model).strip(),
+        "effective_model": str(effective_model).strip(),
+        "raw_error_body": detail,
+        "request_id": None,
+        "retryable": False,
+        "error_kind": "token_budget_exceeded",
+        "prompt_tokens": prompt_tokens,
+        "reserved_completion_tokens": reserved_completion_tokens,
+        "context_length": context_length,
+    }
 
 
 class _ResilientOpenRouterChatModel(BaseChatModel):
@@ -837,6 +1222,9 @@ class _ResilientOpenRouterChatModel(BaseChatModel):
     )
     last_resolved_model_index: int = 0
     last_resolved_model: str = ""
+    last_transport_error: Dict[str, Any] = {}
+    quarantine_events: List[Dict[str, Any]] = []
+    _invocation_stage: str = "unknown"
 
     def __init__(
         self,
@@ -869,6 +1257,8 @@ class _ResilientOpenRouterChatModel(BaseChatModel):
         health_registry = get_model_health_registry()
         models = [self.primary_model, *self.fallback_models]
         last_exc: Exception | None = None
+        self.last_transport_error = {}
+        self.quarantine_events = []
 
         for model_index, model in enumerate(models):
             model_name = (
@@ -877,19 +1267,74 @@ class _ResilientOpenRouterChatModel(BaseChatModel):
                 else f"openrouter-model-{model_index + 1}"
             )
 
-            if health_registry.is_degraded(model_name):
-                console.print(
-                    "[yellow]OpenRouter router: skipping degraded model "
-                    f"'{model_name}'.[/yellow]"
+            if health_registry.is_quarantined(model_name):
+                _OPENROUTER_LOGGER.info(
+                    "openrouter_model_skipped_quarantined",
+                    model=model_name,
+                    stage=self._invocation_stage,
+                )
+                self.quarantine_events.append(
+                    {
+                        "timestamp": time.time(),
+                        "stage": self._invocation_stage,
+                        "model": model_name,
+                        "decision": "skip_quarantined",
+                        "quarantined_until": health_registry._entry(  # noqa: SLF001
+                            model_name
+                        ).quarantined_until,
+                    }
                 )
                 continue
 
+            if health_registry.is_degraded(model_name):
+                _OPENROUTER_LOGGER.info(
+                    "openrouter_model_skipped_degraded",
+                    model=model_name,
+                    stage=self._invocation_stage,
+                )
+                continue
+
+            model_limits = get_model_limits(model_name)
+            context_length = model_limits.context_length if model_limits else 8192
+            reserved_completion_tokens = _OPENROUTER_DEFAULT_MAX_TOKENS
+            if model_limits and model_limits.max_completion_tokens is not None:
+                reserved_completion_tokens = min(
+                    reserved_completion_tokens,
+                    model_limits.max_completion_tokens,
+                )
+            prompt_tokens = _estimate_prompt_tokens(messages, model_name)
+            if prompt_tokens + reserved_completion_tokens > context_length:
+                payload = _token_budget_payload(
+                    provider="openrouter",
+                    configured_model=(
+                        self.model_sequence[0] if self.model_sequence else model_name
+                    ),
+                    effective_model=model_name,
+                    prompt_tokens=prompt_tokens,
+                    reserved_completion_tokens=reserved_completion_tokens,
+                    context_length=context_length,
+                )
+                self.last_transport_error = payload
+                last_exc = RuntimeError(payload["raw_error_body"])
+                _OPENROUTER_LOGGER.warning(
+                    "openrouter_token_budget_exceeded",
+                    model=model_name,
+                    stage=self._invocation_stage,
+                    prompt_tokens=prompt_tokens,
+                    reserved_completion_tokens=reserved_completion_tokens,
+                    context_length=context_length,
+                )
+                continue
+
+            breaker = _openrouter_circuit_breaker(model_name)
             primary_rate_limit_hits = 0
 
-            for attempt in range(1, max(1, self.max_attempts) + 1):
+            def _invoke_once() -> ChatResult:
+                nonlocal primary_rate_limit_hits
                 started = time.monotonic()
                 try:
-                    result = model._generate(  # noqa: SLF001
+                    result = breaker.call(
+                        model._generate,  # noqa: SLF001
                         messages,
                         stop=stop,
                         run_manager=run_manager,
@@ -902,17 +1347,25 @@ class _ResilientOpenRouterChatModel(BaseChatModel):
                         model_name,
                         latency_seconds=time.monotonic() - started,
                     )
-                    if attempt > 1 or model_index > 0:
-                        console.print(
-                            "[dim]OpenRouter resolved provider/model: "
-                            f"openrouter/{model_name} (attempt {attempt})[/dim]"
-                        )
-                    self.last_resolved_model_index = model_index
-                    self.last_resolved_model = model_name
                     return result
+                except pybreaker.CircuitBreakerError:
+                    raise
                 except Exception as exc:
                     health_registry.record_error(model_name)
-                    last_exc = exc
+                    health_registry.record_http_failure(
+                        model_name,
+                        status_code=_extract_http_status_code(exc),
+                    )
+                    self.last_transport_error = build_transport_error_payload(
+                        exc,
+                        provider="openrouter",
+                        configured_model=(
+                            self.model_sequence[0]
+                            if self.model_sequence
+                            else model_name
+                        ),
+                        effective_model=model_name,
+                    )
                     error_kind = (
                         "rate_limit"
                         if _is_http_429(exc)
@@ -923,39 +1376,336 @@ class _ResilientOpenRouterChatModel(BaseChatModel):
 
                     if error_kind == "rate_limit" and model_index == 0:
                         primary_rate_limit_hits += 1
+                        if primary_rate_limit_hits >= max(
+                            1, self.primary_rate_limit_failover_threshold
+                        ):
+                            raise _PrimaryRateLimitFailover(
+                                "primary rate-limit failover"
+                            ) from exc
 
-                    retryable = error_kind in {
-                        "rate_limit",
-                        "timeout",
-                        "connection",
-                        "server_error",
-                        "empty_response",
-                    } or _is_http_5xx(exc)
-                    if (
-                        model_index == 0
-                        and error_kind == "rate_limit"
-                        and primary_rate_limit_hits
-                        >= max(1, self.primary_rate_limit_failover_threshold)
-                    ):
-                        # Rotate after repeated primary 429s instead of burning all retries.
-                        break
+                    signature = ""
+                    if error_kind == "rate_limit":
+                        signature = "http_429"
+                    elif _extract_http_status_code(exc) == 503:
+                        signature = "http_503"
+                    elif error_kind == "timeout":
+                        signature = "timeout"
+                    elif error_kind == "empty_response":
+                        signature = "empty_response"
 
-                    if retryable and attempt < max(1, self.max_attempts):
-                        sleep_seconds = min(
-                            self.max_backoff_seconds,
-                            self.retry_base_seconds * (2 ** (attempt - 1)),
+                    if signature:
+                        quarantined = health_registry.record_stage_transient_failure(
+                            model_name,
+                            stage_name=self._invocation_stage,
+                            failure_signature=signature,
                         )
-                        time.sleep(max(0.0, sleep_seconds))
-                        continue
-                    break
+                        if quarantined:
+                            _OPENROUTER_LOGGER.warning(
+                                "openrouter_model_quarantined",
+                                model=model_name,
+                                stage=self._invocation_stage,
+                                reason=signature,
+                            )
+                            self.quarantine_events.append(
+                                {
+                                    "timestamp": time.time(),
+                                    "stage": self._invocation_stage,
+                                    "model": model_name,
+                                    "decision": "quarantined",
+                                    "reason": signature,
+                                    "quarantined_until": health_registry._entry(  # noqa: SLF001
+                                        model_name
+                                    ).quarantined_until,
+                                }
+                            )
+                            raise _QuarantinedModelFailover(
+                                "model quarantined after repeated transient failures"
+                            ) from exc
+                    raise
+
+            def _log_retry_before_sleep(retry_state: Any) -> None:
+                exc = None
+                outcome = getattr(retry_state, "outcome", None)
+                if outcome is not None and hasattr(outcome, "exception"):
+                    exc = outcome.exception()
+                _OPENROUTER_LOGGER.warning(
+                    "openrouter_retry",
+                    model=model_name,
+                    stage=self._invocation_stage,
+                    attempt=getattr(retry_state, "attempt_number", 0),
+                    error_kind=(
+                        _classify_provider_exception(exc)
+                        if isinstance(exc, Exception)
+                        else "unknown"
+                    ),
+                    error=str(exc) if exc is not None else "",
+                )
+
+            retryer = Retrying(
+                stop=stop_after_attempt(max(1, self.max_attempts)),
+                wait=wait_exponential(
+                    multiplier=max(0.1, self.retry_base_seconds),
+                    min=max(0.1, self.retry_base_seconds),
+                    max=max(0.1, self.max_backoff_seconds),
+                ),
+                retry=retry_if_exception(_should_retry_openrouter_exception),
+                before_sleep=_log_retry_before_sleep,
+                sleep=time.sleep,
+                reraise=True,
+            )
+
+            try:
+                result = retryer(_invoke_once)
+                if model_index > 0:
+                    _OPENROUTER_LOGGER.info(
+                        "openrouter_resolved_model",
+                        model=model_name,
+                        stage=self._invocation_stage,
+                    )
+                self.last_resolved_model_index = model_index
+                self.last_resolved_model = model_name
+                return result
+            except pybreaker.CircuitBreakerError as exc:
+                last_exc = exc
+                _OPENROUTER_LOGGER.warning(
+                    "openrouter_breaker_open",
+                    model=model_name,
+                    stage=self._invocation_stage,
+                )
+                self.quarantine_events.append(
+                    {
+                        "timestamp": time.time(),
+                        "stage": self._invocation_stage,
+                        "model": model_name,
+                        "decision": "breaker_open",
+                    }
+                )
+                continue
+            except _PrimaryRateLimitFailover as exc:
+                cause = exc.__cause__
+                last_exc = cause if isinstance(cause, Exception) else exc
+                _OPENROUTER_LOGGER.warning(
+                    "openrouter_rate_limit_failover",
+                    model=model_name,
+                    stage=self._invocation_stage,
+                )
+                continue
+            except _QuarantinedModelFailover as exc:
+                cause = exc.__cause__
+                last_exc = cause if isinstance(cause, Exception) else exc
+                continue
+            except Exception as exc:
+                last_exc = exc
+                if _classify_provider_exception(exc) == "auth":
+                    raise
+                continue
 
         if last_exc is not None:
-            raise last_exc
+            payload = dict(self.last_transport_error)
+            if payload.get("raw_error_body"):
+                message = f"OpenRouter invocation failed: {payload['raw_error_body']}"
+            else:
+                message = f"OpenRouter invocation failed: {last_exc}"
+            raise LLMInvocationError(
+                message,
+                transport_error=payload,
+                quarantine_events=self.quarantine_events,
+            ) from last_exc
         raise RuntimeError("OpenRouter request failed without an explicit exception.")
 
     @property
     def _llm_type(self) -> str:
         return "openrouter-resilient"
+
+    def set_invocation_stage(self, stage_name: str) -> None:
+        """Set caller stage for stage/model circuit-breaker accounting."""
+
+        self._invocation_stage = str(stage_name or "unknown").strip() or "unknown"
+
+
+class _ResilientSingleProviderChatModel(BaseChatModel):
+    """Retry + circuit-breaker wrapper for single-provider chat backends."""
+
+    provider_name: str
+    model_name: str
+    wrapped_model: Any
+    context_length: int = _OLLAMA_DEFAULT_CONTEXT_LENGTH
+    reserved_completion_tokens: int = _OPENROUTER_DEFAULT_MAX_TOKENS
+    max_attempts: int = _PROVIDER_MAX_ATTEMPTS
+    retry_base_seconds: float = _PROVIDER_RETRY_BASE_SECONDS
+    max_backoff_seconds: float = _PROVIDER_MAX_BACKOFF_SECONDS
+    last_resolved_model_index: int = 0
+    last_resolved_model: str = ""
+    last_transport_error: Dict[str, Any] = {}
+    quarantine_events: List[Dict[str, Any]] = []
+    _invocation_stage: str = "unknown"
+
+    def __init__(
+        self,
+        *,
+        provider_name: str,
+        model_name: str,
+        wrapped_model: Any,
+        context_length: int,
+        reserved_completion_tokens: int,
+        max_attempts: int = _PROVIDER_MAX_ATTEMPTS,
+        retry_base_seconds: float = _PROVIDER_RETRY_BASE_SECONDS,
+        max_backoff_seconds: float = _PROVIDER_MAX_BACKOFF_SECONDS,
+    ):
+        super().__init__(
+            provider_name=provider_name,
+            model_name=model_name,
+            wrapped_model=wrapped_model,
+            context_length=max(1, int(context_length)),
+            reserved_completion_tokens=max(1, int(reserved_completion_tokens)),
+            max_attempts=max_attempts,
+            retry_base_seconds=retry_base_seconds,
+            max_backoff_seconds=max_backoff_seconds,
+        )
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs,
+    ) -> ChatResult:
+        self.last_transport_error = {}
+        self.quarantine_events = []
+        breaker = _provider_circuit_breaker(self.provider_name, self.model_name)
+        prompt_tokens = _estimate_prompt_tokens(messages, self.model_name)
+        if prompt_tokens + self.reserved_completion_tokens > self.context_length:
+            payload = _token_budget_payload(
+                provider=self.provider_name,
+                configured_model=self.model_name,
+                effective_model=self.model_name,
+                prompt_tokens=prompt_tokens,
+                reserved_completion_tokens=self.reserved_completion_tokens,
+                context_length=self.context_length,
+            )
+            self.last_transport_error = payload
+            _OPENROUTER_LOGGER.warning(
+                "provider_token_budget_exceeded",
+                provider=self.provider_name,
+                model=self.model_name,
+                stage=self._invocation_stage,
+                prompt_tokens=prompt_tokens,
+                reserved_completion_tokens=self.reserved_completion_tokens,
+                context_length=self.context_length,
+            )
+            raise LLMInvocationError(
+                f"{self.provider_name} invocation failed: {payload['raw_error_body']}",
+                transport_error=payload,
+                quarantine_events=self.quarantine_events,
+            )
+
+        def _invoke_once() -> ChatResult:
+            try:
+                result = breaker.call(
+                    self.wrapped_model._generate,  # noqa: SLF001
+                    messages,
+                    stop=stop,
+                    run_manager=run_manager,
+                    **kwargs,
+                )
+            except pybreaker.CircuitBreakerError:
+                raise
+            except Exception as exc:
+                self.last_transport_error = build_transport_error_payload(
+                    exc,
+                    provider=self.provider_name,
+                    configured_model=self.model_name,
+                    effective_model=self.model_name,
+                )
+                raise
+            if _is_empty_chat_result(result):
+                empty_exc = RuntimeError("empty response from provider")
+                self.last_transport_error = build_transport_error_payload(
+                    empty_exc,
+                    provider=self.provider_name,
+                    configured_model=self.model_name,
+                    effective_model=self.model_name,
+                )
+                raise empty_exc
+            return result
+
+        def _log_retry_before_sleep(retry_state: Any) -> None:
+            exc = None
+            outcome = getattr(retry_state, "outcome", None)
+            if outcome is not None and hasattr(outcome, "exception"):
+                exc = outcome.exception()
+            _OPENROUTER_LOGGER.warning(
+                "provider_retry",
+                provider=self.provider_name,
+                model=self.model_name,
+                stage=self._invocation_stage,
+                attempt=getattr(retry_state, "attempt_number", 0),
+                error_kind=(
+                    _classify_provider_exception(exc)
+                    if isinstance(exc, Exception)
+                    else "unknown"
+                ),
+                error=str(exc) if exc is not None else "",
+            )
+
+        retryer = Retrying(
+            stop=stop_after_attempt(max(1, self.max_attempts)),
+            wait=wait_exponential(
+                multiplier=max(0.1, self.retry_base_seconds),
+                min=max(0.1, self.retry_base_seconds),
+                max=max(0.1, self.max_backoff_seconds),
+            ),
+            retry=retry_if_exception(_should_retry_provider_exception),
+            before_sleep=_log_retry_before_sleep,
+            sleep=time.sleep,
+            reraise=True,
+        )
+
+        try:
+            result = retryer(_invoke_once)
+            self.last_resolved_model = self.model_name
+            self.last_resolved_model_index = 0
+            return result
+        except pybreaker.CircuitBreakerError as exc:
+            self.quarantine_events = [
+                {
+                    "timestamp": time.time(),
+                    "stage": self._invocation_stage,
+                    "model": self.model_name,
+                    "decision": "breaker_open",
+                }
+            ]
+            raise LLMInvocationError(
+                f"{self.provider_name} invocation blocked by circuit breaker",
+                transport_error=self.last_transport_error,
+                quarantine_events=self.quarantine_events,
+            ) from exc
+        except Exception as exc:
+            if _classify_provider_exception(exc) == "auth":
+                raise
+            payload = (
+                dict(self.last_transport_error)
+                if self.last_transport_error
+                else build_transport_error_payload(
+                    exc,
+                    provider=self.provider_name,
+                    configured_model=self.model_name,
+                    effective_model=self.model_name,
+                )
+            )
+            detail = str(payload.get("raw_error_body", "")).strip() or str(exc)
+            raise LLMInvocationError(
+                f"{self.provider_name} invocation failed: {detail}",
+                transport_error=payload,
+                quarantine_events=self.quarantine_events,
+            ) from exc
+
+    @property
+    def _llm_type(self) -> str:
+        return f"{self.provider_name}-resilient"
+
+    def set_invocation_stage(self, stage_name: str) -> None:
+        self._invocation_stage = str(stage_name or "unknown").strip() or "unknown"
 
 
 def build_chat_model(settings: LLMSettings) -> BaseChatModel:
@@ -1040,7 +1790,18 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
             )
 
         if provider != "openrouter":
-            return primary_model
+            reserved_completion_tokens = (
+                int(settings.max_tokens)
+                if isinstance(settings.max_tokens, int) and settings.max_tokens > 0
+                else _OPENROUTER_DEFAULT_MAX_TOKENS
+            )
+            return _ResilientSingleProviderChatModel(
+                provider_name=provider,
+                model_name=model_name,
+                wrapped_model=primary_model,
+                context_length=_default_context_length_for_provider(provider),
+                reserved_completion_tokens=reserved_completion_tokens,
+            )
 
         fallback_models: list[Any] = []
         model_sequence = [model_name]
@@ -1048,9 +1809,10 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
             try:
                 _ensure_openrouter_model_is_free(fallback_model_name)
             except LLMConfigurationError as exc:
-                console.print(
-                    "[yellow]Warning: skipping OpenRouter fallback model "
-                    f"'{fallback_model_name}' because it is not free: {exc}[/yellow]"
+                _OPENROUTER_LOGGER.warning(
+                    "openrouter_fallback_skipped_not_free",
+                    fallback_model=fallback_model_name,
+                    error=str(exc),
                 )
                 continue
             fallback_params = dict(params)
@@ -1060,10 +1822,12 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
             except Exception as exc:
                 error_kind = _classify_provider_exception(exc)
                 redacted = _sanitize_error_text(str(exc), [api_key])
-                console.print(
-                    "[yellow]Warning: skipping OpenRouter fallback model "
-                    f"'{fallback_model_name}' due to {error_kind} initialization failure "
-                    f"({type(exc).__name__}): {redacted}[/yellow]"
+                _OPENROUTER_LOGGER.warning(
+                    "openrouter_fallback_init_failed",
+                    fallback_model=fallback_model_name,
+                    error_kind=error_kind,
+                    exception_class=type(exc).__name__,
+                    error=redacted,
                 )
                 continue
             fallback_models.append(fallback_model)
@@ -1095,7 +1859,7 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
             params["timeout"] = settings.request_timeout
 
         try:
-            return ChatOllama(**params)
+            ollama_model = ChatOllama(**params)
         except Exception as exc:
             _raise_provider_error(
                 provider=provider,
@@ -1104,6 +1868,17 @@ def build_chat_model(settings: LLMSettings) -> BaseChatModel:
                 env_var=None,
                 exc=exc,
             )
+        return _ResilientSingleProviderChatModel(
+            provider_name=provider,
+            model_name=model_name,
+            wrapped_model=ollama_model,
+            context_length=_default_context_length_for_provider(provider),
+            reserved_completion_tokens=(
+                int(settings.max_tokens)
+                if isinstance(settings.max_tokens, int) and settings.max_tokens > 0
+                else _OPENROUTER_DEFAULT_MAX_TOKENS
+            ),
+        )
 
     raise LLMConfigurationError(f"Unsupported LLM provider '{settings.provider}'.")
 

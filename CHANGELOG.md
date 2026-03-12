@@ -9,6 +9,8 @@
 
 ### Added
 
+- **Minimal reliability stack completion (P0/P1 runtime integration)** — Added explicit runtime dependency declarations for the approved reliability baseline (`pydantic`, `tenacity`, `pybreaker`, `tiktoken`, `pysbd`, `flashtext2`, `structlog`), integrated tenacity + pybreaker wrappers into OpenRouter resilient invocation routing in `storycraftr/llm/factory.py`, added tokenizer-backed prompt-budget preflight plus structured retry/quarantine logging in the OpenRouter router, added strict scene-directive contract validation plus flashtext2 entity-ledger checks in `storycraftr/agent/book_engine.py`, and added pysbd-backed sentence-boundary truncation detection plus structured chapter-validator logging in `storycraftr/agent/chapter_validator.py`.
+
 - **Deterministic self-healing sieve** — Added `storycraftr/agent/deterministic_guards.py` and wired chapter-level terminal-truncation, directive-expansion, and POV-presence checks into `guarded_generation()` so obvious mechanical failures retry before the semantic reviewer runs.
 
 - **Continuity-grounded generation prompts** — `storycraftr book` now injects canonical continuity grounding (`narrative_state`, `canon.yml`, and recent chapter history summary) into outline, planning, drafting, editing, stitching, and retry prompts to reduce post-hoc-only validation gaps.

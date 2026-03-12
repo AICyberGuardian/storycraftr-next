@@ -14,7 +14,7 @@ file-by-file maintenance mapping is centralized in
 `docs/contributor-reference.md`.
 
 Current roadmap note:
-- `TODO.md` is the repository-level engineering backlog for validator hardening, auditability gaps, and story-quality enforcement follow-up identified during the March 2026 repository audit.
+- `TODO.md` is the repository-level engineering backlog for validator hardening, auditability gaps, reliability stack coverage, and story-quality enforcement follow-up identified during the March 2026 repository audit.
 
 ## Minimum Mandatory Set
 
@@ -47,17 +47,19 @@ Deep reference note:
    deep architecture reference and is not part of the routine must-read set.
 
 Reliability note:
-- The current `storycraftr book` runtime is strong at fail-closed commit safety (transactional commit boundary with rollback), but it is not yet fully proven as a deterministic autonomous writing pipeline. Semantic/coherence validation is still largely LLM-judged. Retry/failure attempts now persist packet-local raw artifacts, but full all-attempt raw persistence is still incomplete for complete disk-only forensics.
+- The current `storycraftr book` runtime now includes a completed minimal reliability stack: prompt-budget preflight (`tiktoken`), structured retry/quarantine logging (`structlog`), sentence-boundary validation (`pysbd`), bounded retries (`tenacity`), circuit-breaker resilience (`pybreaker`), entity-ledger checks (`flashtext2`), and strict contract validation (`pydantic`).
+- Commit safety is enforced via fail-closed transactional commit boundaries with rollback. Deterministic validator reports and audit artifacts are persisted for each chapter and scene, and focused regression tests cover reliability stack behavior. Semantic/coherence validation is still LLM-judged, but validator contracts and retry/failure artifact persistence are now robust and auditable.
 
 ## System In One View
 
-StoryCraftr is a dual-mode Python CLI (`storycraftr` and `papercraftr`) plus a
-VS Code extension.
+StoryCraftr is a dual-mode Python CLI (`storycraftr` and `papercraftr`) plus a VS Code extension.
 
 Main runtime flow:
 1. CLI entrypoint routes mode and command.
 2. Config is loaded from `storycraftr.json` or `papercraftr.json`.
 3. LLM and embeddings are built from config.
+4. Reliability stack contracts are enforced: prompt-budget preflight, retry/circuit-breaker, validator checks, and structured logging.
+5. Commit/rollback boundaries and validator reports are persisted for auditability.
 4. Chroma vector store is created or reused for retrieval.
 5. LangChain graph executes retrieval plus generation.
 6. Chat/session/sub-agent events are emitted to JSONL for VS Code.

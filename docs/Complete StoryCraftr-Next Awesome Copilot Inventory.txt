@@ -11,6 +11,7 @@ Last Updated: March 6, 2026
 - Instructions: 6
 - Hooks: 1
 - Workflows: 3
+- Reliability Stack: tiktoken, structlog, pysbd, tenacity, pybreaker, flashtext2, pydantic
 
 Source of truth paths:
 - `.github/agents/`
@@ -92,20 +93,8 @@ Note: The hook config exists in `hooks.json`. Verify the referenced script path 
 
 ## Recommended Usage Pattern
 
-1. Planning first:
-- Use `planner.agent.md` or `implementation-plan.agent.md`.
-- For architecture-level reviews, use `se-system-architecture-reviewer.agent.md`.
 
-2. Implementation:
-- Use `blueprint-mode-codex.agent.md` for strict execution.
-- Use `context-architect.agent.md` for multi-file dependency-aware changes.
-
-3. Quality and safety:
-- Use `gem-reviewer.agent.md` and `agent-governance-reviewer.agent.md` for security/governance checks.
-- Use `polyglot-test-agent/` and `pytest-coverage/` for tests and coverage hardening.
-
-4. Documentation:
-- Use `documentation-writer.agent.md`, `gem-documentation-writer.agent.md`, and `architecture-blueprint-generator/`.
+Reliability stack contracts are enforced in runtime and tests. For reliability, validator, and audit artifact coverage, see `docs/component_inventory.md` and `docs/architecture-onboarding.md`.
 
 ## What Changed From the Previous Version
 

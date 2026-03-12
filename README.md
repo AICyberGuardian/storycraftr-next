@@ -111,9 +111,12 @@ Each project stores its configuration in `storycraftr.json` or `papercraftr.json
 - StoryCraftr now validates provider/model/endpoint settings before runtime model calls and raises provider-specific configuration/authentication errors early.
 - OpenRouter model selection is now dynamic and free-only: StoryCraftr discovers live models from `GET https://openrouter.ai/api/v1/models`, filters by zero prompt/completion pricing, and rejects paid/unknown models before provider startup.
 - OpenRouter discovery uses a user-local cache at `~/.storycraftr/openrouter-models-cache.json` with a default 6-hour TTL; stale cache is reused if live discovery is unavailable.
-- OpenRouter calls include native resilience in the factory layer: bounded exponential-backoff retries for transient failures (`429`, timeout, connection), plus an explicit fallback chain where each fallback model is also validated as currently free.
+- OpenRouter calls include native resilience in the factory layer: bounded exponential-backoff retries for transient failures (`429`, timeout, connection), per-model circuit breakers/quarantine, and an explicit fallback chain where each fallback model is also validated as currently free.
+- OpenRouter prompt routing now performs tokenizer-backed preflight budgeting against discovered model limits before invocation. If prompt tokens plus reserved completion tokens exceed the model context window, the request fails early with deterministic diagnostics instead of spending provider calls on guaranteed overflow.
 - Configure additional fallback models with `STORYCRAFTR_OPENROUTER_FALLBACK_MODELS` (comma-separated model IDs, for example `meta-llama/llama-3.2-3b-instruct:free,openrouter/free`).
 - `max_tokens` caps completion length per LLM request (default `8192`) to reduce truncation risk on long generations.
+- Chapter completeness validation now includes sentence-boundary truncation detection before semantic review, which catches prose that is long enough to pass word-count checks but still stops mid-sentence.
+- Retry, quarantine, token-budget, and chapter-validation failures now emit structured runtime logs so smoke/soak diagnostics can pinpoint whether a failure was transport, budget, or prose-contract driven.
 - TUI prompt assembly now applies a model-aware input budget gate: it resolves an effective context window per active model, reserves output tokens, and prunes context deterministically by priority (canon constraints -> scene/scoped context -> recent turns -> retrieval chunks -> lower-priority extras) to prevent prompt overflow.
 - TUI session context now uses a rolling compaction boundary: older turns are collapsed into a bounded `Session Summary` while the latest turns stay verbatim, reducing long-session prompt growth without losing continuity.
 - `embed_model` defaults to `text-embedding-3-small` for API-first embeddings.
@@ -214,6 +217,7 @@ Per-chapter validator handoff artifacts are persisted under `outline/chapter_pac
 Current `storycraftr book` guarantees in strict autonomous mode are strong at the commit boundary:
 
 - Chapters must pass planner-schema checks, chapter-completeness validation, semantic review, state-extraction sanity checks, and acceptance-contract gating before state/canon/chapter persistence.
+- OpenRouter chapter generation now fails early on impossible prompt budgets instead of pushing oversized requests into the provider layer, reducing wasted retries during long-context runs.
 - Successful runs persist chapter packets under `outline/chapter_packets/chapter-<nnn>/`, run-level audits under `outline/book_audit.json` and `outline/book_audit.md`, and state mutation history in `outline/narrative_audit.jsonl`.
 - Commit persistence is fail-closed and transactional with rollback on commit-path failure.
 
@@ -232,7 +236,7 @@ Operational note: for live OpenRouter runs, buy at least $10 in credits to avoid
 
 Model escalation stress test profile: copy `examples/rankings_stress_weak_primary.json` to `storycraftr/config/rankings.json` in a test branch/worktree to simulate a weaker prose primary and verify retry-time fallback rotation behavior under real-provider runs.
 
-Smoke forensics profile: run `./rerun_smoke_only_storycraftr.sh` to capture per-run packet inventories, guard signals, runtime environment snapshots, and narrative-audit excerpts under a timestamped log directory.
+Smoke forensics profile: run `./rerun_smoke_only_storycraftr.sh` to capture per-run packet inventories, guard signals, runtime environment snapshots, and narrative-audit excerpts under a timestamped log directory. The smoke bundle now highlights token-budget, breaker/quarantine, sentence-boundary truncation, and semantic-transport retry signals in addition to the existing validator/coherence artifacts.
 
 ## 💬 Introducing Chat!!! – A Simple Yet Powerful Tool to Supercharge Your Conversations! 💥
 

@@ -9,6 +9,7 @@ from storycraftr.llm.factory import (
     LLMAuthenticationError,
     LLMConfigurationError,
     LLMInitializationError,
+    LLMInvocationError,
     LLMSettings,
     _load_openrouter_rankings,
     _rankings_fallback_models_for_batch,
@@ -42,10 +43,16 @@ def allow_openrouter_models_by_default(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def reset_model_health_registry():
+    from storycraftr.llm import factory as factory_module
+
     registry = get_model_health_registry()
     registry.reset()
+    factory_module._OPENROUTER_CIRCUIT_BREAKERS.clear()
+    factory_module._PROVIDER_CIRCUIT_BREAKERS.clear()
     yield
     registry.reset()
+    factory_module._OPENROUTER_CIRCUIT_BREAKERS.clear()
+    factory_module._PROVIDER_CIRCUIT_BREAKERS.clear()
 
 
 def test_openrouter_requires_explicit_provider_model(monkeypatch):
@@ -111,6 +118,30 @@ def test_openrouter_missing_model_fails_fast_with_actionable_message(monkeypatch
         build_chat_model(settings)
 
 
+def test_openrouter_init_error_includes_raw_code_and_body(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+
+    response = SimpleNamespace(status_code=503, text='{"error":"upstream timeout"}')
+    init_exc = RuntimeError("provider init failed")
+    init_exc.response = response
+
+    with mock.patch(
+        "storycraftr.llm.factory.ChatOpenAI",
+        side_effect=init_exc,
+    ):
+        with pytest.raises(LLMInitializationError) as caught:
+            build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="openrouter/free",
+                )
+            )
+
+    message = str(caught.value)
+    assert "OpenRouter Error [503]" in message
+    assert "upstream timeout" in message
+
+
 def test_openrouter_builds_chatopenai_with_default_endpoint_and_headers(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
 
@@ -151,7 +182,8 @@ def test_openai_builds_chatopenai_with_explicit_max_tokens(monkeypatch):
             )
         )
 
-    assert result is mock_chat_openai.return_value
+    assert result._llm_type == "openai-resilient"
+    assert result.wrapped_model is mock_chat_openai.return_value
     kwargs = mock_chat_openai.call_args.kwargs
     assert kwargs["model"] == "gpt-4o"
     assert kwargs["max_tokens"] == 2048
@@ -300,9 +332,48 @@ def test_model_health_registry_marks_model_degraded_after_high_latency() -> None
     assert registry.is_degraded("openrouter/free") is True
 
 
+def test_model_health_registry_quarantines_after_repeated_429() -> None:
+    registry = get_model_health_registry()
+    registry.record_http_failure("openrouter/free", status_code=429)
+    registry.record_http_failure("openrouter/free", status_code=429)
+
+    assert registry.is_quarantined("openrouter/free") is True
+
+
 def test_openrouter_wrapper_skips_degraded_primary_model(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
     get_model_health_registry().mark_degraded("openrouter/free")
+
+    primary = mock.Mock()
+    primary._generate.side_effect = RuntimeError("primary should be skipped")
+
+    fallback_result = object()
+    fallback = mock.Mock()
+    fallback._generate.return_value = fallback_result
+
+    with mock.patch(
+        "storycraftr.llm.factory.ChatOpenAI",
+        side_effect=[primary, fallback],
+    ):
+        with mock.patch("storycraftr.llm.factory._openrouter_fallback_chain") as chain:
+            chain.return_value = ["stepfun/step-3.5-flash:free"]
+            model = build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="openrouter/free",
+                )
+            )
+
+    result = model._generate(messages=[], stop=None, run_manager=None)
+
+    assert result is fallback_result
+    assert primary._generate.call_count == 0
+    assert fallback._generate.call_count == 1
+
+
+def test_openrouter_wrapper_skips_quarantined_primary_model(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    get_model_health_registry().mark_quarantined("openrouter/free", seconds=600)
 
     primary = mock.Mock()
     primary._generate.side_effect = RuntimeError("primary should be skipped")
@@ -346,7 +417,7 @@ def test_openrouter_fallback_init_warning_redacts_api_key(monkeypatch):
         "storycraftr.llm.factory.ChatOpenAI",
         side_effect=[primary, RuntimeError(f"fallback failed for {secret}")],
     ):
-        with mock.patch("storycraftr.llm.factory.console.print") as mock_print:
+        with mock.patch("storycraftr.llm.factory._OPENROUTER_LOGGER") as mock_logger:
             build_chat_model(
                 LLMSettings(
                     provider="openrouter",
@@ -354,8 +425,10 @@ def test_openrouter_fallback_init_warning_redacts_api_key(monkeypatch):
                 )
             )
 
-    printed = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
-    assert "or-super-secret" not in printed
+    logged_errors = "\n".join(
+        str(call.kwargs.get("error", "")) for call in mock_logger.warning.call_args_list
+    )
+    assert "or-super-secret" not in logged_errors
 
 
 def test_openrouter_success_on_primary_first_attempt_is_not_noisy(monkeypatch):
@@ -365,7 +438,7 @@ def test_openrouter_success_on_primary_first_attempt_is_not_noisy(monkeypatch):
     primary = mock.Mock()
     primary._generate.return_value = mock_result
     with mock.patch("storycraftr.llm.factory.ChatOpenAI", return_value=primary):
-        with mock.patch("storycraftr.llm.factory.console.print") as mock_print:
+        with mock.patch("storycraftr.llm.factory._OPENROUTER_LOGGER") as mock_logger:
             model = build_chat_model(
                 LLMSettings(
                     provider="openrouter",
@@ -375,7 +448,127 @@ def test_openrouter_success_on_primary_first_attempt_is_not_noisy(monkeypatch):
             result = model._generate(messages=[], stop=None, run_manager=None)
 
     assert result is mock_result
-    assert mock_print.call_count == 0
+    assert mock_logger.warning.call_count == 0
+
+
+def test_openrouter_token_budget_exceeded(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    mock_logger = mock.Mock()
+    monkeypatch.setattr("storycraftr.llm.factory._OPENROUTER_LOGGER", mock_logger)
+    monkeypatch.setattr(
+        "storycraftr.llm.factory.get_model_limits",
+        lambda _model_id: SimpleNamespace(context_length=64, max_completion_tokens=16),
+    )
+
+    primary = mock.Mock()
+    with mock.patch("storycraftr.llm.factory.ChatOpenAI", return_value=primary):
+        model = build_chat_model(
+            LLMSettings(
+                provider="openrouter",
+                model="openrouter/free",
+            )
+        )
+
+    with pytest.raises(LLMInvocationError) as exc_info:
+        model._generate(
+            messages=[SimpleNamespace(content="word " * 200)],
+            stop=None,
+            run_manager=None,
+        )
+
+    assert primary._generate.call_count == 0
+    assert exc_info.value.transport_error["error_kind"] == "token_budget_exceeded"
+    assert "token_budget_exceeded" in str(exc_info.value)
+    assert any(
+        call.args and call.args[0] == "openrouter_token_budget_exceeded"
+        for call in mock_logger.warning.call_args_list
+    )
+
+
+def test_openai_token_budget_exceeded_preflight(monkeypatch):
+    monkeypatch.setenv(
+        "OPENAI_API_KEY",
+        "sk-test",  # nosec B105  # pragma: allowlist secret
+    )
+    monkeypatch.setattr(
+        "storycraftr.llm.factory._estimate_prompt_tokens",
+        lambda _messages, _model_name: 200000,
+    )
+
+    wrapped = mock.Mock()
+    with mock.patch("storycraftr.llm.factory.ChatOpenAI", return_value=wrapped):
+        model = build_chat_model(
+            LLMSettings(
+                provider="openai",
+                model="gpt-4o",
+                max_tokens=4000,
+            )
+        )
+
+    with pytest.raises(LLMInvocationError) as exc_info:
+        model._generate(
+            messages=[SimpleNamespace(content="tiny prompt")],
+            stop=None,
+            run_manager=None,
+        )
+
+    assert wrapped._generate.call_count == 0
+    assert exc_info.value.transport_error["provider"] == "openai"
+    assert exc_info.value.transport_error["error_kind"] == "token_budget_exceeded"
+
+
+def test_ollama_token_budget_exceeded_preflight(monkeypatch):
+    monkeypatch.setattr(
+        "storycraftr.llm.factory._estimate_prompt_tokens",
+        lambda _messages, _model_name: 50000,
+    )
+
+    wrapped = mock.Mock()
+    with mock.patch("storycraftr.llm.factory.ChatOllama", return_value=wrapped):
+        model = build_chat_model(
+            LLMSettings(
+                provider="ollama",
+                model="llama3",
+                max_tokens=4000,
+            )
+        )
+
+    with pytest.raises(LLMInvocationError) as exc_info:
+        model._generate(
+            messages=[SimpleNamespace(content="tiny prompt")],
+            stop=None,
+            run_manager=None,
+        )
+
+    assert wrapped._generate.call_count == 0
+    assert exc_info.value.transport_error["provider"] == "ollama"
+    assert exc_info.value.transport_error["error_kind"] == "token_budget_exceeded"
+
+
+def test_openrouter_wrapper_logs_retry_events(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    mock_logger = mock.Mock()
+    monkeypatch.setattr("storycraftr.llm.factory._OPENROUTER_LOGGER", mock_logger)
+
+    mock_result = object()
+    primary = mock.Mock()
+    primary._generate.side_effect = [TimeoutError("timed out"), mock_result]
+
+    with mock.patch("storycraftr.llm.factory.ChatOpenAI", return_value=primary):
+        with mock.patch("storycraftr.llm.factory.time.sleep"):
+            model = build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="openrouter/free",
+                )
+            )
+            result = model._generate(messages=[], stop=None, run_manager=None)
+
+    assert result is mock_result
+    assert any(
+        call.args and call.args[0] == "openrouter_retry"
+        for call in mock_logger.warning.call_args_list
+    )
 
 
 def test_openrouter_wrapper_retries_then_succeeds(monkeypatch):
@@ -384,7 +577,6 @@ def test_openrouter_wrapper_retries_then_succeeds(monkeypatch):
     mock_result = object()
     primary = mock.Mock()
     primary._generate.side_effect = [
-        TimeoutError("timed out"),
         TimeoutError("timed out"),
         mock_result,
     ]
@@ -400,8 +592,8 @@ def test_openrouter_wrapper_retries_then_succeeds(monkeypatch):
             result = model._generate(messages=[], stop=None, run_manager=None)
 
     assert result is mock_result
-    assert primary._generate.call_count == 3
-    assert mock_sleep.call_count == 2
+    assert primary._generate.call_count == 2
+    assert mock_sleep.call_count == 1
 
 
 def test_openrouter_wrapper_retries_on_http_502(monkeypatch):
@@ -481,7 +673,46 @@ def test_openrouter_wrapper_falls_back_after_retry_exhaustion(monkeypatch):
             result = model._generate(messages=[], stop=None, run_manager=None)
 
     assert result is fallback_result
-    assert primary._generate.call_count == 3
+    assert primary._generate.call_count == 2
+    assert fallback._generate.call_count == 1
+
+
+def test_openrouter_wrapper_quarantines_on_repeated_503_and_rotates(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+    monkeypatch.setenv(
+        "STORYCRAFTR_OPENROUTER_FALLBACK_MODELS",
+        "stepfun/step-3.5-flash:free",
+    )
+
+    response = SimpleNamespace(status_code=503, text='{"error":"upstream down"}')
+    primary = mock.Mock()
+    exc = RuntimeError("service unavailable")
+    exc.response = response
+    primary._generate.side_effect = [exc, exc]
+
+    fallback = mock.Mock()
+    fallback_result = object()
+    fallback._generate.return_value = fallback_result
+
+    with mock.patch(
+        "storycraftr.llm.factory.ChatOpenAI",
+        side_effect=[primary, fallback],
+    ):
+        with mock.patch("storycraftr.llm.factory.time.sleep"):
+            model = build_chat_model(
+                LLMSettings(
+                    provider="openrouter",
+                    model="meta-llama/llama-3.3-70b-instruct:free",
+                )
+            )
+            model.set_invocation_stage("draft")
+            result = model._generate(messages=[], stop=None, run_manager=None)
+
+    assert result is fallback_result
+    assert get_model_health_registry().is_quarantined(
+        "meta-llama/llama-3.3-70b-instruct:free"
+    )
+    assert primary._generate.call_count == 2
     assert fallback._generate.call_count == 1
 
 

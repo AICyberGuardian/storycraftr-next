@@ -82,6 +82,13 @@ class LangChainAssistant:
             self.vector_store, project_paths.vector_store_root
         )
         if force:
+            preflight_documents = _dedupe_documents(
+                load_markdown_documents(self.book_path, self.config)
+            )
+            if not preflight_documents:
+                raise RuntimeError(
+                    f"No Markdown documents available to index for project {self.book_path}."
+                )
             self.vector_store, persist_dir = force_rebuild_vector_store(
                 book_path=self.book_path,
                 config=self.config,

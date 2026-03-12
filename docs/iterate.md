@@ -1,6 +1,6 @@
 # Iterating Your Book with StoryCraftr 📖🔄
 
-Writing a book is an iterative process. **StoryCraftr** not only helps you generate the initial structure and content, but it also enables you to **refine** and **enhance** your book over time. Whether you need to tweak character names, motivations, or adjust the structure of your chapters, StoryCraftr has you covered.
+Writing a book is an iterative process. **StoryCraftr** not only helps you generate the initial structure and content, but it also enables you to **refine** and **enhance** your book over time. Reliability stack contracts (prompt-budget preflight, structured retry logging, validator checks) and deterministic audit artifacts are enforced throughout iterative workflows, ensuring robust and auditable refinement. Whether you need to tweak character names, motivations, or adjust the structure of your chapters, StoryCraftr has you covered.
 
 ## Automatic Refinement
 
